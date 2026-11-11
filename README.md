@@ -1,4 +1,4 @@
-# Sistem Kasir dan Inventaris Minimarket Kampus
+ # Sistem Kasir dan Inventaris Minimarket Kampus
 
 > **Status proyek:** tahap dokumentasi dan persiapan implementasi; **bukan** pernyataan siap produksi.  
 > **Target tim:** menggantikan sistem berlangganan dalam 14 hari sejak 11 November 2026, **dengan syarat lulus uji dan disetujui pengelola**. Jadwal merupakan target agresif, bukan jaminan.
