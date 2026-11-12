@@ -1,0 +1,45 @@
+/*
+ * Token desain — sumber: docs/architecture/DESIGN_SYSTEM.md v0.2.0 §3–§4.
+ * Hijau = identitas/aksi utama, oranye = aksen. Jangan menyalin hex di komponen;
+ * pakai variabel di bawah. Font sistem saja (tanpa unduhan/CDN, aman offline).
+ */
+:root {
+  --color-primary: #267349;
+  --color-primary-hover: #1f5e3b;
+  --color-primary-brand: #2e8b57;
+  --color-primary-soft: #e8f5ee;
+  --color-accent: #f28c28;
+  --color-accent-dark: #b85a00;
+  --color-accent-soft: #fff1e3;
+  --color-bg: #f7f9f8;
+  --color-surface: #ffffff;
+  --color-border: #d9e2dd;
+  --color-text: #1f2937;
+  --color-text-muted: #6b7280;
+  --color-success: #267349;
+  --color-warning: #b85a00;
+  --color-danger: #dc2626;
+  --color-info: #2563eb;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --font-family: "Segoe UI", system-ui, sans-serif;
+  --font-size-body: 15px;
+  --font-size-table: 14px;
+  --font-size-small: 12px;
+  --font-size-total: 32px;
+
+  --control-min-size: 44px;
+  --focus-ring: 2px solid var(--color-primary-hover);
+  --focus-offset: 2px;
+  --transition-fast: 120ms ease;
+}
+
