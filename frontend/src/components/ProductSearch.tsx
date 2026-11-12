@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import type { ProductSummary } from "../api/types";
 import { Button } from "./Button";
 import { MoneyText } from "./MoneyText";
@@ -19,19 +19,38 @@ interface ProductSearchProps {
 export function ProductSearch({ search, onAdd }: ProductSearchProps) {
   const [query, setQuery] = useState("");
   const [state, setState] = useState<SearchState>({ kind: "idle" });
+  const searchSeqRef = useRef(0);
   const inputId = useId();
+
+  function handleQueryChange(nextValue: string) {
+    setQuery(nextValue);
+    if (nextValue.trim().length === 0) {
+      // Invalidasi pencarian tertunda saat input dikosongkan.
+      searchSeqRef.current += 1;
+      setState({ kind: "idle" });
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (query.trim().length === 0) {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      searchSeqRef.current += 1;
       setState({ kind: "idle" });
       return;
     }
+    const requestSeq = ++searchSeqRef.current;
     setState({ kind: "loading" });
     try {
-      const results = await search(query);
+      const results = await search(trimmed);
+      if (requestSeq !== searchSeqRef.current) {
+        return;
+      }
       setState({ kind: "done", results });
     } catch {
+      if (requestSeq !== searchSeqRef.current) {
+        return;
+      }
       setState({ kind: "error" });
     }
   }
@@ -51,7 +70,7 @@ export function ProductSearch({ search, onAdd }: ProductSearchProps) {
             maxLength={64}
             placeholder="Nama, SKU, atau barcode"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => handleQueryChange(event.target.value)}
           />
           <Button type="submit" variant="secondary">
             Cari

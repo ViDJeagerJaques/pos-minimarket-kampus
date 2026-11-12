@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { PosDataSource, SessionUser } from "./api/types";
 import { defaultPage, isPageAllowed, NAV_BY_ROLE, type PageId } from "./app/navigation";
 import { AppShell } from "./components/AppShell";
+import type { CartLine } from "./domain/cart";
 import { CashierPage } from "./pages/CashierPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
@@ -27,17 +28,25 @@ const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products">, { titl
 export function App({ dataSource, onAfterLogout = () => window.location.reload() }: AppProps) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [page, setPage] = useState<PageId>("cashier");
+  // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
+  const [draftLines, setDraftLines] = useState<CartLine[]>([]);
+  const sessionEpochRef = useRef(0);
 
   function handleLoggedIn(nextUser: SessionUser) {
+    sessionEpochRef.current += 1;
+    setDraftLines([]);
     setUser(nextUser);
     setPage(defaultPage(nextUser.role));
   }
 
   async function handleLogout() {
+    sessionEpochRef.current += 1;
+    setDraftLines([]);
     try {
       await dataSource.logout();
     } finally {
-      // Bersihkan seluruh state klien, lalu muat ulang (keranjang draft ikut terbuang).
+      // Bersihkan seluruh state klien, lalu muat ulang.
+      setDraftLines([]);
       setUser(null);
       setPage("cashier");
       onAfterLogout();
@@ -53,7 +62,14 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
 
   function renderPage() {
     if (activePage === "cashier") {
-      return <CashierPage dataSource={dataSource} />;
+      return (
+        <CashierPage
+          dataSource={dataSource}
+          lines={draftLines}
+          onLinesChange={setDraftLines}
+          sessionEpoch={sessionEpochRef.current}
+        />
+      );
     }
     if (activePage === "products") {
       return <ProductsPage dataSource={dataSource} />;

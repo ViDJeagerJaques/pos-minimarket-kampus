@@ -19,7 +19,8 @@ body {
   font-family: var(--font-family);
   font-size: var(--font-size-body);
   line-height: 1.45;
-  overflow-x: hidden;
+  /* clip mencegah overflow horizontal tanpa memutus position: sticky pada summary. */
+  overflow-x: clip;
 }
 
 :focus-visible {
@@ -561,8 +562,9 @@ body {
   inset: 0;
   background: rgba(17, 24, 39, 0.5);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
   padding: var(--space-4);
   z-index: 50;
 }
@@ -570,6 +572,7 @@ body {
 .dialog {
   width: 100%;
   max-width: 440px;
+  margin: auto;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -593,3 +596,4 @@ body {
 .placeholder {
   max-width: 680px;
 }
+

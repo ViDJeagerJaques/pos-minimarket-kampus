@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PosDataSource, ProductSummary } from "../api/types";
 import { BarcodeInput } from "../components/BarcodeInput";
 import { Button } from "../components/Button";
@@ -19,6 +19,9 @@ import {
 
 interface CashierPageProps {
   dataSource: PosDataSource;
+  lines: CartLine[];
+  onLinesChange: Dispatch<SetStateAction<CartLine[]>>;
+  sessionEpoch: number;
 }
 
 interface Status {
@@ -36,21 +39,33 @@ const PAYMENT_DISABLED_REASON =
  * Layar kasir (DESIGN_SYSTEM §5.2): scan/cari di kiri, ringkasan dan aksi di kanan.
  * Tidak ada alur pembayaran yang bisa "sukses": tombol bayar selalu nonaktif di DEMO.
  */
-export function CashierPage({ dataSource }: CashierPageProps) {
-  const [lines, setLines] = useState<CartLine[]>([]);
+export function CashierPage({ dataSource, lines, onLinesChange, sessionEpoch }: CashierPageProps) {
   const [status, setStatus] = useState<Status>({ tone: "info", text: "Siap scan barang." });
   const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
   const barcodeRef = useRef<HTMLInputElement>(null);
+  const isConfirmingCancelRef = useRef(false);
+  const barcodeSeqRef = useRef(0);
+  const sessionEpochRef = useRef(sessionEpoch);
+  sessionEpochRef.current = sessionEpoch;
 
-  const focusBarcode = () => barcodeRef.current?.focus();
+  function focusBarcode() {
+    // Jangan mencuri fokus selama dialog konfirmasi terbuka.
+    if (!isConfirmingCancelRef.current) {
+      barcodeRef.current?.focus();
+    }
+  }
 
   useEffect(() => {
     focusBarcode();
-  }, []);
+    return () => {
+      // Batalkan lookup barcode tertunda saat keluar halaman atau logout.
+      barcodeSeqRef.current += 1;
+    };
+  }, [sessionEpoch]);
 
   function applyResult(result: AddResult, successText: string) {
     if (result.ok) {
-      setLines(result.lines);
+      onLinesChange(result.lines);
       setStatus({ tone: "success", text: successText });
     } else if (result.reason === "INSUFFICIENT_STOCK") {
       setStatus({ tone: "warning", text: MSG_NO_STOCK });
@@ -64,25 +79,41 @@ export function CashierPage({ dataSource }: CashierPageProps) {
   }
 
   async function handleBarcode(code: string) {
+    const requestSeq = ++barcodeSeqRef.current;
+    const requestEpoch = sessionEpochRef.current;
     try {
       const product = await dataSource.findActiveProductByBarcode(code);
+      if (requestSeq !== barcodeSeqRef.current || requestEpoch !== sessionEpochRef.current) {
+        return;
+      }
       if (!product) {
         setStatus({ tone: "warning", text: MSG_NOT_FOUND });
         return;
       }
-      setLines((current) => {
+      onLinesChange((current) => {
+        if (requestSeq !== barcodeSeqRef.current || requestEpoch !== sessionEpochRef.current) {
+          return current;
+        }
         const result = addProduct(current, product);
         if (result.ok) {
           setStatus({ tone: "success", text: `${product.name} ditambahkan ke keranjang (draft).` });
         } else {
-          setStatus({ tone: "warning", text: result.reason === "INSUFFICIENT_STOCK" ? MSG_NO_STOCK : "Jumlah tidak valid." });
+          setStatus({
+            tone: "warning",
+            text: result.reason === "INSUFFICIENT_STOCK" ? MSG_NO_STOCK : "Jumlah tidak valid.",
+          });
         }
         return result.lines;
       });
     } catch {
+      if (requestSeq !== barcodeSeqRef.current || requestEpoch !== sessionEpochRef.current) {
+        return;
+      }
       setStatus({ tone: "danger", text: "Pencarian barcode gagal. Coba scan ulang." });
     } finally {
-      focusBarcode();
+      if (requestEpoch === sessionEpochRef.current) {
+        focusBarcode();
+      }
     }
   }
 
@@ -101,24 +132,33 @@ export function CashierPage({ dataSource }: CashierPageProps) {
 
   function handleRemove(productId: number) {
     const line = lines.find((item) => item.productId === productId);
-    setLines(removeLine(lines, productId));
+    onLinesChange(removeLine(lines, productId));
     if (line) {
       setStatus({ tone: "info", text: `${line.name} dihapus dari keranjang.` });
     }
     focusBarcode();
   }
 
+  function openCancelDialog() {
+    isConfirmingCancelRef.current = true;
+    setIsConfirmingCancel(true);
+  }
+
   function confirmCancelDraft() {
     // Hanya membuang draft di memori UI; tidak memanggil API apa pun (AC-03.07).
-    setLines([]);
+    // Invalidasi lookup barcode yang masih berjalan agar tidak mengisi ulang keranjang.
+    barcodeSeqRef.current += 1;
+    isConfirmingCancelRef.current = false;
+    onLinesChange([]);
     setIsConfirmingCancel(false);
     setStatus({ tone: "info", text: "Draft dibatalkan. Tidak ada transaksi yang disimpan." });
-    focusBarcode();
+    barcodeRef.current?.focus();
   }
 
   function closeCancelDialog() {
+    isConfirmingCancelRef.current = false;
     setIsConfirmingCancel(false);
-    focusBarcode();
+    barcodeRef.current?.focus();
   }
 
   const totalRp = cartTotalRp(lines);
@@ -154,7 +194,7 @@ export function CashierPage({ dataSource }: CashierPageProps) {
           <p id="payment-disabled-reason" className="summary__reason">
             {PAYMENT_DISABLED_REASON}
           </p>
-          <Button variant="secondary" block disabled={isCartEmpty} onClick={() => setIsConfirmingCancel(true)}>
+          <Button variant="secondary" block disabled={isCartEmpty} onClick={openCancelDialog}>
             Batal draft
           </Button>
         </div>
