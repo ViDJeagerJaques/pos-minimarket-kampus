@@ -1,0 +1,16 @@
+# Dependensi & artefak build frontend
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Konfigurasi lokal & rahasia
+.env
+.env.*
+!.env.example
+
+# Log & editor/OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
