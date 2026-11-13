@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "./db.ts";
+import { openDatabase, readUserVersion } from "./db.ts";
 import { assertOutsideSourceTree, REPO_ROOT, type Env } from "./paths.ts";
 
 export const DEMO_SEED_KEY = "demo-synthetic-v1";
@@ -125,6 +125,20 @@ function countRows(db: DatabaseSync, table: string): number {
   return Number(row.total);
 }
 
+/**
+ * Tambah kolom ke tabel STRICT yang sudah ada. SQLite STRICT tidak mengizinkan
+ * ALTER TABLE ADD COLUMN dengan CHECK/UNIQUE non-default, jadi pemakaian dibatasi
+ * pada tipe sederhana (TEXT/INTEGER) tanpa constraint.
+ */
+function addColumnIfMissing(db: DatabaseSync, table: string, column: string, type: "TEXT" | "INTEGER"): void {
+  const existing = db
+    .prepare("SELECT 1 AS found FROM pragma_table_info(?) WHERE name = ?")
+    .get(table, column) as { found: number } | undefined;
+  if (!existing) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
 function collectCounts(db: DatabaseSync): Record<string, number> {
   const tables = [
     "users",
@@ -203,6 +217,11 @@ export function seedDemo(options: SeedOptions): SeedResult {
            applied_at_ms INTEGER NOT NULL CHECK (applied_at_ms >= 0)
          ) STRICT`,
       );
+      // Kolom baseline ditambahkan aditif (bukan mengubah DDL 0001): dicatat saat
+      // seed agar reset QA bisa membandingkan isi DB dengan kondisi saat seed.
+      // Tanpa ini, DB demo yang sudah diisi data tambahan masih bisa dihapus.
+      addColumnIfMissing(db, "demo_seed_runs", "baseline_counts_json", "TEXT");
+      addColumnIfMissing(db, "demo_seed_runs", "baseline_user_version", "INTEGER");
 
       const insertUser = db.prepare(
         `INSERT INTO users (id, username, password_hash, role, active, created_at_ms)
@@ -255,9 +274,14 @@ export function seedDemo(options: SeedOptions): SeedResult {
         );
       }
 
-      db.prepare("INSERT INTO demo_seed_runs (run_key, applied_at_ms) VALUES (?, ?)").run(
+      const baselineCounts = collectCounts(db);
+      db.prepare(
+        "INSERT INTO demo_seed_runs (run_key, applied_at_ms, baseline_counts_json, baseline_user_version) VALUES (?, ?, ?, ?)",
+      ).run(
         DEMO_SEED_KEY,
         now(),
+        JSON.stringify(baselineCounts),
+        readUserVersion(db),
       );
       db.exec("COMMIT");
     } catch (error) {

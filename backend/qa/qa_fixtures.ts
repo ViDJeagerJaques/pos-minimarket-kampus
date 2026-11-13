@@ -38,9 +38,11 @@ export function assertSafeDevResetTarget(
   if (env.NODE_ENV === "production") {
     throw new QaFixtureError("Reset QA ditolak: NODE_ENV=production.");
   }
-  if (env.POS_DB_PROFILE && env.POS_DB_PROFILE !== "development" && env.POS_DB_PROFILE !== "test") {
+  // Profil WAJIB eksplisit development atau test. Tanpa ini, environment yang
+  // lupa menyetel POS_DB_PROFILE bisa menjalankan reset pada lokasi default.
+  if (env.POS_DB_PROFILE !== "development" && env.POS_DB_PROFILE !== "test") {
     throw new QaFixtureError(
-      `Reset QA ditolak: POS_DB_PROFILE=${env.POS_DB_PROFILE} bukan development/test.`,
+      `Reset QA ditolak: POS_DB_PROFILE harus diisi "development" atau "test" (saat ini: ${env.POS_DB_PROFILE ?? "kosong"}).`,
     );
   }
   assertOutsideSourceTree(dbPath, repoRoot);
@@ -55,6 +57,88 @@ export function assertSafeDevResetTarget(
   if (/(^|[\\/])(prod|production|operational)([\\/]|$)/i.test(resolved)) {
     throw new QaFixtureError(
       `Reset QA ditolak: path "${resolved}" mengarah ke direktori operasional/produksi.`,
+    );
+  }
+}
+
+/** Tabel bisnis yang dipantau baseline-nya. Tabel metadata (demo_seed_runs,
+ *  qa_fixture_runs, schema_migrations) sengaja tidak dimasukkan. */
+const BASELINE_TABLES = [
+  "users",
+  "categories",
+  "suppliers",
+  "products",
+  "product_barcodes",
+  "product_suppliers",
+  "inventory_movements",
+  "sales",
+  "shifts",
+] as const;
+
+function tableExistsInDb(db: DatabaseSync, name: string): boolean {
+  const row = db
+    .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name) as { found: number } | undefined;
+  return row !== undefined;
+}
+
+/** Tambah kolom sederhana (TEXT/INTEGER) bila belum ada — perubahan skema aditif,
+ *  tidak menyentuh DDL migrasi 0001 milik TASK-008. */
+function addColumnIfMissing(
+  db: DatabaseSync,
+  table: string,
+  column: string,
+  type: "TEXT" | "INTEGER",
+): void {
+  const existing = db
+    .prepare("SELECT 1 AS found FROM pragma_table_info(?) WHERE name = ?")
+    .get(table, column) as { found: number } | undefined;
+  if (!existing) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
+function countRowsInDb(db: DatabaseSync, table: string): number {
+  const row = db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number };
+  return Number(row.total);
+}
+
+function collectBaselineCountsFor(db: DatabaseSync, tables: readonly string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const table of tables) {
+    counts[table] = tableExistsInDb(db, table) ? countRowsInDb(db, table) : 0;
+  }
+  return counts;
+}
+
+/** Baseline yang dipakai guard reset: kondisi SAAT FIXTURE QA selesai dipasang.
+ *  Lebih longgar dari baseline seed, jadi reset ulang pada DB fixture utuh tetap sah,
+ *  tetapi data tambahan di luar fixture QA ditolak. */
+function qaBaselineCounts(db: DatabaseSync): Record<string, number> {
+  return collectBaselineCountsFor(db, BASELINE_TABLES);
+}
+
+/**
+ * Bandingkan isi DB dengan baseline saat seed. Tabel bisnis yang jumlah barisnya
+ * NAIK berarti ada data tambahan setelah seed — reset ditolak agar data itu
+ * tidak hilang diam-dian. Penurunan masih diperbolehkan (mis. rollback uji).
+ */
+function assertNoExtraDataAfterSeed(
+  db: DatabaseSync,
+  baseline: Record<string, number>,
+  demoSeedKey: string,
+): void {
+  const grown: string[] = [];
+  for (const table of BASELINE_TABLES) {
+    const current = tableExistsInDb(db, table) ? countRowsInDb(db, table) : 0;
+    if (current > (baseline[table] ?? 0)) {
+      grown.push(`${table}=${baseline[table] ?? 0}→${current}`);
+    }
+  }
+  if (grown.length > 0) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: database "${demoSeedKey}" sudah berisi data tambahan setelah seed (${grown.join(", ")}). ` +
+        "Hapus/reset manual atau pakai database baru; jangan timpa data yang sudah bertambah.",
     );
   }
 }
@@ -83,13 +167,38 @@ function assertExistingDbIsNotOperational(dbPath: string): void {
         "Reset QA ditolak: database sudah berisi data tanpa penanda demo_seed_runs (kemungkinan DB operasional).",
       );
     }
-    const demoRunCount = (
-      db.prepare("SELECT COUNT(*) AS n FROM demo_seed_runs").get() as { n: number }
-    ).n;
-    if (demoRunCount === 0) {
+    const runRow = db
+      .prepare(
+        "SELECT run_key, baseline_counts_json, baseline_user_version FROM demo_seed_runs LIMIT 1",
+      )
+      .get() as
+      | { run_key: string; baseline_counts_json: string | null; baseline_user_version: number | null }
+      | undefined;
+    if (!runRow) {
       throw new QaFixtureError(
         "Reset QA ditolak: database berisi data tetapi demo_seed_runs kosong.",
       );
+    }
+
+    // Guard baru: DB yang punya penanda demo tapi ternyata bertambah isinya
+    // (mis. transaksi nyata masuk) tidak boleh dihapus oleh reset QA.
+    // Baseline yang dipakai = kondisi SAAT FIXTURE QA selesai (paling mutakhir),
+    // fallback ke baseline seed bila fixture QA belum pernah dipasang.
+    const qaRow = db
+      .prepare("SELECT baseline_counts_json FROM qa_fixture_runs WHERE run_key = ? LIMIT 1")
+      .get(QA_FIXTURE_KEY) as { baseline_counts_json: string | null } | undefined;
+
+    const rawBaseline = qaRow?.baseline_counts_json ?? runRow.baseline_counts_json;
+    if (rawBaseline !== null && rawBaseline !== "") {
+      let baseline: Record<string, number>;
+      try {
+        baseline = JSON.parse(rawBaseline) as Record<string, number>;
+      } catch {
+        throw new QaFixtureError(
+          "Reset QA ditolak: baseline_counts_json tidak dapat dibaca.",
+        );
+      }
+      assertNoExtraDataAfterSeed(db, baseline, runRow.run_key);
     }
   } finally {
     db.close();
@@ -140,6 +249,19 @@ export const EXPECTED_QA_SNAPSHOT = {
     activeShiftCashierId: 3,
   },
   preparedAttemptKey: "attempt-qa-prepared-1",
+  shiftClosingTotals: [
+    { shiftId: 101, methodCode: "CASH", amountRp: 6000 },
+    { shiftId: 101, methodCode: "QRIS_MANUAL", amountRp: 10000 },
+  ],
+  closedShiftSummary: [{ shiftId: 101, declaredCashRp: 106000, varianceRp: 0 }],
+  preparedAttemptsWithoutSale: [
+    { attemptKey: "attempt-qa-prepared-1", shiftId: 102, hasSale: 0 },
+  ],
+  payments: [
+    { id: 1, saleId: 201, methodCode: "CASH", amountRp: 6000, evidenceRef: null, verifiedBy: null },
+    { id: 2, saleId: 202, methodCode: "QRIS_MANUAL", amountRp: 5000, evidenceRef: "DEMO-QRIS-REF-001", verifiedBy: 2 },
+    { id: 3, saleId: 203, methodCode: "QRIS_MANUAL", amountRp: 5000, evidenceRef: "DEMO-QRIS-REF-002", verifiedBy: 2 },
+  ],
 } as const;
 
 export function applyQaFixtures(options: {
@@ -172,6 +294,7 @@ export function applyQaFixtures(options: {
            applied_at_ms INTEGER NOT NULL CHECK (applied_at_ms >= 0)
          ) STRICT`,
       );
+      addColumnIfMissing(db, "qa_fixture_runs", "baseline_counts_json", "TEXT");
 
       // 1. Akun kasir nonaktif sintetis (melengkapi 3 akun seedDemo: admin, kasir pagi, kasir sore).
       db.prepare(
@@ -302,10 +425,9 @@ export function applyQaFixtures(options: {
          VALUES (?, 102, 3, zeroblob(32), ?)`,
       ).run(EXPECTED_QA_SNAPSHOT.preparedAttemptKey, QA_FIXED_TS + 3_800_000);
 
-      db.prepare("INSERT INTO qa_fixture_runs (run_key, applied_at_ms) VALUES (?, ?)").run(
-        QA_FIXTURE_KEY,
-        QA_FIXED_TS,
-      );
+      db.prepare(
+        "INSERT INTO qa_fixture_runs (run_key, applied_at_ms, baseline_counts_json) VALUES (?, ?, ?)",
+      ).run(QA_FIXTURE_KEY, QA_FIXED_TS, JSON.stringify(qaBaselineCounts(db)));
       db.exec("COMMIT");
       return { applied: true, skippedReason: null };
     } catch (error) {
@@ -371,6 +493,24 @@ export type SqliteSnapshot = {
     closedAtMs: number | null;
     openingCashRp: number | null;
   }>;
+  /** Nilai penutupan shift 101 (tunai/QRIS/declared/variance) — bukan sekadar jumlah baris. */
+  shiftClosingTotals: Array<{ shiftId: number; methodCode: string; amountRp: number }>;
+  closedShiftSummary: Array<{
+    shiftId: number;
+    declaredCashRp: number | null;
+    varianceRp: number | null;
+  }>;
+  /** Checkout attempt yang masih PREPARED tanpa sale terkait (kasus AC-04.02). */
+  preparedAttemptsWithoutSale: Array<{ attemptKey: string; shiftId: number; hasSale: number }>;
+  /** Pembayaran: metode + nominal, termasuk verifikasi QRIS_MANUAL. */
+  payments: Array<{
+    id: number;
+    saleId: number;
+    methodCode: string;
+    amountRp: number;
+    evidenceRef: string | null;
+    verifiedBy: number | null;
+  }>;
 };
 
 export function snapshotSqliteState(dbPath: string): SqliteSnapshot {
@@ -400,6 +540,38 @@ export function snapshotSqliteState(dbPath: string): SqliteSnapshot {
       )
       .all() as SqliteSnapshot["shifts"];
 
+    const shiftClosingTotals = db
+      .prepare(
+        `SELECT shift_id AS shiftId, method_code AS methodCode, amount_rp AS amountRp
+         FROM shift_closing_totals ORDER BY shift_id, method_code`,
+      )
+      .all() as SqliteSnapshot["shiftClosingTotals"];
+
+    const closedShiftSummary = db
+      .prepare(
+        `SELECT shift_id AS shiftId, declared_cash_rp AS declaredCashRp, variance_rp AS varianceRp
+         FROM shift_closings ORDER BY shift_id`,
+      )
+      .all() as SqliteSnapshot["closedShiftSummary"];
+
+    const preparedAttemptsWithoutSale = db
+      .prepare(
+        `SELECT ca.attempt_key AS attemptKey, ca.shift_id AS shiftId,
+                (SELECT COUNT(*) FROM sales s WHERE s.attempt_key = ca.attempt_key) AS hasSale
+         FROM checkout_attempts ca
+         WHERE ca.attempt_key NOT IN (SELECT attempt_key FROM sales)
+         ORDER BY ca.attempt_key`,
+      )
+      .all() as SqliteSnapshot["preparedAttemptsWithoutSale"];
+
+    const payments = db
+      .prepare(
+        `SELECT id, sale_id AS saleId, method_code AS methodCode, amount_rp AS amountRp,
+                evidence_ref AS evidenceRef, verified_by AS verifiedBy
+         FROM payments ORDER BY id`,
+      )
+      .all() as SqliteSnapshot["payments"];
+
     return {
       dbPath,
       userVersion: readUserVersion(db),
@@ -408,6 +580,10 @@ export function snapshotSqliteState(dbPath: string): SqliteSnapshot {
       counts,
       stockBalances: stockBalances.map((r) => ({ ...r })),
       shifts: shifts.map((s) => ({ ...s })),
+      shiftClosingTotals: shiftClosingTotals.map((r) => ({ ...r })),
+      closedShiftSummary: closedShiftSummary.map((r) => ({ ...r })),
+      preparedAttemptsWithoutSale: preparedAttemptsWithoutSale.map((r) => ({ ...r })),
+      payments: payments.map((r) => ({ ...r })),
     };
   } finally {
     db.close();

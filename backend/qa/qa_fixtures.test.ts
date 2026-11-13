@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { checkIntegrity, openDatabase } from "../db/src/db.ts";
@@ -16,19 +16,21 @@ import {
 } from "./qa_fixtures.ts";
 import { formatEvidenceMarkdown, verifySnapshotAgainstExpected } from "./qa_runner.ts";
 
+const DEV_ENV = { POS_DB_PROFILE: "development" } as const;
+
 test("fixture QA deterministik, idempotent, dan cocok dengan EXPECTED_QA_SNAPSHOT", () => {
   const database = createTempDatabase("pos-qa-test-");
   try {
     const first = resetAndSeedQaDatabase({
       dbPath: database.dbPath,
       confirmDevReset: true,
-      env: {},
+      env: { ...DEV_ENV },
     });
     assert.equal(first.seeded, true);
     assert.equal(first.qaApplied, true);
 
     // Jalankan applyQaFixtures kedua kali -> tidak boleh menggandakan akun/SKU/stok.
-    const rerun = applyQaFixtures({ dbPath: database.dbPath, env: {} });
+    const rerun = applyQaFixtures({ dbPath: database.dbPath, env: { ...DEV_ENV } });
     assert.equal(rerun.applied, false);
 
     const snapshot = snapshotSqliteState(database.dbPath);
@@ -66,19 +68,29 @@ test("fixture QA deterministik, idempotent, dan cocok dengan EXPECTED_QA_SNAPSHO
   }
 });
 
-test("guard reset menolak tanpa flag, NODE_ENV=production, path repo, nama operasional, dan DB non-demo", () => {
+test("guard reset menolak tanpa flag, NODE_ENV=production, POS_DB_PROFILE kosong/operasional, path repo, nama operasional, dan DB non-demo", () => {
   const database = createTempDatabase("pos-qa-guard-");
   try {
     assert.throws(
-      () => resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: false, env: {} }),
+      () => resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: false, env: { ...DEV_ENV } }),
       (e: unknown) => e instanceof QaFixtureError && /confirm-dev-reset/.test(e.message),
+    );
+    // POS_DB_PROFILE KOSONG sekarang wajib ditolak (sebelumnya lolos).
+    assert.throws(
+      () =>
+        resetAndSeedQaDatabase({
+          dbPath: database.dbPath,
+          confirmDevReset: true,
+          env: {},
+        }),
+      (e: unknown) => e instanceof QaFixtureError && /POS_DB_PROFILE/.test(e.message),
     );
     assert.throws(
       () =>
         resetAndSeedQaDatabase({
           dbPath: database.dbPath,
           confirmDevReset: true,
-          env: { NODE_ENV: "production" },
+          env: { NODE_ENV: "production", ...DEV_ENV },
         }),
       (e: unknown) => e instanceof QaFixtureError && /production/.test(e.message),
     );
@@ -96,7 +108,7 @@ test("guard reset menolak tanpa flag, NODE_ENV=production, path repo, nama opera
         resetAndSeedQaDatabase({
           dbPath: path.join(REPO_ROOT, "backend", "pos-dev.sqlite"),
           confirmDevReset: true,
-          env: {},
+          env: { ...DEV_ENV },
         }),
       /source tree/,
     );
@@ -105,7 +117,7 @@ test("guard reset menolak tanpa flag, NODE_ENV=production, path repo, nama opera
         resetAndSeedQaDatabase({
           dbPath: path.join(database.dir, "pos.sqlite"),
           confirmDevReset: true,
-          env: {},
+          env: { ...DEV_ENV },
         }),
       (e: unknown) => e instanceof QaFixtureError && /operasional\/produksi/.test(e.message),
     );
@@ -120,9 +132,71 @@ test("guard reset menolak tanpa flag, NODE_ENV=production, path repo, nama opera
     db.close();
 
     assert.throws(
-      () => resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: {} }),
+      () => resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
       (e: unknown) => e instanceof QaFixtureError && /demo_seed_runs/.test(e.message),
     );
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("NEGATIF: DB demo berisi data TAMBAHAN setelah seed tidak dapat di-reset", () => {
+  const database = createTempDatabase("pos-qa-extra-data-");
+  try {
+    const first = resetAndSeedQaDatabase({
+      dbPath: database.dbPath,
+      confirmDevReset: true,
+      env: { ...DEV_ENV },
+    });
+    assert.equal(first.seeded, true);
+
+    // Simulasi data tambahan pasca-seed (mis. transaksi nyata masuk ke sales/users).
+    const db = database.open();
+    try {
+      db.prepare(
+        `INSERT INTO users (id, username, password_hash, role, active, created_at_ms)
+         VALUES (900, 'data.tambahan.operasional', 'scrypt$real-looking', 'CASHIER', 1, ?)`,
+      ).run(QA_FIXED_TS + 7_000_000);
+    } finally {
+      db.close();
+    }
+
+    // Reset kedua WAJIB ditolak, dan file DB-nya TETAP ADA (tidak terhapus).
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError && /data tambahan/.test(e.message),
+    );
+    assert.ok(existsSync(database.dbPath), "File database harus tetap ada setelah reset ditolak");
+
+    // Data tambahan tidak hilang: user id 900 masih terbaca.
+    const check = openDatabase(database.dbPath, { readOnly: true });
+    try {
+      const row = check
+        .prepare("SELECT COUNT(*) AS n FROM users WHERE id = 900")
+        .get() as { n: number };
+      assert.equal(row.n, 1);
+    } finally {
+      check.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("POSITIF: reset berulang pada DB fixture utuh tetap sah (idempoten)", () => {
+  const database = createTempDatabase("pos-qa-idempotent-");
+  try {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const result = resetAndSeedQaDatabase({
+        dbPath: database.dbPath,
+        confirmDevReset: true,
+        env: { ...DEV_ENV },
+      });
+      assert.equal(result.seeded, true, `reset ke-${attempt} harus diizinkan`);
+    }
+
+    // Snapshot setelah 3x reset tetap cocok dengan expected (tidak menumpuk).
+    verifySnapshotAgainstExpected(snapshotSqliteState(database.dbPath));
   } finally {
     database.cleanup();
   }
@@ -131,7 +205,7 @@ test("guard reset menolak tanpa flag, NODE_ENV=production, path repo, nama opera
 test("AC-03.05: kegagalan di tengah transaksi checkout rollback utuh tanpa mutasi parsial", () => {
   const database = createTempDatabase("pos-qa-ac0305-");
   try {
-    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: {} });
+    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } });
     const before = snapshotSqliteState(database.dbPath);
 
     const db = database.open();
@@ -167,7 +241,7 @@ test("AC-03.05: kegagalan di tengah transaksi checkout rollback utuh tanpa mutas
 test("AC-04.01 & AC-04.02: idempotency attempt_key dan pemulihan status PREPARED lintas buka ulang DB", () => {
   const database = createTempDatabase("pos-qa-ac0401-");
   try {
-    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: {} });
+    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } });
     const db = database.open();
     try {
       // AC-04.02: attempt-qa-prepared-1 ditemukan setelah koneksi dibuka ulang, belum ada sale.
@@ -200,7 +274,7 @@ test("AC-04.01 & AC-04.02: idempotency attempt_key dan pemulihan status PREPARED
 test("AC-05.01 & AC-06.02: satu shift aktif per stasiun dan tutup shift konsisten", () => {
   const database = createTempDatabase("pos-qa-ac0501-");
   try {
-    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: {} });
+    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } });
     const db = database.open();
     try {
       // Shift 102 masih aktif -> pembukaan shift kedua ditolak oleh ux_shifts_single_open.
@@ -228,7 +302,7 @@ test("AC-05.01 & AC-06.02: satu shift aktif per stasiun dan tutup shift konsiste
 test("AC-09.01 & AC-09.02: backup konsisten dapat dipulihkan dan cadangan rusak ditolak", () => {
   const database = createTempDatabase("pos-qa-ac0901-");
   try {
-    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: {} });
+    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } });
     const backupPath = path.join(database.dir, "qa-backup.sqlite");
     const corruptPath = path.join(database.dir, "qa-corrupt.sqlite");
 

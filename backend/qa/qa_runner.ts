@@ -45,6 +45,24 @@ export function verifySnapshotAgainstExpected(snapshot: SqliteSnapshot): void {
   assert.equal(snapshot.foreignKeyViolations, 0);
   assert.deepEqual(snapshot.counts, EXPECTED_QA_SNAPSHOT.counts);
   assert.deepEqual(snapshot.stockBalances, [...EXPECTED_QA_SNAPSHOT.stockBalances]);
+
+  // Verifikasi NILAI shift, bukan sekadar jumlah baris.
+  const closedShift = snapshot.shifts.find((s) => s.id === EXPECTED_QA_SNAPSHOT.shifts.closedShiftId);
+  const activeShift = snapshot.shifts.find((s) => s.id === EXPECTED_QA_SNAPSHOT.shifts.activeShiftId);
+  assert.ok(closedShift, `Shift ${EXPECTED_QA_SNAPSHOT.shifts.closedShiftId} tidak ada`);
+  assert.equal(closedShift.openingCashRp, EXPECTED_QA_SNAPSHOT.shifts.closedShiftOpeningCashRp);
+  assert.notEqual(closedShift.closedAtMs, null);
+  assert.ok(activeShift, `Shift ${EXPECTED_QA_SNAPSHOT.shifts.activeShiftId} tidak ada`);
+  assert.equal(activeShift.cashierId, EXPECTED_QA_SNAPSHOT.shifts.activeShiftCashierId);
+  assert.equal(activeShift.closedAtMs, null);
+
+  assert.deepEqual(snapshot.shiftClosingTotals, [...EXPECTED_QA_SNAPSHOT.shiftClosingTotals]);
+  assert.deepEqual(snapshot.closedShiftSummary, [...EXPECTED_QA_SNAPSHOT.closedShiftSummary]);
+  assert.deepEqual(
+    snapshot.preparedAttemptsWithoutSale,
+    [...EXPECTED_QA_SNAPSHOT.preparedAttemptsWithoutSale],
+  );
+  assert.deepEqual(snapshot.payments, [...EXPECTED_QA_SNAPSHOT.payments]);
 }
 
 export function formatEvidenceMarkdown(params: {
@@ -87,6 +105,42 @@ export function formatEvidenceMarkdown(params: {
     "| ID | SKU | Barcode | Harga | On Hand |",
     "|---|---|---|---|---|",
     stockRows,
+    "",
+    "## Snapshot Shift (Nilai)",
+    "| shiftId | cashierId | closedAtMs | openingCashRp |",
+    "|---|---|---|---|",
+    ...params.snapshot.shifts.map(
+      (s) => `| ${s.id} | ${s.cashierId} | ${s.closedAtMs ?? "(aktif)"} | ${s.openingCashRp ?? "-"} |`,
+    ),
+    "",
+    "## Penutupan Shift (declared/variance)",
+    "| shiftId | declaredCashRp | varianceRp |",
+    "|---|---|---|",
+    ...params.snapshot.closedShiftSummary.map(
+      (c) => `| ${c.shiftId} | ${c.declaredCashRp ?? "-"} | ${c.varianceRp ?? "-"} |`,
+    ),
+    "",
+    "## Rekap per Metode Pembayaran (shift closing)",
+    "| shiftId | methodCode | amountRp |",
+    "|---|---|---|",
+    ...params.snapshot.shiftClosingTotals.map(
+      (t) => `| ${t.shiftId} | ${t.methodCode} | Rp${t.amountRp} |`,
+    ),
+    "",
+    "## Checkout Attempt Belum Tersimpan (PREPARED)",
+    "| attemptKey | shiftId | hasSale |",
+    "|---|---|---|",
+    ...params.snapshot.preparedAttemptsWithoutSale.map(
+      (a) => `| ${a.attemptKey} | ${a.shiftId} | ${a.hasSale} |`,
+    ),
+    "",
+    "## Pembayaran (metode, nominal, verifikasi QRIS)",
+    "| id | saleId | methodCode | amountRp | evidenceRef | verifiedBy |",
+    "|---|---|---|---|---|---|",
+    ...params.snapshot.payments.map(
+      (p) =>
+        `| ${p.id} | ${p.saleId} | ${p.methodCode} | Rp${p.amountRp} | ${p.evidenceRef ?? "-"} | ${p.verifiedBy ?? "-"} |`,
+    ),
     "",
     "## Expected Values (Acuan Oracle)",
     "```json",

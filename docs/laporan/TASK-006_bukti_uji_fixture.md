@@ -2,12 +2,12 @@
 
 | Atribut | Nilai |
 |---|---|
-| Tanggal | 2026-11-13T15:24:26.177Z |
+| Tanggal | 2026-11-13T16:42:57.415Z |
 | Mesin / Runtime | win32 10.0.22631 (x64), Node v24.18.0 |
 | Reviewer | David (pengganti Naazmi) |
-| Perintah / Aksi | `node backend/qa/qa_runner.ts evidence --db C:\Users\USER\AppData\Local/Temp/pos-qa-verify.sqlite` |
+| Perintah / Aksi | `node backend/qa/qa_runner.ts evidence --db C:\Users\USER\AppData\Local/Temp/pos-qa-final.sqlite` |
 | Hasil Nyata | **PASS** |
-| DB Path | `C:\Users\USER\AppData\Local/Temp/pos-qa-verify.sqlite` |
+| DB Path | `C:\Users\USER\AppData\Local/Temp/pos-qa-final.sqlite` |
 | Schema user_version | 1 |
 | PRAGMA integrity_check | `ok` |
 | PRAGMA foreign_key_check | 0 pelanggaran |
@@ -43,6 +43,35 @@
 | 6 | QA-STOK-1 | `0000000000065` | Rp4500 | 1 |
 | 7 | QA-STOK-10 | `0000000000072` | Rp7500 | 10 |
 | 8 | QA-HARGA-UBAH | `0000000000089` | Rp6000 | 9 |
+
+## Snapshot Shift (Nilai)
+| shiftId | cashierId | closedAtMs | openingCashRp |
+|---|---|---|---|
+| 101 | 2 | 1762999200000 | 100000 |
+| 102 | 3 | (aktif) | 100000 |
+
+## Penutupan Shift (declared/variance)
+| shiftId | declaredCashRp | varianceRp |
+|---|---|---|
+| 101 | 106000 | 0 |
+
+## Rekap per Metode Pembayaran (shift closing)
+| shiftId | methodCode | amountRp |
+|---|---|---|
+| 101 | CASH | Rp6000 |
+| 101 | QRIS_MANUAL | Rp10000 |
+
+## Checkout Attempt Belum Tersimpan (PREPARED)
+| attemptKey | shiftId | hasSale |
+|---|---|---|
+| attempt-qa-prepared-1 | 102 | 0 |
+
+## Pembayaran (metode, nominal, verifikasi QRIS)
+| id | saleId | methodCode | amountRp | evidenceRef | verifiedBy |
+|---|---|---|---|---|---|
+| 1 | 201 | CASH | Rp6000 | - | - |
+| 2 | 202 | QRIS_MANUAL | Rp5000 | DEMO-QRIS-REF-001 | 2 |
+| 3 | 203 | QRIS_MANUAL | Rp5000 | DEMO-QRIS-REF-002 | 2 |
 
 ## Expected Values (Acuan Oracle)
 ```json
@@ -132,6 +161,58 @@
     "activeShiftId": 102,
     "activeShiftCashierId": 3
   },
-  "preparedAttemptKey": "attempt-qa-prepared-1"
+  "preparedAttemptKey": "attempt-qa-prepared-1",
+  "shiftClosingTotals": [
+    {
+      "shiftId": 101,
+      "methodCode": "CASH",
+      "amountRp": 6000
+    },
+    {
+      "shiftId": 101,
+      "methodCode": "QRIS_MANUAL",
+      "amountRp": 10000
+    }
+  ],
+  "closedShiftSummary": [
+    {
+      "shiftId": 101,
+      "declaredCashRp": 106000,
+      "varianceRp": 0
+    }
+  ],
+  "preparedAttemptsWithoutSale": [
+    {
+      "attemptKey": "attempt-qa-prepared-1",
+      "shiftId": 102,
+      "hasSale": 0
+    }
+  ],
+  "payments": [
+    {
+      "id": 1,
+      "saleId": 201,
+      "methodCode": "CASH",
+      "amountRp": 6000,
+      "evidenceRef": null,
+      "verifiedBy": null
+    },
+    {
+      "id": 2,
+      "saleId": 202,
+      "methodCode": "QRIS_MANUAL",
+      "amountRp": 5000,
+      "evidenceRef": "DEMO-QRIS-REF-001",
+      "verifiedBy": 2
+    },
+    {
+      "id": 3,
+      "saleId": 203,
+      "methodCode": "QRIS_MANUAL",
+      "amountRp": 5000,
+      "evidenceRef": "DEMO-QRIS-REF-002",
+      "verifiedBy": 2
+    }
+  ]
 }
 ```
