@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { checkIntegrity, openDatabase, readUserVersion } from "../db/src/db.ts";
@@ -38,9 +40,11 @@ export function assertSafeDevResetTarget(
   if (env.NODE_ENV === "production") {
     throw new QaFixtureError("Reset QA ditolak: NODE_ENV=production.");
   }
-  if (env.POS_DB_PROFILE && env.POS_DB_PROFILE !== "development" && env.POS_DB_PROFILE !== "test") {
+  // Profil WAJIB eksplisit development atau test. Tanpa ini, environment yang
+  // lupa menyetel POS_DB_PROFILE bisa menjalankan reset pada lokasi default.
+  if (env.POS_DB_PROFILE !== "development" && env.POS_DB_PROFILE !== "test") {
     throw new QaFixtureError(
-      `Reset QA ditolak: POS_DB_PROFILE=${env.POS_DB_PROFILE} bukan development/test.`,
+      `Reset QA ditolak: POS_DB_PROFILE harus diisi "development" atau "test" (saat ini: ${env.POS_DB_PROFILE ?? "kosong"}).`,
     );
   }
   assertOutsideSourceTree(dbPath, repoRoot);
@@ -57,38 +61,255 @@ export function assertSafeDevResetTarget(
       `Reset QA ditolak: path "${resolved}" mengarah ke direktori operasional/produksi.`,
     );
   }
+  assertAllowedQaTempDirectory(resolved);
+}
+
+/**
+ * Batasi lokasi reset hanya ke subdirektori QA sementara berawalan `pos-qa-`
+ * di dalam direktori temp OS agar database development biasa atau lokasi lain
+ * tidak pernah terhapus oleh skrip reset QA.
+ */
+export function assertAllowedQaTempDirectory(dbPath: string): void {
+  const resolvedDb = path.resolve(dbPath);
+  const resolvedTmpRoot = path.resolve(os.tmpdir());
+  const rel = path.relative(resolvedTmpRoot, resolvedDb);
+  const isInsideTmp =
+    rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  if (!isInsideTmp) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: lokasi "${resolvedDb}" berada di luar direktori sementara QA (${resolvedTmpRoot}).`,
+    );
+  }
+  const firstSegment = rel.split(/[\\/]/)[0] ?? "";
+  if (!/^pos-qa-/i.test(firstSegment)) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: direktori target "${firstSegment}" bukan direktori QA disposable berawalan "pos-qa-".`,
+    );
+  }
+}
+
+/** Seluruh tabel bisnis/transaksi dari skema 0001 yang dipantau baseline-nya.
+ *  Tabel metadata (demo_seed_runs, qa_fixture_runs, schema_migrations) sengaja tidak dimasukkan. */
+const BASELINE_TABLES = [
+  "users",
+  "sessions",
+  "categories",
+  "suppliers",
+  "products",
+  "product_barcodes",
+  "product_suppliers",
+  "shifts",
+  "shift_closings",
+  "shift_closing_totals",
+  "checkout_attempts",
+  "sales",
+  "sale_items",
+  "payments",
+  "goods_receipts",
+  "receipt_items",
+  "inventory_movements",
+  "audit_log",
+] as const;
+
+function columnExistsInDb(db: DatabaseSync, table: string, column: string): boolean {
+  const row = db
+    .prepare("SELECT 1 AS found FROM pragma_table_info(?) WHERE name = ?")
+    .get(table, column) as { found: number } | undefined;
+  return row !== undefined;
+}
+
+function tableExistsInDb(db: DatabaseSync, name: string): boolean {
+  const row = db
+    .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name) as { found: number } | undefined;
+  return row !== undefined;
+}
+
+/** Tambah kolom sederhana (TEXT/INTEGER) bila belum ada — perubahan skema aditif,
+ *  tidak menyentuh DDL migrasi 0001 milik TASK-008. */
+function addColumnIfMissing(
+  db: DatabaseSync,
+  table: string,
+  column: string,
+  type: "TEXT" | "INTEGER",
+): void {
+  const existing = db
+    .prepare("SELECT 1 AS found FROM pragma_table_info(?) WHERE name = ?")
+    .get(table, column) as { found: number } | undefined;
+  if (!existing) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
+function countRowsInDb(db: DatabaseSync, table: string): number {
+  const row = db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number };
+  return Number(row.total);
+}
+
+function collectBaselineCountsFor(db: DatabaseSync, tables: readonly string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const table of tables) {
+    counts[table] = tableExistsInDb(db, table) ? countRowsInDb(db, table) : 0;
+  }
+  return counts;
+}
+
+/** Baseline yang dipakai guard reset: kondisi SAAT FIXTURE QA selesai dipasang.
+ *  Lebih longgar dari baseline seed, jadi reset ulang pada DB fixture utuh tetap sah,
+ *  tetapi data tambahan di luar fixture QA ditolak. */
+function qaBaselineCounts(db: DatabaseSync): Record<string, number> {
+  return collectBaselineCountsFor(db, BASELINE_TABLES);
+}
+
+function serializeCellValue(value: unknown): string {
+  if (value instanceof Uint8Array) {
+    return `blob:${Buffer.from(value).toString("hex")}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Hitung hash SHA-256 deterministik atas seluruh isi baris pada BASELINE_TABLES
+ *  agar perubahan isi in-place tanpa perubahan jumlah baris tetap terdeteksi. */
+function computeDatabaseContentHash(db: DatabaseSync): string {
+  const hash = createHash("sha256");
+  for (const table of BASELINE_TABLES) {
+    hash.update(`TABLE:${table}\n`);
+    if (!tableExistsInDb(db, table)) {
+      hash.update("MISSING\n");
+      continue;
+    }
+    const cols = db
+      .prepare("SELECT name FROM pragma_table_info(?) ORDER BY cid")
+      .all(table) as Array<{ name: string }>;
+    const colNames = cols.map((c) => c.name);
+    hash.update(`COLS:${colNames.join(",")}\n`);
+
+    const rows = db.prepare(`SELECT * FROM ${table}`).all() as Array<Record<string, unknown>>;
+    const encodedRows = rows
+      .map((row) => `[${colNames.map((col) => serializeCellValue(row[col])).join(",")}]`)
+      .sort();
+    for (const encoded of encodedRows) {
+      hash.update(`${encoded}\n`);
+    }
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Bandingkan isi DB dengan baseline QA secara ketat (fail-closed):
+ * jumlah baris pada seluruh tabel bisnis/transaksi harus sama persis.
+ */
+function assertNoExtraDataAfterSeed(
+  db: DatabaseSync,
+  baseline: Record<string, number>,
+  demoSeedKey: string,
+): void {
+  const changed: string[] = [];
+  for (const table of BASELINE_TABLES) {
+    const current = tableExistsInDb(db, table) ? countRowsInDb(db, table) : 0;
+    const expected = baseline[table] ?? 0;
+    if (current !== expected) {
+      changed.push(`${table}=${expected}→${current}`);
+    }
+  }
+  if (changed.length > 0) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: database "${demoSeedKey}" sudah berisi data tambahan / perubahan jumlah baris setelah baseline (${changed.join(", ")}). ` +
+        "Hapus/reset manual atau pakai database baru; jangan timpa data yang sudah berubah.",
+    );
+  }
 }
 
 function assertExistingDbIsNotOperational(dbPath: string): void {
   if (!existsSync(dbPath)) {
     return;
   }
-  const db = openDatabase(dbPath, { readOnly: true });
+  let db: DatabaseSync;
   try {
-    const hasUsersTable = db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='users'")
-      .get();
-    if (!hasUsersTable) {
-      return;
-    }
-    const userCount = (db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n;
-    if (userCount === 0) {
-      return;
-    }
-    const hasDemoRuns = db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='demo_seed_runs'")
-      .get();
-    if (!hasDemoRuns) {
+    db = openDatabase(dbPath, { readOnly: true });
+  } catch (error) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: file database "${dbPath}" tidak dapat dibuka sebagai SQLite QA yang valid (${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
+  try {
+    let hasDemoRuns = false;
+    try {
+      hasDemoRuns = tableExistsInDb(db, "demo_seed_runs");
+    } catch (error) {
       throw new QaFixtureError(
-        "Reset QA ditolak: database sudah berisi data tanpa penanda demo_seed_runs (kemungkinan DB operasional).",
+        `Reset QA ditolak: database tidak dikenal atau bukan SQLite QA yang valid (${error instanceof Error ? error.message : String(error)}).`,
       );
     }
-    const demoRunCount = (
-      db.prepare("SELECT COUNT(*) AS n FROM demo_seed_runs").get() as { n: number }
-    ).n;
-    if (demoRunCount === 0) {
+    if (!hasDemoRuns) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: database sudah ada tanpa penanda demo_seed_runs (kemungkinan DB development biasa, DB kosong, atau DB operasional).",
+      );
+    }
+    if (
+      !columnExistsInDb(db, "demo_seed_runs", "baseline_counts_json") ||
+      !columnExistsInDb(db, "demo_seed_runs", "baseline_user_version")
+    ) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: database DEMO versi lama tidak memiliki kolom baseline (baseline_counts_json / baseline_user_version) pada demo_seed_runs.",
+      );
+    }
+
+    const runRow = db
+      .prepare(
+        "SELECT run_key, baseline_counts_json, baseline_user_version FROM demo_seed_runs LIMIT 1",
+      )
+      .get() as
+      | { run_key: string; baseline_counts_json: string | null; baseline_user_version: number | null }
+      | undefined;
+    if (!runRow) {
       throw new QaFixtureError(
         "Reset QA ditolak: database berisi data tetapi demo_seed_runs kosong.",
+      );
+    }
+
+    if (!tableExistsInDb(db, "qa_fixture_runs")) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: tabel qa_fixture_runs tidak ditemukan (database DEMO lama atau bukan database QA disposable).",
+      );
+    }
+    if (
+      !columnExistsInDb(db, "qa_fixture_runs", "baseline_counts_json") ||
+      !columnExistsInDb(db, "qa_fixture_runs", "baseline_content_hash")
+    ) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: kolom baseline pada qa_fixture_runs tidak lengkap (database QA/DEMO versi lama).",
+      );
+    }
+
+    const qaRow = db
+      .prepare(
+        "SELECT baseline_counts_json, baseline_content_hash FROM qa_fixture_runs WHERE run_key = ? LIMIT 1",
+      )
+      .get(QA_FIXTURE_KEY) as
+      | { baseline_counts_json: string | null; baseline_content_hash: string | null }
+      | undefined;
+
+    if (!qaRow || !qaRow.baseline_counts_json || !qaRow.baseline_content_hash) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: penanda baseline QA (qa_fixture_runs) tidak ditemukan atau tidak lengkap; hanya database QA disposable utuh yang boleh di-reset.",
+      );
+    }
+
+    let baseline: Record<string, number>;
+    try {
+      baseline = JSON.parse(qaRow.baseline_counts_json) as Record<string, number>;
+    } catch {
+      throw new QaFixtureError(
+        "Reset QA ditolak: baseline_counts_json tidak dapat dibaca.",
+      );
+    }
+    assertNoExtraDataAfterSeed(db, baseline, runRow.run_key);
+
+    const currentContentHash = computeDatabaseContentHash(db);
+    if (currentContentHash !== qaRow.baseline_content_hash) {
+      throw new QaFixtureError(
+        `Reset QA ditolak: isi data database "${runRow.run_key}" telah berubah dari baseline QA (hash konten tidak cocok).`,
       );
     }
   } finally {
@@ -140,6 +361,19 @@ export const EXPECTED_QA_SNAPSHOT = {
     activeShiftCashierId: 3,
   },
   preparedAttemptKey: "attempt-qa-prepared-1",
+  shiftClosingTotals: [
+    { shiftId: 101, methodCode: "CASH", amountRp: 6000 },
+    { shiftId: 101, methodCode: "QRIS_MANUAL", amountRp: 10000 },
+  ],
+  closedShiftSummary: [{ shiftId: 101, declaredCashRp: 106000, varianceRp: 0 }],
+  preparedAttemptsWithoutSale: [
+    { attemptKey: "attempt-qa-prepared-1", shiftId: 102, hasSale: 0 },
+  ],
+  payments: [
+    { id: 1, saleId: 201, methodCode: "CASH", amountRp: 6000, evidenceRef: null, verifiedBy: null },
+    { id: 2, saleId: 202, methodCode: "QRIS_MANUAL", amountRp: 5000, evidenceRef: "DEMO-QRIS-REF-001", verifiedBy: 2 },
+    { id: 3, saleId: 203, methodCode: "QRIS_MANUAL", amountRp: 5000, evidenceRef: "DEMO-QRIS-REF-002", verifiedBy: 2 },
+  ],
 } as const;
 
 export function applyQaFixtures(options: {
@@ -172,6 +406,8 @@ export function applyQaFixtures(options: {
            applied_at_ms INTEGER NOT NULL CHECK (applied_at_ms >= 0)
          ) STRICT`,
       );
+      addColumnIfMissing(db, "qa_fixture_runs", "baseline_counts_json", "TEXT");
+      addColumnIfMissing(db, "qa_fixture_runs", "baseline_content_hash", "TEXT");
 
       // 1. Akun kasir nonaktif sintetis (melengkapi 3 akun seedDemo: admin, kasir pagi, kasir sore).
       db.prepare(
@@ -302,9 +538,13 @@ export function applyQaFixtures(options: {
          VALUES (?, 102, 3, zeroblob(32), ?)`,
       ).run(EXPECTED_QA_SNAPSHOT.preparedAttemptKey, QA_FIXED_TS + 3_800_000);
 
-      db.prepare("INSERT INTO qa_fixture_runs (run_key, applied_at_ms) VALUES (?, ?)").run(
+      db.prepare(
+        "INSERT INTO qa_fixture_runs (run_key, applied_at_ms, baseline_counts_json, baseline_content_hash) VALUES (?, ?, ?, ?)",
+      ).run(
         QA_FIXTURE_KEY,
         QA_FIXED_TS,
+        JSON.stringify(qaBaselineCounts(db)),
+        computeDatabaseContentHash(db),
       );
       db.exec("COMMIT");
       return { applied: true, skippedReason: null };
@@ -371,6 +611,24 @@ export type SqliteSnapshot = {
     closedAtMs: number | null;
     openingCashRp: number | null;
   }>;
+  /** Nilai penutupan shift 101 (tunai/QRIS/declared/variance) — bukan sekadar jumlah baris. */
+  shiftClosingTotals: Array<{ shiftId: number; methodCode: string; amountRp: number }>;
+  closedShiftSummary: Array<{
+    shiftId: number;
+    declaredCashRp: number | null;
+    varianceRp: number | null;
+  }>;
+  /** Checkout attempt yang masih PREPARED tanpa sale terkait (kasus AC-04.02). */
+  preparedAttemptsWithoutSale: Array<{ attemptKey: string; shiftId: number; hasSale: number }>;
+  /** Pembayaran: metode + nominal, termasuk verifikasi QRIS_MANUAL. */
+  payments: Array<{
+    id: number;
+    saleId: number;
+    methodCode: string;
+    amountRp: number;
+    evidenceRef: string | null;
+    verifiedBy: number | null;
+  }>;
 };
 
 export function snapshotSqliteState(dbPath: string): SqliteSnapshot {
@@ -400,6 +658,38 @@ export function snapshotSqliteState(dbPath: string): SqliteSnapshot {
       )
       .all() as SqliteSnapshot["shifts"];
 
+    const shiftClosingTotals = db
+      .prepare(
+        `SELECT shift_id AS shiftId, method_code AS methodCode, amount_rp AS amountRp
+         FROM shift_closing_totals ORDER BY shift_id, method_code`,
+      )
+      .all() as SqliteSnapshot["shiftClosingTotals"];
+
+    const closedShiftSummary = db
+      .prepare(
+        `SELECT shift_id AS shiftId, declared_cash_rp AS declaredCashRp, variance_rp AS varianceRp
+         FROM shift_closings ORDER BY shift_id`,
+      )
+      .all() as SqliteSnapshot["closedShiftSummary"];
+
+    const preparedAttemptsWithoutSale = db
+      .prepare(
+        `SELECT ca.attempt_key AS attemptKey, ca.shift_id AS shiftId,
+                (SELECT COUNT(*) FROM sales s WHERE s.attempt_key = ca.attempt_key) AS hasSale
+         FROM checkout_attempts ca
+         WHERE ca.attempt_key NOT IN (SELECT attempt_key FROM sales)
+         ORDER BY ca.attempt_key`,
+      )
+      .all() as SqliteSnapshot["preparedAttemptsWithoutSale"];
+
+    const payments = db
+      .prepare(
+        `SELECT id, sale_id AS saleId, method_code AS methodCode, amount_rp AS amountRp,
+                evidence_ref AS evidenceRef, verified_by AS verifiedBy
+         FROM payments ORDER BY id`,
+      )
+      .all() as SqliteSnapshot["payments"];
+
     return {
       dbPath,
       userVersion: readUserVersion(db),
@@ -408,6 +698,10 @@ export function snapshotSqliteState(dbPath: string): SqliteSnapshot {
       counts,
       stockBalances: stockBalances.map((r) => ({ ...r })),
       shifts: shifts.map((s) => ({ ...s })),
+      shiftClosingTotals: shiftClosingTotals.map((r) => ({ ...r })),
+      closedShiftSummary: closedShiftSummary.map((r) => ({ ...r })),
+      preparedAttemptsWithoutSale: preparedAttemptsWithoutSale.map((r) => ({ ...r })),
+      payments: payments.map((r) => ({ ...r })),
     };
   } finally {
     db.close();

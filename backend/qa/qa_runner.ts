@@ -3,21 +3,22 @@
  * TASK-006 — QA Fixture Reset, Verifier & Evidence Formatter (DEVELOPMENT ONLY).
  *
  * Contoh:
- *   node backend/qa/qa_runner.ts reset --confirm-dev-reset
- *   node backend/qa/qa_runner.ts verify
- *   node backend/qa/qa_runner.ts evidence --reviewer "Rahmat"
+ *   node backend/qa/qa_runner.ts reset --db <temp-qa-db-path> --confirm-dev-reset
+ *   node backend/qa/qa_runner.ts verify --db <temp-qa-db-path>
+ *   node backend/qa/qa_runner.ts evidence --db <temp-qa-db-path> --reviewer "Rahmat"
  */
 import assert from "node:assert/strict";
 import os from "node:os";
 import { resolveDatabasePath } from "../db/src/paths.ts";
 import {
   EXPECTED_QA_SNAPSHOT,
+  QaFixtureError,
   resetAndSeedQaDatabase,
   snapshotSqliteState,
   type SqliteSnapshot,
 } from "./qa_fixtures.ts";
 
-function parseArgs(argv: string[]) {
+export function parseArgs(argv: string[]) {
   const [command, ...rest] = argv;
   let dbPath: string | undefined;
   let confirmDevReset = false;
@@ -36,7 +37,7 @@ function parseArgs(argv: string[]) {
       reviewer = rest[++i];
     }
   }
-  return { command, dbPath: dbPath ?? resolveDatabasePath(process.env), confirmDevReset, json, reviewer };
+  return { command, dbPath, confirmDevReset, json, reviewer };
 }
 
 export function verifySnapshotAgainstExpected(snapshot: SqliteSnapshot): void {
@@ -45,6 +46,24 @@ export function verifySnapshotAgainstExpected(snapshot: SqliteSnapshot): void {
   assert.equal(snapshot.foreignKeyViolations, 0);
   assert.deepEqual(snapshot.counts, EXPECTED_QA_SNAPSHOT.counts);
   assert.deepEqual(snapshot.stockBalances, [...EXPECTED_QA_SNAPSHOT.stockBalances]);
+
+  // Verifikasi NILAI shift, bukan sekadar jumlah baris.
+  const closedShift = snapshot.shifts.find((s) => s.id === EXPECTED_QA_SNAPSHOT.shifts.closedShiftId);
+  const activeShift = snapshot.shifts.find((s) => s.id === EXPECTED_QA_SNAPSHOT.shifts.activeShiftId);
+  assert.ok(closedShift, `Shift ${EXPECTED_QA_SNAPSHOT.shifts.closedShiftId} tidak ada`);
+  assert.equal(closedShift.openingCashRp, EXPECTED_QA_SNAPSHOT.shifts.closedShiftOpeningCashRp);
+  assert.notEqual(closedShift.closedAtMs, null);
+  assert.ok(activeShift, `Shift ${EXPECTED_QA_SNAPSHOT.shifts.activeShiftId} tidak ada`);
+  assert.equal(activeShift.cashierId, EXPECTED_QA_SNAPSHOT.shifts.activeShiftCashierId);
+  assert.equal(activeShift.closedAtMs, null);
+
+  assert.deepEqual(snapshot.shiftClosingTotals, [...EXPECTED_QA_SNAPSHOT.shiftClosingTotals]);
+  assert.deepEqual(snapshot.closedShiftSummary, [...EXPECTED_QA_SNAPSHOT.closedShiftSummary]);
+  assert.deepEqual(
+    snapshot.preparedAttemptsWithoutSale,
+    [...EXPECTED_QA_SNAPSHOT.preparedAttemptsWithoutSale],
+  );
+  assert.deepEqual(snapshot.payments, [...EXPECTED_QA_SNAPSHOT.payments]);
 }
 
 export function formatEvidenceMarkdown(params: {
@@ -88,6 +107,42 @@ export function formatEvidenceMarkdown(params: {
     "|---|---|---|---|---|",
     stockRows,
     "",
+    "## Snapshot Shift (Nilai)",
+    "| shiftId | cashierId | closedAtMs | openingCashRp |",
+    "|---|---|---|---|",
+    ...params.snapshot.shifts.map(
+      (s) => `| ${s.id} | ${s.cashierId} | ${s.closedAtMs ?? "(aktif)"} | ${s.openingCashRp ?? "-"} |`,
+    ),
+    "",
+    "## Penutupan Shift (declared/variance)",
+    "| shiftId | declaredCashRp | varianceRp |",
+    "|---|---|---|",
+    ...params.snapshot.closedShiftSummary.map(
+      (c) => `| ${c.shiftId} | ${c.declaredCashRp ?? "-"} | ${c.varianceRp ?? "-"} |`,
+    ),
+    "",
+    "## Rekap per Metode Pembayaran (shift closing)",
+    "| shiftId | methodCode | amountRp |",
+    "|---|---|---|",
+    ...params.snapshot.shiftClosingTotals.map(
+      (t) => `| ${t.shiftId} | ${t.methodCode} | Rp${t.amountRp} |`,
+    ),
+    "",
+    "## Checkout Attempt Belum Tersimpan (PREPARED)",
+    "| attemptKey | shiftId | hasSale |",
+    "|---|---|---|",
+    ...params.snapshot.preparedAttemptsWithoutSale.map(
+      (a) => `| ${a.attemptKey} | ${a.shiftId} | ${a.hasSale} |`,
+    ),
+    "",
+    "## Pembayaran (metode, nominal, verifikasi QRIS)",
+    "| id | saleId | methodCode | amountRp | evidenceRef | verifiedBy |",
+    "|---|---|---|---|---|---|",
+    ...params.snapshot.payments.map(
+      (p) =>
+        `| ${p.id} | ${p.saleId} | ${p.methodCode} | Rp${p.amountRp} | ${p.evidenceRef ?? "-"} | ${p.verifiedBy ?? "-"} |`,
+    ),
+    "",
     "## Expected Values (Acuan Oracle)",
     "```json",
     JSON.stringify(EXPECTED_QA_SNAPSHOT, null, 2),
@@ -95,9 +150,14 @@ export function formatEvidenceMarkdown(params: {
   ].join("\n");
 }
 
-function main(): void {
-  const args = parseArgs(process.argv.slice(2));
+export function runQaCli(argv: string[]): void {
+  const args = parseArgs(argv);
   if (args.command === "reset") {
+    if (!args.dbPath || args.dbPath.trim().length === 0) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: perintah `reset` wajib menyertakan argumen `--db <path>` secara eksplisit (tidak boleh memakai lokasi default).",
+      );
+    }
     const result = resetAndSeedQaDatabase({
       dbPath: args.dbPath,
       confirmDevReset: args.confirmDevReset,
@@ -105,18 +165,19 @@ function main(): void {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  const targetDbPath = args.dbPath ?? resolveDatabasePath(process.env);
   if (args.command === "verify") {
-    const snapshot = snapshotSqliteState(args.dbPath);
+    const snapshot = snapshotSqliteState(targetDbPath);
     verifySnapshotAgainstExpected(snapshot);
-    console.log(args.json ? JSON.stringify(snapshot, null, 2) : `PASS: snapshot ${args.dbPath} cocok dengan EXPECTED_QA_SNAPSHOT.`);
+    console.log(args.json ? JSON.stringify(snapshot, null, 2) : `PASS: snapshot ${targetDbPath} cocok dengan EXPECTED_QA_SNAPSHOT.`);
     return;
   }
   if (args.command === "evidence") {
-    const snapshot = snapshotSqliteState(args.dbPath);
+    const snapshot = snapshotSqliteState(targetDbPath);
     verifySnapshotAgainstExpected(snapshot);
     console.log(
       formatEvidenceMarkdown({
-        command: `node backend/qa/qa_runner.ts evidence --db ${args.dbPath}`,
+        command: `node backend/qa/qa_runner.ts evidence --db ${targetDbPath}`,
         actualResult: "PASS",
         snapshot,
         reviewer: args.reviewer,
@@ -124,8 +185,17 @@ function main(): void {
     );
     return;
   }
-  console.error("Gunakan: reset --confirm-dev-reset | verify | evidence [--db <path>] [--reviewer <nama>]");
+  console.error("Gunakan: reset --db <path> --confirm-dev-reset | verify [--db <path>] | evidence [--db <path>] [--reviewer <nama>]");
   process.exitCode = 1;
+}
+
+function main(): void {
+  try {
+    runQaCli(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
 
 const invokedDirectly =
