@@ -3,21 +3,22 @@
  * TASK-006 — QA Fixture Reset, Verifier & Evidence Formatter (DEVELOPMENT ONLY).
  *
  * Contoh:
- *   node backend/qa/qa_runner.ts reset --confirm-dev-reset
- *   node backend/qa/qa_runner.ts verify
- *   node backend/qa/qa_runner.ts evidence --reviewer "Rahmat"
+ *   node backend/qa/qa_runner.ts reset --db <temp-qa-db-path> --confirm-dev-reset
+ *   node backend/qa/qa_runner.ts verify --db <temp-qa-db-path>
+ *   node backend/qa/qa_runner.ts evidence --db <temp-qa-db-path> --reviewer "Rahmat"
  */
 import assert from "node:assert/strict";
 import os from "node:os";
 import { resolveDatabasePath } from "../db/src/paths.ts";
 import {
   EXPECTED_QA_SNAPSHOT,
+  QaFixtureError,
   resetAndSeedQaDatabase,
   snapshotSqliteState,
   type SqliteSnapshot,
 } from "./qa_fixtures.ts";
 
-function parseArgs(argv: string[]) {
+export function parseArgs(argv: string[]) {
   const [command, ...rest] = argv;
   let dbPath: string | undefined;
   let confirmDevReset = false;
@@ -36,7 +37,7 @@ function parseArgs(argv: string[]) {
       reviewer = rest[++i];
     }
   }
-  return { command, dbPath: dbPath ?? resolveDatabasePath(process.env), confirmDevReset, json, reviewer };
+  return { command, dbPath, confirmDevReset, json, reviewer };
 }
 
 export function verifySnapshotAgainstExpected(snapshot: SqliteSnapshot): void {
@@ -149,9 +150,14 @@ export function formatEvidenceMarkdown(params: {
   ].join("\n");
 }
 
-function main(): void {
-  const args = parseArgs(process.argv.slice(2));
+export function runQaCli(argv: string[]): void {
+  const args = parseArgs(argv);
   if (args.command === "reset") {
+    if (!args.dbPath || args.dbPath.trim().length === 0) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: perintah `reset` wajib menyertakan argumen `--db <path>` secara eksplisit (tidak boleh memakai lokasi default).",
+      );
+    }
     const result = resetAndSeedQaDatabase({
       dbPath: args.dbPath,
       confirmDevReset: args.confirmDevReset,
@@ -159,18 +165,19 @@ function main(): void {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  const targetDbPath = args.dbPath ?? resolveDatabasePath(process.env);
   if (args.command === "verify") {
-    const snapshot = snapshotSqliteState(args.dbPath);
+    const snapshot = snapshotSqliteState(targetDbPath);
     verifySnapshotAgainstExpected(snapshot);
-    console.log(args.json ? JSON.stringify(snapshot, null, 2) : `PASS: snapshot ${args.dbPath} cocok dengan EXPECTED_QA_SNAPSHOT.`);
+    console.log(args.json ? JSON.stringify(snapshot, null, 2) : `PASS: snapshot ${targetDbPath} cocok dengan EXPECTED_QA_SNAPSHOT.`);
     return;
   }
   if (args.command === "evidence") {
-    const snapshot = snapshotSqliteState(args.dbPath);
+    const snapshot = snapshotSqliteState(targetDbPath);
     verifySnapshotAgainstExpected(snapshot);
     console.log(
       formatEvidenceMarkdown({
-        command: `node backend/qa/qa_runner.ts evidence --db ${args.dbPath}`,
+        command: `node backend/qa/qa_runner.ts evidence --db ${targetDbPath}`,
         actualResult: "PASS",
         snapshot,
         reviewer: args.reviewer,
@@ -178,8 +185,17 @@ function main(): void {
     );
     return;
   }
-  console.error("Gunakan: reset --confirm-dev-reset | verify | evidence [--db <path>] [--reviewer <nama>]");
+  console.error("Gunakan: reset --db <path> --confirm-dev-reset | verify [--db <path>] | evidence [--db <path>] [--reviewer <nama>]");
   process.exitCode = 1;
+}
+
+function main(): void {
+  try {
+    runQaCli(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
 
 const invokedDirectly =

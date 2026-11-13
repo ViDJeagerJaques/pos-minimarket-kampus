@@ -3,7 +3,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { checkIntegrity, openDatabase } from "../db/src/db.ts";
-import { REPO_ROOT } from "../db/src/paths.ts";
+import { REPO_ROOT, resolveDatabasePath } from "../db/src/paths.ts";
 import { DEMO_PASSWORD_HASH_PLACEHOLDER } from "../db/src/seed.ts";
 import { createTempDatabase, migrateFresh } from "../db/test/helpers.ts";
 import {
@@ -14,7 +14,7 @@ import {
   resetAndSeedQaDatabase,
   snapshotSqliteState,
 } from "./qa_fixtures.ts";
-import { formatEvidenceMarkdown, verifySnapshotAgainstExpected } from "./qa_runner.ts";
+import { formatEvidenceMarkdown, runQaCli, verifySnapshotAgainstExpected } from "./qa_runner.ts";
 
 const DEV_ENV = { POS_DB_PROFILE: "development" } as const;
 
@@ -460,5 +460,59 @@ test("NEGATIF: DB DEMO versi lama tanpa kolom baseline atau tanpa qa_fixture_run
     assert.ok(existsSync(noQaTableDb.dbPath));
   } finally {
     noQaTableDb.cleanup();
+  }
+});
+
+test("NEGATIF: qa_runner reset tanpa --db ditolak (tidak boleh memakai path default)", () => {
+  assert.throws(
+    () => runQaCli(["reset", "--confirm-dev-reset"]),
+    (e: unknown) => e instanceof QaFixtureError && /--db/.test(e.message),
+  );
+});
+
+test("NEGATIF: database development biasa (termasuk DB kosong) dan lokasi di luar direktori QA ditolak", () => {
+  // 1. Lokasi di luar direktori sementara QA (mis. path default development / direktori non-QA)
+  const defaultDevPath = resolveDatabasePath({ ...DEV_ENV });
+  assert.throws(
+    () => resetAndSeedQaDatabase({ dbPath: defaultDevPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+    (e: unknown) => e instanceof QaFixtureError && /di luar direktori sementara QA/.test(e.message),
+  );
+
+  // 2. Direktori temp yang tidak berawalan pos-qa- tetap ditolak
+  const nonQaTempDb = createTempDatabase("pos-dev-ordinary-");
+  try {
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: nonQaTempDb.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError && /pos-qa-/.test(e.message),
+    );
+  } finally {
+    nonQaTempDb.cleanup();
+  }
+
+  // 3. Database development kosong (sudah dimigrasi, 0 baris bisnis, tanpa penanda QA) ditolak & tidak dihapus
+  const emptyMigratedDevDb = createTempDatabase("pos-qa-empty-dev-");
+  try {
+    migrateFresh(emptyMigratedDevDb);
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: emptyMigratedDevDb.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError && /demo_seed_runs/.test(e.message),
+    );
+    assert.ok(existsSync(emptyMigratedDevDb.dbPath), "DB development kosong tidak boleh dihapus");
+  } finally {
+    emptyMigratedDevDb.cleanup();
+  }
+});
+
+test("NEGATIF: database/file tidak dikenal di direktori QA ditolak tanpa dihapus", () => {
+  const unknownDb = createTempDatabase("pos-qa-unknown-");
+  try {
+    writeFileSync(unknownDb.dbPath, "bukan-sqlite-qa-disposable", "utf8");
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: unknownDb.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError,
+    );
+    assert.ok(existsSync(unknownDb.dbPath), "File tidak dikenal tidak boleh dihapus");
+  } finally {
+    unknownDb.cleanup();
   }
 });

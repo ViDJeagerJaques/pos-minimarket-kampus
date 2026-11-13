@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { checkIntegrity, openDatabase, readUserVersion } from "../db/src/db.ts";
@@ -58,6 +59,31 @@ export function assertSafeDevResetTarget(
   if (/(^|[\\/])(prod|production|operational)([\\/]|$)/i.test(resolved)) {
     throw new QaFixtureError(
       `Reset QA ditolak: path "${resolved}" mengarah ke direktori operasional/produksi.`,
+    );
+  }
+  assertAllowedQaTempDirectory(resolved);
+}
+
+/**
+ * Batasi lokasi reset hanya ke subdirektori QA sementara berawalan `pos-qa-`
+ * di dalam direktori temp OS agar database development biasa atau lokasi lain
+ * tidak pernah terhapus oleh skrip reset QA.
+ */
+export function assertAllowedQaTempDirectory(dbPath: string): void {
+  const resolvedDb = path.resolve(dbPath);
+  const resolvedTmpRoot = path.resolve(os.tmpdir());
+  const rel = path.relative(resolvedTmpRoot, resolvedDb);
+  const isInsideTmp =
+    rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  if (!isInsideTmp) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: lokasi "${resolvedDb}" berada di luar direktori sementara QA (${resolvedTmpRoot}).`,
+    );
+  }
+  const firstSegment = rel.split(/[\\/]/)[0] ?? "";
+  if (!/^pos-qa-/i.test(firstSegment)) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: direktori target "${firstSegment}" bukan direktori QA disposable berawalan "pos-qa-".`,
     );
   }
 }
@@ -194,27 +220,30 @@ function assertNoExtraDataAfterSeed(
   }
 }
 
-function hasAnyBusinessData(db: DatabaseSync): boolean {
-  for (const table of BASELINE_TABLES) {
-    if (tableExistsInDb(db, table) && countRowsInDb(db, table) > 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function assertExistingDbIsNotOperational(dbPath: string): void {
   if (!existsSync(dbPath)) {
     return;
   }
-  const db = openDatabase(dbPath, { readOnly: true });
+  let db: DatabaseSync;
   try {
-    if (!hasAnyBusinessData(db)) {
-      return;
-    }
-    if (!tableExistsInDb(db, "demo_seed_runs")) {
+    db = openDatabase(dbPath, { readOnly: true });
+  } catch (error) {
+    throw new QaFixtureError(
+      `Reset QA ditolak: file database "${dbPath}" tidak dapat dibuka sebagai SQLite QA yang valid (${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
+  try {
+    let hasDemoRuns = false;
+    try {
+      hasDemoRuns = tableExistsInDb(db, "demo_seed_runs");
+    } catch (error) {
       throw new QaFixtureError(
-        "Reset QA ditolak: database sudah berisi data tanpa penanda demo_seed_runs (kemungkinan DB operasional).",
+        `Reset QA ditolak: database tidak dikenal atau bukan SQLite QA yang valid (${error instanceof Error ? error.message : String(error)}).`,
+      );
+    }
+    if (!hasDemoRuns) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: database sudah ada tanpa penanda demo_seed_runs (kemungkinan DB development biasa, DB kosong, atau DB operasional).",
       );
     }
     if (
