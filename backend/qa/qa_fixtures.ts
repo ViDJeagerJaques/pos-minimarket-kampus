@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -61,19 +62,35 @@ export function assertSafeDevResetTarget(
   }
 }
 
-/** Tabel bisnis yang dipantau baseline-nya. Tabel metadata (demo_seed_runs,
- *  qa_fixture_runs, schema_migrations) sengaja tidak dimasukkan. */
+/** Seluruh tabel bisnis/transaksi dari skema 0001 yang dipantau baseline-nya.
+ *  Tabel metadata (demo_seed_runs, qa_fixture_runs, schema_migrations) sengaja tidak dimasukkan. */
 const BASELINE_TABLES = [
   "users",
+  "sessions",
   "categories",
   "suppliers",
   "products",
   "product_barcodes",
   "product_suppliers",
-  "inventory_movements",
-  "sales",
   "shifts",
+  "shift_closings",
+  "shift_closing_totals",
+  "checkout_attempts",
+  "sales",
+  "sale_items",
+  "payments",
+  "goods_receipts",
+  "receipt_items",
+  "inventory_movements",
+  "audit_log",
 ] as const;
+
+function columnExistsInDb(db: DatabaseSync, table: string, column: string): boolean {
+  const row = db
+    .prepare("SELECT 1 AS found FROM pragma_table_info(?) WHERE name = ?")
+    .get(table, column) as { found: number } | undefined;
+  return row !== undefined;
+}
 
 function tableExistsInDb(db: DatabaseSync, name: string): boolean {
   const row = db
@@ -118,29 +135,72 @@ function qaBaselineCounts(db: DatabaseSync): Record<string, number> {
   return collectBaselineCountsFor(db, BASELINE_TABLES);
 }
 
+function serializeCellValue(value: unknown): string {
+  if (value instanceof Uint8Array) {
+    return `blob:${Buffer.from(value).toString("hex")}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Hitung hash SHA-256 deterministik atas seluruh isi baris pada BASELINE_TABLES
+ *  agar perubahan isi in-place tanpa perubahan jumlah baris tetap terdeteksi. */
+function computeDatabaseContentHash(db: DatabaseSync): string {
+  const hash = createHash("sha256");
+  for (const table of BASELINE_TABLES) {
+    hash.update(`TABLE:${table}\n`);
+    if (!tableExistsInDb(db, table)) {
+      hash.update("MISSING\n");
+      continue;
+    }
+    const cols = db
+      .prepare("SELECT name FROM pragma_table_info(?) ORDER BY cid")
+      .all(table) as Array<{ name: string }>;
+    const colNames = cols.map((c) => c.name);
+    hash.update(`COLS:${colNames.join(",")}\n`);
+
+    const rows = db.prepare(`SELECT * FROM ${table}`).all() as Array<Record<string, unknown>>;
+    const encodedRows = rows
+      .map((row) => `[${colNames.map((col) => serializeCellValue(row[col])).join(",")}]`)
+      .sort();
+    for (const encoded of encodedRows) {
+      hash.update(`${encoded}\n`);
+    }
+  }
+  return hash.digest("hex");
+}
+
 /**
- * Bandingkan isi DB dengan baseline saat seed. Tabel bisnis yang jumlah barisnya
- * NAIK berarti ada data tambahan setelah seed — reset ditolak agar data itu
- * tidak hilang diam-dian. Penurunan masih diperbolehkan (mis. rollback uji).
+ * Bandingkan isi DB dengan baseline QA secara ketat (fail-closed):
+ * jumlah baris pada seluruh tabel bisnis/transaksi harus sama persis.
  */
 function assertNoExtraDataAfterSeed(
   db: DatabaseSync,
   baseline: Record<string, number>,
   demoSeedKey: string,
 ): void {
-  const grown: string[] = [];
+  const changed: string[] = [];
   for (const table of BASELINE_TABLES) {
     const current = tableExistsInDb(db, table) ? countRowsInDb(db, table) : 0;
-    if (current > (baseline[table] ?? 0)) {
-      grown.push(`${table}=${baseline[table] ?? 0}→${current}`);
+    const expected = baseline[table] ?? 0;
+    if (current !== expected) {
+      changed.push(`${table}=${expected}→${current}`);
     }
   }
-  if (grown.length > 0) {
+  if (changed.length > 0) {
     throw new QaFixtureError(
-      `Reset QA ditolak: database "${demoSeedKey}" sudah berisi data tambahan setelah seed (${grown.join(", ")}). ` +
-        "Hapus/reset manual atau pakai database baru; jangan timpa data yang sudah bertambah.",
+      `Reset QA ditolak: database "${demoSeedKey}" sudah berisi data tambahan / perubahan jumlah baris setelah baseline (${changed.join(", ")}). ` +
+        "Hapus/reset manual atau pakai database baru; jangan timpa data yang sudah berubah.",
     );
   }
+}
+
+function hasAnyBusinessData(db: DatabaseSync): boolean {
+  for (const table of BASELINE_TABLES) {
+    if (tableExistsInDb(db, table) && countRowsInDb(db, table) > 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function assertExistingDbIsNotOperational(dbPath: string): void {
@@ -149,24 +209,23 @@ function assertExistingDbIsNotOperational(dbPath: string): void {
   }
   const db = openDatabase(dbPath, { readOnly: true });
   try {
-    const hasUsersTable = db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='users'")
-      .get();
-    if (!hasUsersTable) {
+    if (!hasAnyBusinessData(db)) {
       return;
     }
-    const userCount = (db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n;
-    if (userCount === 0) {
-      return;
-    }
-    const hasDemoRuns = db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='demo_seed_runs'")
-      .get();
-    if (!hasDemoRuns) {
+    if (!tableExistsInDb(db, "demo_seed_runs")) {
       throw new QaFixtureError(
         "Reset QA ditolak: database sudah berisi data tanpa penanda demo_seed_runs (kemungkinan DB operasional).",
       );
     }
+    if (
+      !columnExistsInDb(db, "demo_seed_runs", "baseline_counts_json") ||
+      !columnExistsInDb(db, "demo_seed_runs", "baseline_user_version")
+    ) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: database DEMO versi lama tidak memiliki kolom baseline (baseline_counts_json / baseline_user_version) pada demo_seed_runs.",
+      );
+    }
+
     const runRow = db
       .prepare(
         "SELECT run_key, baseline_counts_json, baseline_user_version FROM demo_seed_runs LIMIT 1",
@@ -180,25 +239,49 @@ function assertExistingDbIsNotOperational(dbPath: string): void {
       );
     }
 
-    // Guard baru: DB yang punya penanda demo tapi ternyata bertambah isinya
-    // (mis. transaksi nyata masuk) tidak boleh dihapus oleh reset QA.
-    // Baseline yang dipakai = kondisi SAAT FIXTURE QA selesai (paling mutakhir),
-    // fallback ke baseline seed bila fixture QA belum pernah dipasang.
-    const qaRow = db
-      .prepare("SELECT baseline_counts_json FROM qa_fixture_runs WHERE run_key = ? LIMIT 1")
-      .get(QA_FIXTURE_KEY) as { baseline_counts_json: string | null } | undefined;
+    if (!tableExistsInDb(db, "qa_fixture_runs")) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: tabel qa_fixture_runs tidak ditemukan (database DEMO lama atau bukan database QA disposable).",
+      );
+    }
+    if (
+      !columnExistsInDb(db, "qa_fixture_runs", "baseline_counts_json") ||
+      !columnExistsInDb(db, "qa_fixture_runs", "baseline_content_hash")
+    ) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: kolom baseline pada qa_fixture_runs tidak lengkap (database QA/DEMO versi lama).",
+      );
+    }
 
-    const rawBaseline = qaRow?.baseline_counts_json ?? runRow.baseline_counts_json;
-    if (rawBaseline !== null && rawBaseline !== "") {
-      let baseline: Record<string, number>;
-      try {
-        baseline = JSON.parse(rawBaseline) as Record<string, number>;
-      } catch {
-        throw new QaFixtureError(
-          "Reset QA ditolak: baseline_counts_json tidak dapat dibaca.",
-        );
-      }
-      assertNoExtraDataAfterSeed(db, baseline, runRow.run_key);
+    const qaRow = db
+      .prepare(
+        "SELECT baseline_counts_json, baseline_content_hash FROM qa_fixture_runs WHERE run_key = ? LIMIT 1",
+      )
+      .get(QA_FIXTURE_KEY) as
+      | { baseline_counts_json: string | null; baseline_content_hash: string | null }
+      | undefined;
+
+    if (!qaRow || !qaRow.baseline_counts_json || !qaRow.baseline_content_hash) {
+      throw new QaFixtureError(
+        "Reset QA ditolak: penanda baseline QA (qa_fixture_runs) tidak ditemukan atau tidak lengkap; hanya database QA disposable utuh yang boleh di-reset.",
+      );
+    }
+
+    let baseline: Record<string, number>;
+    try {
+      baseline = JSON.parse(qaRow.baseline_counts_json) as Record<string, number>;
+    } catch {
+      throw new QaFixtureError(
+        "Reset QA ditolak: baseline_counts_json tidak dapat dibaca.",
+      );
+    }
+    assertNoExtraDataAfterSeed(db, baseline, runRow.run_key);
+
+    const currentContentHash = computeDatabaseContentHash(db);
+    if (currentContentHash !== qaRow.baseline_content_hash) {
+      throw new QaFixtureError(
+        `Reset QA ditolak: isi data database "${runRow.run_key}" telah berubah dari baseline QA (hash konten tidak cocok).`,
+      );
     }
   } finally {
     db.close();
@@ -295,6 +378,7 @@ export function applyQaFixtures(options: {
          ) STRICT`,
       );
       addColumnIfMissing(db, "qa_fixture_runs", "baseline_counts_json", "TEXT");
+      addColumnIfMissing(db, "qa_fixture_runs", "baseline_content_hash", "TEXT");
 
       // 1. Akun kasir nonaktif sintetis (melengkapi 3 akun seedDemo: admin, kasir pagi, kasir sore).
       db.prepare(
@@ -426,8 +510,13 @@ export function applyQaFixtures(options: {
       ).run(EXPECTED_QA_SNAPSHOT.preparedAttemptKey, QA_FIXED_TS + 3_800_000);
 
       db.prepare(
-        "INSERT INTO qa_fixture_runs (run_key, applied_at_ms, baseline_counts_json) VALUES (?, ?, ?)",
-      ).run(QA_FIXTURE_KEY, QA_FIXED_TS, JSON.stringify(qaBaselineCounts(db)));
+        "INSERT INTO qa_fixture_runs (run_key, applied_at_ms, baseline_counts_json, baseline_content_hash) VALUES (?, ?, ?, ?)",
+      ).run(
+        QA_FIXTURE_KEY,
+        QA_FIXED_TS,
+        JSON.stringify(qaBaselineCounts(db)),
+        computeDatabaseContentHash(db),
+      );
       db.exec("COMMIT");
       return { applied: true, skippedReason: null };
     } catch (error) {

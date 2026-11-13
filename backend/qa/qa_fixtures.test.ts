@@ -341,3 +341,124 @@ test("AC-09.01 & AC-09.02: backup konsisten dapat dipulihkan dan cadangan rusak 
     database.cleanup();
   }
 });
+
+test("NEGATIF: penambahan baris pada tabel transaksi di luar daftar lama (sessions/payments/audit_log) ditolak", () => {
+  const database = createTempDatabase("pos-qa-tx-table-");
+  try {
+    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } });
+
+    const db = database.open();
+    try {
+      db.prepare(
+        `INSERT INTO sessions (token_digest, user_id, expires_at_ms)
+         VALUES (zeroblob(32), 2, ?)`,
+      ).run(QA_FIXED_TS + 86_400_000);
+    } finally {
+      db.close();
+    }
+
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError && /sessions=0→1/.test(e.message),
+    );
+    assert.ok(existsSync(database.dbPath));
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("NEGATIF: perubahan isi data in-place tanpa perubahan jumlah baris tetap terdeteksi dan ditolak", () => {
+  const database = createTempDatabase("pos-qa-inplace-edit-");
+  try {
+    resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } });
+
+    const db = database.open();
+    try {
+      db.prepare("UPDATE products SET price_rp = 9999 WHERE id = 1").run();
+    } finally {
+      db.close();
+    }
+
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: database.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError && /hash konten/.test(e.message),
+    );
+    assert.ok(existsSync(database.dbPath));
+
+    const check = openDatabase(database.dbPath, { readOnly: true });
+    try {
+      const row = check.prepare("SELECT price_rp FROM products WHERE id = 1").get() as { price_rp: number };
+      assert.equal(row.price_rp, 9999);
+    } finally {
+      check.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("NEGATIF: DB DEMO versi lama tanpa kolom baseline atau tanpa qa_fixture_runs ditolak fail-closed tanpa menghapus data", () => {
+  const oldColsDb = createTempDatabase("pos-qa-old-demo-cols-");
+  try {
+    migrateFresh(oldColsDb);
+    const db = oldColsDb.open();
+    try {
+      db.exec(
+        `CREATE TABLE demo_seed_runs (
+           run_key TEXT PRIMARY KEY,
+           seeded_at_ms INTEGER NOT NULL
+         ) STRICT`,
+      );
+      db.prepare("INSERT INTO demo_seed_runs (run_key, seeded_at_ms) VALUES ('demo-old-v0', ?)").run(
+        QA_FIXED_TS,
+      );
+      db.prepare(
+        `INSERT INTO users (id, username, password_hash, role, active, created_at_ms)
+         VALUES (1, 'demo.lama', ?, 'CASHIER', 1, ?)`,
+      ).run(DEMO_PASSWORD_HASH_PLACEHOLDER, QA_FIXED_TS);
+    } finally {
+      db.close();
+    }
+
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: oldColsDb.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError && /versi lama/.test(e.message),
+    );
+    assert.ok(existsSync(oldColsDb.dbPath));
+  } finally {
+    oldColsDb.cleanup();
+  }
+
+  const noQaTableDb = createTempDatabase("pos-qa-old-demo-noqa-");
+  try {
+    migrateFresh(noQaTableDb);
+    const db = noQaTableDb.open();
+    try {
+      db.exec(
+        `CREATE TABLE demo_seed_runs (
+           run_key TEXT PRIMARY KEY,
+           seeded_at_ms INTEGER NOT NULL,
+           baseline_counts_json TEXT,
+           baseline_user_version INTEGER
+         ) STRICT`,
+      );
+      db.prepare(
+        "INSERT INTO demo_seed_runs (run_key, seeded_at_ms, baseline_counts_json, baseline_user_version) VALUES ('demo-v1', ?, '{}', 1)",
+      ).run(QA_FIXED_TS);
+      db.prepare(
+        `INSERT INTO users (id, username, password_hash, role, active, created_at_ms)
+         VALUES (1, 'demo.tanpa.qa', ?, 'CASHIER', 1, ?)`,
+      ).run(DEMO_PASSWORD_HASH_PLACEHOLDER, QA_FIXED_TS);
+    } finally {
+      db.close();
+    }
+
+    assert.throws(
+      () => resetAndSeedQaDatabase({ dbPath: noQaTableDb.dbPath, confirmDevReset: true, env: { ...DEV_ENV } }),
+      (e: unknown) => e instanceof QaFixtureError && /qa_fixture_runs/.test(e.message),
+    );
+    assert.ok(existsSync(noQaTableDb.dbPath));
+  } finally {
+    noQaTableDb.cleanup();
+  }
+});
