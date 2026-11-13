@@ -2,7 +2,7 @@
   "name": "pos-minimarket-kampus-backend",
   "private": true,
   "version": "0.0.0-demo",
-  "description": "Backend lokal (DEMO, data sintetis) — TASK-008 fondasi SQLite dan migrasi inti. Bukan aplikasi siap produksi.",
+  "description": "Backend lokal (DEMO, data sintetis) — TASK-008 fondasi SQLite dan migrasi inti; TASK-006 fixture QA dan bukti uji. Bukan aplikasi siap produksi.",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
@@ -13,6 +13,11 @@
     "db:verify": "node db/src/cli.ts verify",
     "db:seed:demo": "node db/src/cli.ts seed --demo",
     "db:check": "node db/src/cli.ts migrate && node db/src/cli.ts verify",
-    "test": "node --test db/test/migrate.test.ts db/test/constraints.test.ts db/test/seed.test.ts db/test/failure.test.ts db/test/safety.test.ts"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test db/test/migrate.test.ts db/test/constraints.test.ts db/test/seed.test.ts db/test/failure.test.ts db/test/safety.test.ts qa/qa_fixtures.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
   }
 }
