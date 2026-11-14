@@ -584,6 +584,12 @@ test("Pemeliharaan barcode/supplier, pencarian manual, escape LIKE, dan limit", 
 
     // Pencarian SKU case-insensitive dan aman terhadap wildcard LIKE.
     assert.equal(service.listProducts(cashier, { query: "sku-maint" }).length, 1);
+    // query non-string harus 422, bukan TypeError; string kosong/spasi = tanpa filter.
+    assert.throws(
+      () => service.listProducts(cashier, { query: 123 as unknown as string }),
+      (error: unknown) => isCatalogError(error, ValidationError, "VALIDATION_ERROR", "query"),
+    );
+    assert.equal(service.listProducts(cashier, { query: "   " }).length > 0, true);
     service.createProduct(admin, {
       categoryId: 1,
       sku: "SKU-PERSEN",

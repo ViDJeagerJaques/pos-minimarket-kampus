@@ -4,8 +4,8 @@
 |---|---|
 | Tugas | TASK-010 · Coding DEMO · Owner Rahmat · Reviewer David, Naazmi |
 | Referensi | POS-02.01–03, POS-03.01 · AC-02.01, AC-02.02, AC-02.03, AC-03.01 · DEC-014 |
-| Branch | `task/p08-010` (lokal, belum di-commit/push/PR) |
-| Basis | `origin/master` @ `544ad10` (memuat TASK-008 dan TASK-006) |
+| Branch | `task/p08-010` (di-push ke origin; PR tidak diverifikasi) |
+| Basis | `origin/master` @ `544ad10`; sudah merge `origin/master` @ `02d027f` (CI) |
 | Tanggal | 14 November 2026 |
 | Status | **REVIEW** — service katalog lulus tes development; endpoint HTTP, UI, dan integrasi checkout **BLOCKED** karena TASK-009 belum ada |
 | Lingkup | Service layer katalog + lookup + otorisasi + audit atomik pada SQLite |
@@ -43,7 +43,8 @@ Desain kunci:
 - **Snapshot historis tidak disentuh.** Perubahan harga hanya mengubah
   `products.price_rp` dan menulis audit `PRICE_CHANGED` berisi harga lama/baru.
 - **Uang integer rupiah**: float, NaN, dan negatif ditolak. Nama/SKU/barcode
-  divalidasi panjang, karakter kontrol, dan spasi.
+  divalidasi panjang, karakter kontrol, dan spasi. Opsi lookup juga divalidasi
+  runtime: `query` non-string menghasilkan 422, bukan `TypeError`.
 
 ## 2. Verifikasi yang dijalankan
 
@@ -54,8 +55,12 @@ ada Node/npm global di mesin ini. Dependensi dev dipasang dengan npm portable.
 | # | Perintah (dijalankan dari `backend/`) | Hasil |
 |---|---|---|
 | V1 | `node --test src/catalog/service.test.ts` | **PASS 7/7**, 0 fail |
-| V2 | `npm test` (migrasi + constraint + seed + failure + safety + QA + katalog) | **PASS 42/42**, 0 fail, ±2,9 s |
+| V2 | `npm test` (migrasi + constraint + seed + failure + safety + QA + katalog) | **PASS 42/42**, 0 fail, ±3,9 s |
 | V3 | `npm run typecheck` (`tsc --noEmit -p tsconfig.json`) | **PASS**, exit 0 tanpa diagnostik |
+
+V1–V3 diulang setelah perbaikan review `query` non-string (lihat §2.1).
+CodeRabbit CLI tidak terpasang di mesin ini (`coderabbit` tidak ditemukan),
+sehingga review lokal CodeRabbit tidak dijalankan.
 
 Bukti perilaku ada di output tes (assertion per skenario). Tidak ada file log
 terpisah yang di-commit agar tidak memuat path/data lokal.
@@ -100,8 +105,13 @@ terpisah yang di-commit agar tidak memuat path/data lokal.
 
 ## 4. Git
 
-- Branch: `task/p08-010` dari `origin/master` @ `544ad10`.
-- Belum ada commit, push, atau PR (menunggu instruksi eksplisit).
+- Branch: `task/p08-010` (tracking `origin/task/p08-010`).
+- Commit katalog: `218baef` — sudah ada dan sudah di-push; pesan commit masih
+  placeholder (`feat: TASK-XXX deskripsi pekerjaan`), perlu diperbaiki bila
+  diizinkan menulis ulang riwayat branch milik sendiri.
+- Branch juga memuat merge `origin/master` (`02d027f`, CI GitHub Actions).
+- Perbaikan dari review (validasi `query` non-string + tes) **belum di-commit**
+  saat laporan ini ditulis.
 - Perubahan tercatat: `backend/package.json`, `backend/tsconfig.json`,
   `backend/src/catalog/*` (5 modul + 1 tes), dokumen ini.
 

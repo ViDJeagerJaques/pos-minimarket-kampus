@@ -413,10 +413,16 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
     const limit = assertLimit(options.limit);
     const barcode =
       options.barcode === undefined || options.barcode === "" ? null : normalizeBarcode(options.barcode);
+    // Tipe runtime diperiksa sebelum `trim()` agar input non-string tetap
+    // menghasilkan ValidationError (422), bukan TypeError mentah.
+    const rawQuery = options.query;
+    if (rawQuery !== undefined && typeof rawQuery !== "string") {
+      throw new ValidationError("query harus berupa teks.", "query");
+    }
     const query =
-      options.query === undefined || options.query.trim() === ""
+      rawQuery === undefined || rawQuery.trim() === ""
         ? null
-        : normalizeText(options.query, "query", MAX_QUERY_LENGTH);
+        : normalizeText(rawQuery, "query", MAX_QUERY_LENGTH);
     const pattern = query === null ? null : `%${escapeLike(query)}%`;
 
     const rows = db
