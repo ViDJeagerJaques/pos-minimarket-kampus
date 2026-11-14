@@ -18,7 +18,7 @@ import { startHttpServer } from "./app.ts";
 type Options = {
   command: string;
   dbPath: string;
-  port: number;
+  port: number | undefined;
   sessionTtlMs: number;
 };
 
@@ -37,12 +37,12 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return parsed;
 }
 
-function parseArgs(argv: string[]): Options {
+export function parseArgs(argv: string[]): Options {
   const [command, ...rest] = argv;
   const options: Options = {
     command: command ?? "",
     dbPath: resolveDatabasePath(),
-    port: 0,
+    port: undefined,
     sessionTtlMs: DEFAULT_SESSION_TTL_MS,
   };
   for (let index = 0; index < rest.length; index += 1) {
@@ -131,9 +131,17 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-try {
-  process.exitCode = await main(process.argv.slice(2));
-} catch (error) {
-  process.stderr.write(`GAGAL: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  (import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}` ||
+    process.argv[1].endsWith("http/cli.ts") ||
+    process.argv[1].endsWith("http\\cli.ts"));
+
+if (invokedDirectly) {
+  try {
+    process.exitCode = await main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`GAGAL: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

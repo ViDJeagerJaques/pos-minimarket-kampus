@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -16,10 +17,19 @@ import {
   type LoginRateLimiter,
 } from "../security/loginRateLimiter.ts";
 import { startHttpServer, type RunningServer } from "./app.ts";
+import { parseArgs as parseHttpCliArgs } from "./cli.ts";
 
-const ADMIN_PASSWORD = "rahasia.admin.http";
-const CASHIER_PASSWORD = "rahasia.kasir.http";
-const DEFAULT_SECRET = Buffer.from("http-test-secret-0123456789abcdef0123");
+function makeRuntimePassword(prefix = "pw"): string {
+  return `${prefix}-${randomBytes(12).toString("hex")}`;
+}
+
+function makeRuntimeSecret(): Buffer {
+  return randomBytes(32);
+}
+
+const ADMIN_PASSWORD = makeRuntimePassword("admin-http");
+const CASHIER_PASSWORD = makeRuntimePassword("cashier-http");
+const DEFAULT_SECRET = makeRuntimeSecret();
 
 type ServerHandle = {
   running: RunningServer;
@@ -184,7 +194,7 @@ test("AC-01.01/AC-01.02 via HTTP: login, /auth/me, kegagalan generik, dan transp
     const expectedMessage =
       "Nama pengguna atau kata sandi salah, atau akun tidak dapat dipakai.";
     for (const attempt of [
-      { username: "admin.http", password: "salah" },
+      { username: "admin.http", password: makeRuntimePassword("wrong") },
       { username: "tidak.ada", password: ADMIN_PASSWORD },
     ]) {
       const failed = await login(base, attempt.username, attempt.password);
@@ -243,7 +253,7 @@ test("AC-01.03 via HTTP: CASHIER ditolak 403 pada endpoint ADMIN tanpa perubahan
       token: cashierToken,
       payload: JSON.stringify({
         username: "kasir.hendak.dibuat",
-        password: "sandi.kuat.123",
+        password: makeRuntimePassword("denied"),
         role: "CASHIER",
       }),
     });
@@ -272,12 +282,13 @@ test("AC-01.04 via HTTP: ADMIN membuat/menonaktifkan akun; sesi target mati; log
     const admin = await login(base, "admin.http", ADMIN_PASSWORD);
     const adminToken = (admin.json as { data: { token: string } }).data.token;
 
+    const createdUserPassword = makeRuntimePassword("baru-http");
     const created = await call(base, "/users", {
       method: "POST",
       token: adminToken,
       payload: JSON.stringify({
         username: "kasir.baru.http",
-        password: "sandi.baru.http",
+        password: createdUserPassword,
         role: "CASHIER",
       }),
     });
@@ -285,7 +296,7 @@ test("AC-01.04 via HTTP: ADMIN membuat/menonaktifkan akun; sesi target mati; log
     const newUser = (created.json as { data: { id: number; active: boolean } }).data;
     assert.equal(newUser.active, true);
 
-    const newLogin = await login(base, "kasir.baru.http", "sandi.baru.http");
+    const newLogin = await login(base, "kasir.baru.http", createdUserPassword);
     const newToken = (newLogin.json as { data: { token: string } }).data.token;
     assert.equal((await call(base, "/auth/me", { token: newToken })).status, 200);
 
@@ -333,14 +344,14 @@ test("AC-01.04 via HTTP: ADMIN membuat/menonaktifkan akun; sesi target mati; log
 
 test("Restart backend: token proses lama tidak valid; sesi tersimpan di SQLite", async () => {
   const { database, db } = createDatabase();
-  let handle = await startServerFor(db, Buffer.from("secret-pertama-0123456789abcdef012345"));
+  let handle = await startServerFor(db, makeRuntimeSecret());
   try {
     const first = await login(handle.running.url, "admin.http", ADMIN_PASSWORD);
     const oldToken = (first.json as { data: { token: string } }).data.token;
     assert.equal((await call(handle.running.url, "/auth/me", { token: oldToken })).status, 200);
     await handle.running.close();
 
-    handle = await startServerFor(db, Buffer.from("secret-kedua-0123456789abcdef0123456789"));
+    handle = await startServerFor(db, makeRuntimeSecret());
     assert.equal((await call(handle.running.url, "/auth/me", { token: oldToken })).status, 401);
     const sessionsPersisted = countRows(db, "sessions");
     assert.ok(sessionsPersisted >= 1, "baris sesi tetap ada di SQLite");
@@ -371,7 +382,7 @@ test("Batas ukuran body ditolak; audit/log keamanan tidak bocor sandi/token", as
   const handle = await startServerFor(db);
   try {
     const base = handle.running.url;
-    const failed = await login(base, "kasir.http", "sandi-yang-salah");
+    const failed = await login(base, "kasir.http", makeRuntimePassword("wrong"));
     assert.equal(failed.status, 401);
     const ok = await login(base, "kasir.http", CASHIER_PASSWORD);
     const token = (ok.json as { data: { token: string } }).data.token;
@@ -529,4 +540,45 @@ test("Rate limiter per-IP: banyak username berbeda dibatasi 429, cooldown pulih,
     db.close();
     database.cleanup();
   }
+});
+
+test("HTTP CLI port & pembersihan bucket rate-limiter kedaluwarsa", async () => {
+  // 1. CLI tanpa --port membiarkan port undefined agar startHttpServer memakai POS_HTTP_PORT.
+  const withoutPort = parseHttpCliArgs(["serve"]);
+  assert.equal(withoutPort.port, undefined);
+  const withPort = parseHttpCliArgs(["serve", "--port", "8787"]);
+  assert.equal(withPort.port, 8787);
+
+  const prevEnvPort = process.env.POS_HTTP_PORT;
+  const { database, db } = createDatabase();
+  process.env.POS_HTTP_PORT = "49155";
+  let handle: ServerHandle | undefined;
+  try {
+    handle = await startServerFor(db, DEFAULT_SECRET, { port: withoutPort.port });
+    assert.equal(handle.running.port, 49155);
+  } finally {
+    if (prevEnvPort === undefined) {
+      delete process.env.POS_HTTP_PORT;
+    } else {
+      process.env.POS_HTTP_PORT = prevEnvPort;
+    }
+    await handle?.running.close();
+    db.close();
+    database.cleanup();
+  }
+
+  // 2. Bucket kedaluwarsa untuk key yang tidak dipakai lagi dibersihkan saat sweep.
+  let fakeNow = FIXED_NOW;
+  const limiter = createLoginRateLimiter({
+    maxAttempts: 3,
+    windowMs: 5_000,
+    now: () => fakeNow,
+  });
+  limiter.recordFailure("127.0.0.1:lama.1");
+  limiter.recordFailure("127.0.0.1:lama.2");
+  assert.equal(limiter.size(), 2);
+
+  fakeNow += 5_001;
+  limiter.assertAllowed("127.0.0.1:baru");
+  assert.equal(limiter.size(), 0);
 });

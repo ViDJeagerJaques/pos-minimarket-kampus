@@ -78,24 +78,24 @@ export function main(argv: string[]): number {
       if (readUserVersion(db) < 1) {
         throw new Error("Skema belum diterapkan. Jalankan `npm run db:migrate` terlebih dahulu.");
       }
-      const table = db
-        .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'users'")
-        .get() as { found: number } | undefined;
-      if (!table) {
-        throw new Error("Tabel users tidak tersedia.");
-      }
-      const existing = db.prepare("SELECT COUNT(*) AS total FROM users").get() as {
-        total: number;
-      };
-      if (Number(existing.total) > 0) {
-        throw new Error(
-          "Bootstrap ADMIN hanya berlaku saat belum ada akun. Buat akun tambahan lewat endpoint ADMIN.",
-        );
-      }
 
       const now = Date.now();
       db.exec("BEGIN IMMEDIATE");
       try {
+        const table = db
+          .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+          .get() as { found: number } | undefined;
+        if (!table) {
+          throw new Error("Tabel users tidak tersedia.");
+        }
+        const existing = db.prepare("SELECT COUNT(*) AS total FROM users").get() as {
+          total: number;
+        };
+        if (Number(existing.total) > 0) {
+          throw new Error(
+            "Bootstrap ADMIN hanya berlaku saat belum ada akun. Buat akun tambahan lewat endpoint ADMIN.",
+          );
+        }
         const result = db
           .prepare(
             `INSERT INTO users (username, password_hash, role, active, created_at_ms)
@@ -135,9 +135,17 @@ export function main(argv: string[]): number {
   }
 }
 
-try {
-  process.exitCode = main(process.argv.slice(2));
-} catch (error) {
-  process.stderr.write(`GAGAL: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  (import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}` ||
+    process.argv[1].endsWith("auth/cli.ts") ||
+    process.argv[1].endsWith("auth\\cli.ts"));
+
+if (invokedDirectly) {
+  try {
+    process.exitCode = main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`GAGAL: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

@@ -49,6 +49,8 @@ export type LoginRateLimiter = {
   consume(key: string): void;
   /** Menghapus hitungan setelah login berhasil. */
   reset(key: string): void;
+  /** Jumlah bucket aktif yang masih tersimpan di memori. */
+  size(): number;
 };
 
 export class LoginRateLimitError extends AuthError {
@@ -82,8 +84,24 @@ export function createLoginRateLimiter(
   );
   const now = options.now ?? (() => Date.now());
   const buckets = new Map<string, number[]>();
+  let lastSweepAt = now();
+
+  function sweepExpired(at: number): void {
+    if (at - lastSweepAt < windowMs && buckets.size < 1024) {
+      return;
+    }
+    lastSweepAt = at;
+    const cutoff = at - windowMs;
+    for (const [bucketKey, timestamps] of buckets.entries()) {
+      const latest = timestamps[timestamps.length - 1];
+      if (latest === undefined || latest <= cutoff) {
+        buckets.delete(bucketKey);
+      }
+    }
+  }
 
   function prune(key: string, at: number): number[] {
+    sweepExpired(at);
     const kept = (buckets.get(key) ?? []).filter((timestamp) => timestamp > at - windowMs);
     if (kept.length === 0) {
       buckets.delete(key);
@@ -121,6 +139,9 @@ export function createLoginRateLimiter(
     },
     reset(key: string): void {
       buckets.delete(key);
+    },
+    size(): number {
+      return buckets.size;
     },
   };
 }

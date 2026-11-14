@@ -28,9 +28,9 @@
 | `backend/src/security/loginRateLimiter.ts` | Rate-limiter in-memory login (`maxAttempts` 1–100, `windowMs` 1.000–3.600.000 ms) dan error 429 generik |
 | `backend/src/http/app.ts` | Server `node:http` loopback: JSON, batas body, Host/Origin, Bearer, RBAC per handler, rate-limit `/auth/login`, header `Retry-After`, envelope error |
 | `backend/src/http/cli.ts` | `serve` (bind 127.0.0.1, secret sesi acak per proses) |
-| `backend/src/auth/password.test.ts` | 4 tes hash/verifikasi |
-| `backend/src/auth/service.test.ts` | 7 tes login/logout/sesi/akun/audit |
-| `backend/src/http/app.test.ts` | 7 tes HTTP end-to-end incl. restart, rate-limit per `IP:username` & per-IP 429 |
+| `backend/src/auth/password.test.ts` | 4 tes hash/verifikasi (sandi runtime) |
+| `backend/src/auth/service.test.ts` | 8 tes login/logout/sesi/akun/audit/rollback/bootstrap bersamaan |
+| `backend/src/http/app.test.ts` | 8 tes HTTP end-to-end incl. restart, rate-limit 429, `POS_HTTP_PORT`, & pembersihan bucket |
 | `backend/package.json`, `backend/tsconfig.json` | Script `start`, `auth:bootstrap-admin`, daftar tes, include `src/**` |
 | `backend/README.md` | §9 autentikasi/server, perintah bootstrap, batas |
 
@@ -63,10 +63,10 @@ database uji di direktori temp OS (di luar source tree).
 | # | Perintah (dari `backend/`) | Hasil |
 |---|---|---|
 | V1 | `npm run typecheck` | **PASS**, exit 0 tanpa diagnostik |
-| V2 | `npm test` (DB + QA + auth + HTTP) | **PASS 53/53**, 0 fail, ±3,2 s |
+| V2 | `npm test` (DB + QA + auth + HTTP) | **PASS 55/55**, 0 fail, ±3,6 s |
 | V3 | `node --test src/auth/password.test.ts` | **PASS 4/4** |
-| V4 | `node --test src/auth/service.test.ts` | **PASS 7/7** |
-| V5 | `node --test src/http/app.test.ts` | **PASS 7/7** |
+| V4 | `node --test src/auth/service.test.ts` | **PASS 8/8** |
+| V5 | `node --test src/http/app.test.ts` | **PASS 8/8** |
 | V6 | CLI manual: `node db/src/cli.ts migrate --db <temp>` lalu `POS_BOOTSTRAP_PASSWORD=… node src/auth/cli.ts bootstrap-admin --username admin.pertama --db <temp> --json` | **PASS** — `{"created":true,"username":"admin.pertama","role":"ADMIN"}` |
 | V7 | CLI bootstrap diulang pada DB berisi akun | **PASS (ditolak)** — exit 1, pesan hanya menyebut aturan bootstrap |
 | V8 | CLI bootstrap tanpa `POS_BOOTSTRAP_PASSWORD` | **PASS (ditolak)** — exit 1, sandi tidak dicetak |

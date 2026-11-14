@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { REPO_ROOT } from "../../db/src/paths.ts";
 import {
   createTempDatabase,
   FIXED_NOW,
@@ -20,9 +24,17 @@ import { createAuthService } from "./service.ts";
 import { createSessionStore, type Role, type SessionUser } from "./session.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 
-const ADMIN_PASSWORD = "rahasia.admin1";
-const CASHIER_PASSWORD = "rahasia.kasir1";
-const TEST_SECRET = Buffer.from("test-secret-0123456789abcdef0123456789");
+function makeRuntimePassword(prefix = "pw"): string {
+  return `${prefix}-${randomBytes(12).toString("hex")}`;
+}
+
+function makeRuntimeSecret(): Buffer {
+  return randomBytes(32);
+}
+
+const ADMIN_PASSWORD = makeRuntimePassword("admin");
+const CASHIER_PASSWORD = makeRuntimePassword("cashier");
+const TEST_SECRET = makeRuntimeSecret();
 
 type TestUser = {
   id: number;
@@ -112,10 +124,10 @@ test("AC-01.01/AC-01.02: login hanya untuk akun aktif dengan sandi benar; kegaga
       "Nama pengguna atau kata sandi salah, atau akun tidak dapat dipakai.";
     const failures: string[] = [];
     for (const attempt of [
-      { username: "admin.uji", password: "sandi-salah" },
+      { username: "admin.uji", password: makeRuntimePassword("wrong") },
       { username: "tidak.ada", password: ADMIN_PASSWORD },
       { username: "kasir.nonaktif", password: CASHIER_PASSWORD },
-      { username: "demo.akun", password: "apapun" },
+      { username: "demo.akun", password: makeRuntimePassword("any") },
     ]) {
       assert.throws(
         () => auth.login(attempt),
@@ -168,7 +180,7 @@ test("Logout mencabut sesi; token lama tidak dipakai lagi; kedaluwarsa dan resta
 
     // Restart proses = secret baru; digest token lama tidak lagi cocok.
     const restarted = createSessionStore(db, {
-      secret: Buffer.from("secret-lain-0123456789abcdef0123456789"),
+      secret: makeRuntimeSecret(),
       ttlMs: 12 * 60 * 60 * 1000,
     });
     assert.equal(restarted.verify(login.token), null);
@@ -212,7 +224,7 @@ test("AC-01.03/AC-01.04: ADMIN mengelola akun; CASHIER ditolak tanpa perubahan d
       () =>
         auth.createUser(cashier, {
           username: "kasir.hendak.dibuat",
-          password: "sandi.kuat.123",
+          password: makeRuntimePassword("denied"),
           role: "CASHIER",
         }),
       (error: unknown) => error instanceof ForbiddenError && error.httpStatus === 403,
@@ -228,9 +240,10 @@ test("AC-01.03/AC-01.04: ADMIN mengelola akun; CASHIER ditolak tanpa perubahan d
     assert.equal(countRows(db, "users"), before);
     assert.equal(countRows(db, "audit_log"), auditBefore);
 
+    const newCashierPassword = makeRuntimePassword("new-cashier");
     const created = auth.createUser(admin, {
       username: "kasir.baru",
-      password: "sandi.baru123",
+      password: newCashierPassword,
       role: "CASHIER",
     });
     assert.deepEqual({ ...created }, { id: 5, username: "kasir.baru", role: "CASHIER", active: true });
@@ -247,7 +260,7 @@ test("AC-01.03/AC-01.04: ADMIN mengelola akun; CASHIER ditolak tanpa perubahan d
       () =>
         auth.createUser(admin, {
           username: "KASIR.BARU",
-          password: "sandi.lain123",
+          password: makeRuntimePassword("dup"),
           role: "CASHIER",
         }),
       (error: unknown) => error instanceof ConflictError && error.httpStatus === 409,
@@ -256,7 +269,7 @@ test("AC-01.03/AC-01.04: ADMIN mengelola akun; CASHIER ditolak tanpa perubahan d
       () =>
         auth.createUser(admin, {
           username: "kasir.baru2",
-          password: "lemah",
+          password: randomBytes(2).toString("hex"),
           role: "CASHIER",
         }),
       (error: unknown) => error instanceof ValidationError && error.field === "password",
@@ -265,13 +278,13 @@ test("AC-01.03/AC-01.04: ADMIN mengelola akun; CASHIER ditolak tanpa perubahan d
       () =>
         auth.createUser(admin, {
           username: "kasir.baru3",
-          password: "sandi.panjang123",
+          password: makeRuntimePassword("role"),
           role: "SUPERVISOR" as Role,
         }),
       (error: unknown) => error instanceof ValidationError && error.field === "role",
     );
 
-    const cashierLogin = auth.login({ username: "kasir.baru", password: "sandi.baru123" });
+    const cashierLogin = auth.login({ username: "kasir.baru", password: newCashierPassword });
     const disabled = auth.updateUser(admin, created.id, { active: false });
     assert.equal(disabled.active, false);
     assert.equal(sessions.verify(cashierLogin.token), null, "sesi akun nonaktif dicabut");
@@ -281,12 +294,13 @@ test("AC-01.03/AC-01.04: ADMIN mengelola akun; CASHIER ditolak tanpa perubahan d
     assert.equal(reenabled.active, true);
     assert.equal(auditRows(db, "ACCOUNT_ENABLED").length, 1);
 
+    const admin2Password = makeRuntimePassword("admin2");
     const admin2 = auth.createUser(admin, {
       username: "admin.dua",
-      password: "sandi.admin2",
+      password: admin2Password,
       role: "ADMIN",
     });
-    const admin2Login = auth.login({ username: "admin.dua", password: "sandi.admin2" });
+    const admin2Login = auth.login({ username: "admin.dua", password: admin2Password });
     const demoted = auth.updateUser(admin, admin2.id, { role: "CASHIER" });
     assert.equal(demoted.role, "CASHIER");
     assert.equal(sessions.verify(admin2Login.token), null, "sesi target ROLE_CHANGED dicabut");
@@ -321,14 +335,14 @@ test("AC-01.03/AC-01.04: ADMIN mengelola akun; CASHIER ditolak tanpa perubahan d
 test("Audit dan log keamanan tidak memuat sandi, token, atau hash", () => {
   const { database, db, auth, securityLines } = setup();
   try {
-    const password = "sandi-rahasia-uji-123";
+    const password = makeRuntimePassword("secret-log");
     auth.createUser({ userId: 1, username: "admin.uji", role: "ADMIN" }, {
       username: "kasir.rahasia",
       password,
       role: "CASHIER",
     });
     try {
-      auth.login({ username: "kasir.rahasia", password: "sandi-yang-salah" });
+      auth.login({ username: "kasir.rahasia", password: makeRuntimePassword("wrong-log") });
     } catch {
       // Diharapkan gagal.
     }
@@ -361,20 +375,25 @@ test("Audit akun gagal di-write membatalkan pembuatan akun (atomisitas)", () => 
   const { database, db } = setup();
   try {
     const before = countRows(db, "users");
+    let nowCalls = 0;
     const service = createAuthService(db, {
       sessions: createSessionStore(db, { secret: TEST_SECRET, ttlMs: 1000 }),
       securityLog: createSecurityLogger(),
-      now: () => -1,
+      now: () => {
+        nowCalls += 1;
+        return nowCalls === 1 ? FIXED_NOW : -1;
+      },
     });
     assert.throws(
       () =>
         service.createUser({ userId: 1, username: "admin.uji", role: "ADMIN" }, {
           username: "kasir.gagal.audit",
-          password: "sandi.panjang123",
+          password: makeRuntimePassword("rollback"),
           role: "CASHIER",
         }),
       /CHECK constraint failed|NOT NULL constraint failed/,
     );
+    assert.equal(nowCalls, 2, "INSERT users harus memakai panggilan clock ke-1 dan audit ke-2");
     assert.equal(countRows(db, "users"), before);
     assert.equal(countRows(db, "audit_log"), 0);
   } finally {
@@ -400,6 +419,56 @@ test("Whitelist audit akun menolak event di luar daftar", () => {
     );
   } finally {
     db.close();
+    database.cleanup();
+  }
+});
+
+function runBootstrapProcess(
+  dbPath: string,
+  username: string,
+  password: string,
+): Promise<{ code: number | null; stderr: string }> {
+  return new Promise((resolve) => {
+    const cliPath = path.join(REPO_ROOT, "backend", "src", "auth", "cli.ts");
+    const child = spawn(
+      process.execPath,
+      [cliPath, "bootstrap-admin", "--username", username, "--db", dbPath, "--json"],
+      {
+        env: { ...process.env, POS_BOOTSTRAP_PASSWORD: password },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("close", (code) => {
+      resolve({ code, stderr });
+    });
+  });
+}
+
+test("Bootstrap ADMIN bersamaan hanya mengizinkan satu ADMIN pertama", async () => {
+  const database = createTempDatabase("pos-bootstrap-race-");
+  try {
+    migrateFresh(database);
+    const pw1 = makeRuntimePassword("boot1");
+    const pw2 = makeRuntimePassword("boot2");
+    const [first, second] = await Promise.all([
+      runBootstrapProcess(database.dbPath, "admin.satu", pw1),
+      runBootstrapProcess(database.dbPath, "admin.dua", pw2),
+    ]);
+    const exitCodes = [first.code, second.code].sort();
+    assert.deepEqual(exitCodes, [0, 1], `hasil proses bersamaan: ${JSON.stringify({ first, second })}`);
+
+    const db = database.open();
+    try {
+      assert.equal(countRows(db, "users"), 1);
+      assert.equal(countRows(db, "audit_log"), 1);
+    } finally {
+      db.close();
+    }
+  } finally {
     database.cleanup();
   }
 });

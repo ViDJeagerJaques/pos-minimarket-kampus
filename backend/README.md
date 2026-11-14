@@ -212,6 +212,9 @@ npm run auth:bootstrap-admin -- --username admin
 ```
 
 Perintah hanya berlaku bila tabel `users` masih kosong; diulang akan ditolak.
+Database DEMO yang sudah di-seed (berisi akun demo) tidak dapat langsung
+digunakan untuk `bootstrap-admin` karena tabel `users` sudah terisi; gunakan
+database baru hasil `npm run db:migrate` tanpa `db:seed:demo`.
 Seed DEMO memakai hash `DEMO_LOCKED_NO_LOGIN` yang ditolak login.
 
 ### 9.2 Server
