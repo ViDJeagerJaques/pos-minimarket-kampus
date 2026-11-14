@@ -13,7 +13,13 @@ import {
 } from "../src/paths.ts";
 import { createTempDatabase } from "./helpers.ts";
 
-test("lokasi default database berada di luar source tree", () => {
+// 2 tes pertama di bawah ini khusus Windows, karena pakai path
+// Windows (C:\Users\... dan D:\pos-data\...).
+// Di Linux / macOS, path Windows itu dibaca sebagai path relatif,
+// jadi tesnya di-skip di sana. Bukan dihapus, cuma dilewati.
+
+test("lokasi default database berada di luar source tree (Windows only)", () => {
+  if (process.platform !== "win32") return;
   const fakeEnv = { LOCALAPPDATA: "C:\\Users\\contoh\\AppData\\Local" };
   assert.equal(
     defaultDataDir(fakeEnv),
@@ -24,7 +30,8 @@ test("lokasi default database berada di luar source tree", () => {
   assert.equal(isInsideSourceTree(path.join(REPO_ROOT, "data", "pos-dev.sqlite")), true);
 });
 
-test("POS_DB_PATH dipakai sebagai override dan guard source tree menolak path repo", () => {
+test("POS_DB_PATH dipakai sebagai override dan guard source tree menolak path repo (Windows only)", () => {
+  if (process.platform !== "win32") return;
   const override = resolveDatabasePath({ POS_DB_PATH: "D:\\pos-data\\dev.sqlite" });
   assert.equal(path.resolve(override), path.resolve("D:\\pos-data\\dev.sqlite"));
 
