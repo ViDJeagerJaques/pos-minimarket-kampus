@@ -16,13 +16,12 @@ export const DEFAULT_LOGIN_WINDOW_MS = 60_000;
 const MIN_LOGIN_MAX_ATTEMPTS = 1;
 const MAX_LOGIN_MAX_ATTEMPTS = 100;
 const MIN_LOGIN_WINDOW_MS = 1_000;
-const MAX_LOGIN_WINDOW_MS = 60 * 60 * 0;
+const MAX_LOGIN_WINDOW_MS = 60 * 60 * 1000;
 
 function clampInt(
   value: number,
   min: number,
   max: number,
-  fallback: number,
   field: string,
 ): number {
   if (!Number.isSafeInteger(value)) {
@@ -41,6 +40,10 @@ export type LoginRateLimiterOptions = {
 };
 
 export type LoginRateLimiter = {
+  /** Memeriksa apakah percobaan masih diizinkan; melempar 429 bila batas tercapai. */
+  assertAllowed(key: string): void;
+  /** Mencatat kegagalan login tanpa melempar error. */
+  recordFailure(key: string): void;
   /** Mencatat percobaan dan melempar 429 bila batas terlampaui. */
   consume(key: string): void;
   /** Menghapus hitungan setelah login berhasil. */
@@ -81,19 +84,39 @@ export function createLoginRateLimiter(
 
   function prune(key: string, at: number): number[] {
     const kept = (buckets.get(key) ?? []).filter((timestamp) => timestamp > at - windowMs);
-    buckets.set(key, kept);
+    if (kept.length === 0) {
+      buckets.delete(key);
+    } else {
+      buckets.set(key, kept);
+    }
     return kept;
   }
 
+  function checkLimit(attempts: number[], at: number): void {
+    if (attempts.length >= maxAttempts) {
+      const retryAfterMs = Math.max(1, windowMs - (at - (attempts[0] ?? at)));
+      throw new LoginRateLimitError(retryAfterMs);
+    }
+  }
+
   return {
-    consume(key: string): void {
+    assertAllowed(key: string): void {
+      const at = now();
+      const attempts = prune(key, at);
+      checkLimit(attempts, at);
+    },
+    recordFailure(key: string): void {
       const at = now();
       const attempts = prune(key, at);
       attempts.push(at);
-      if (attempts.length > maxAttempts) {
-        const retryAfterMs = Math.max(1, windowMs - (at - (attempts[0] ?? at)));
-        throw new LoginRateLimitError(retryAfterMs);
-      }
+      buckets.set(key, attempts);
+    },
+    consume(key: string): void {
+      const at = now();
+      const attempts = prune(key, at);
+      checkLimit(attempts, at);
+      attempts.push(at);
+      buckets.set(key, attempts);
     },
     reset(key: string): void {
       buckets.delete(key);

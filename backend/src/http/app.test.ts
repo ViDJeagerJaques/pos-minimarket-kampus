@@ -11,6 +11,10 @@ import { createAuthService, type AuthService } from "../auth/service.ts";
 import { createSessionStore, type SessionStore } from "../auth/session.ts";
 import { hashPassword } from "../auth/password.ts";
 import { createSecurityLogger, type SecurityLogger } from "../security/securityLog.ts";
+import {
+  createLoginRateLimiter,
+  type LoginRateLimiter,
+} from "../security/loginRateLimiter.ts";
 import { startHttpServer, type RunningServer } from "./app.ts";
 
 const ADMIN_PASSWORD = "rahasia.admin.http";
@@ -27,21 +31,25 @@ type ServerHandle = {
 function startServerFor(
   db: DatabaseSync,
   secret: Buffer = DEFAULT_SECRET,
-  options: { maxBodyBytes?: number; port?: number } = {},
+  options: { maxBodyBytes?: number; port?: number; loginRateLimiter?: LoginRateLimiter; now?: () => number } = {},
 ): Promise<ServerHandle> {
   const securityLines: string[] = [];
   const sessions = createSessionStore(db, {
     secret,
     ttlMs: 12 * 60 * 60 * 1000,
+    now: options.now,
   });
   const securityLog: SecurityLogger = createSecurityLogger({
     sink: (line) => securityLines.push(line),
+    now: options.now,
   });
-  const auth = createAuthService(db, { sessions, securityLog });
+  const auth = createAuthService(db, { sessions, securityLog, now: options.now });
   return startHttpServer({
     auth,
     sessions,
     securityLog,
+    loginRateLimiter: options.loginRateLimiter,
+    now: options.now,
     maxBodyBytes: options.maxBodyBytes,
     port: options.port,
   }).then((running) => ({ running, sessions, auth, securityLines }));
@@ -101,7 +109,7 @@ async function call(base: string, path: string, options: CallOptions = {}) {
   } catch {
     json = null;
   }
-  return { status: response.status, json, text };
+  return { status: response.status, headers: response.headers, json, text };
 }
 
 async function login(base: string, username: string, password: string) {
@@ -371,6 +379,76 @@ test("Batas ukuran body ditolak; audit/log keamanan tidak bocor sandi/token", as
     for (const secret of [ADMIN_PASSWORD, CASHIER_PASSWORD, token, "scrypt$"]) {
       assert.equal(auditBlob.includes(secret), false, `audit memuat ${secret}`);
       assert.equal(securityBlob.includes(secret), false, `security log memuat ${secret}`);
+    }
+  } finally {
+    await handle.running.close();
+    db.close();
+    database.cleanup();
+  }
+});
+
+test("Rate limiter login: validasi jendela, HTTP 429 generik untuk user terdaftar & tak dikenal, pemulihan setelah cooldown", async () => {
+  assert.throws(() => createLoginRateLimiter({ windowMs: 0 }), /windowMs/);
+  assert.throws(() => createLoginRateLimiter({ windowMs: 60 * 60 * 1000 + 1 }), /windowMs/);
+  assert.throws(() => createLoginRateLimiter({ maxAttempts: 0 }), /maxAttempts/);
+  assert.doesNotThrow(() => createLoginRateLimiter({ windowMs: 60 * 60 * 1000, maxAttempts: 5 }));
+
+  const { database, db } = createDatabase();
+  let fakeNow = FIXED_NOW;
+  const windowMs = 10_000;
+  const limiter = createLoginRateLimiter({
+    maxAttempts: 3,
+    windowMs,
+    now: () => fakeNow,
+  });
+  const handle = await startServerFor(db, DEFAULT_SECRET, {
+    loginRateLimiter: limiter,
+    now: () => fakeNow,
+  });
+
+  try {
+    const base = handle.running.url;
+
+    // 1. User terdaftar gagal 3x -> 401; percobaan ke-4 -> 429 dengan Retry-After & retryable=true
+    for (let i = 0; i < 3; i += 1) {
+      const fail = await login(base, "kasir.http", "sandi-salah");
+      assert.equal(fail.status, 401);
+    }
+    const blockedKnown = await login(base, "kasir.http", CASHIER_PASSWORD);
+    assert.equal(blockedKnown.status, 429);
+    assert.ok(Number(blockedKnown.headers.get("retry-after")) >= 1);
+    const knownErr = (blockedKnown.json as {
+      error: { code: string; message: string; retryable: boolean };
+    }).error;
+    assert.equal(knownErr.code, "LOGIN_RATE_LIMITED");
+    assert.equal(knownErr.retryable, true);
+
+    // 2. User tidak terdaftar juga mendapat 401 3x lalu 429 dengan pesan identik (tidak bocor registrasi)
+    for (let i = 0; i < 3; i += 1) {
+      const failUnknown = await login(base, "tidak.terdaftar.http", "sandi-salah");
+      assert.equal(failUnknown.status, 401);
+    }
+    const blockedUnknown = await login(base, "tidak.terdaftar.http", "sandi-lain");
+    assert.equal(blockedUnknown.status, 429);
+    assert.ok(Number(blockedUnknown.headers.get("retry-after")) >= 1);
+    const unknownErr = (blockedUnknown.json as {
+      error: { code: string; message: string; retryable: boolean };
+    }).error;
+    assert.equal(unknownErr.code, knownErr.code);
+    assert.equal(unknownErr.message, knownErr.message);
+    assert.equal(unknownErr.retryable, true);
+
+    // 3. Setelah masa tunggu (cooldown) berakhir, login yang benar berhasil (200)
+    fakeNow += windowMs + 1;
+    const recovered = await login(base, "kasir.http", CASHIER_PASSWORD);
+    assert.equal(recovered.status, 200);
+    const token = (recovered.json as { data: { token: string } }).data.token;
+    assert.ok(token.length > 0);
+
+    // 4. Pastikan password & token tidak pernah bocor ke security log
+    const securityBlob = handle.securityLines.join("\n");
+    for (const secret of [CASHIER_PASSWORD, "sandi-salah", token]) {
+      assert.equal(securityBlob.includes(secret), false, `security log bocor: ${secret}`);
     }
   } finally {
     await handle.running.close();

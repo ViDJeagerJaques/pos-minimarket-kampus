@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AuthService } from "../auth/service.ts";
-import { AuthError, ValidationError } from "../auth/errors.ts";
+import { AuthError, InvalidCredentialsError, ValidationError } from "../auth/errors.ts";
 import type { Role, SessionStore, SessionUser } from "../auth/session.ts";
+import {
+  createLoginRateLimiter,
+  LoginRateLimitError,
+  type LoginRateLimiter,
+} from "../security/loginRateLimiter.ts";
 import type { SecurityLogger } from "../security/securityLog.ts";
 
 /**
@@ -17,6 +22,7 @@ export type HttpAppOptions = {
   auth: AuthService;
   sessions: SessionStore;
   securityLog: SecurityLogger;
+  loginRateLimiter?: LoginRateLimiter;
   now?: () => number;
   maxBodyBytes?: number;
 };
@@ -26,6 +32,7 @@ type RequestContext = {
   method: string;
   pathname: string;
   headers: IncomingMessage["headers"];
+  remoteAddress: string;
   token: string | null;
   actor: SessionUser | null;
   params: Record<string, string>;
@@ -128,12 +135,15 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 
 function sendError(res: ServerResponse, requestId: string, error: unknown): void {
   if (error instanceof AuthError) {
+    if (error.retryAfterSeconds !== null) {
+      res.setHeader("Retry-After", String(error.retryAfterSeconds));
+    }
     sendJson(res, error.httpStatus, {
       error: {
         code: error.code,
         message: error.message,
         requestId,
-        retryable: false,
+        retryable: error.retryable,
       },
     });
     return;
@@ -152,15 +162,45 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
 export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
   const { auth, sessions, securityLog } = options;
+  const loginRateLimiter =
+    options.loginRateLimiter ?? createLoginRateLimiter({ now: options.now });
 
   const routes: Route[] = [
     {
       method: "POST",
       pattern: /^\/auth\/login$/,
       roles: null,
-      handler: (ctx) => ({
-        data: auth.login(asObject(ctx.body) as { username?: unknown; password?: unknown }),
-      }),
+      handler: (ctx) => {
+        const payload = asObject(ctx.body) as { username?: unknown; password?: unknown };
+        const normalizedUsername =
+          typeof payload.username === "string" ? payload.username.trim().toLowerCase() : "";
+        const rateLimitKey = `${ctx.remoteAddress}:${normalizedUsername}`;
+
+        try {
+          loginRateLimiter.assertAllowed(rateLimitKey);
+        } catch (error) {
+          if (error instanceof LoginRateLimitError) {
+            securityLog.log({
+              action: "ACCESS_DENIED",
+              requestId: ctx.requestId,
+              username: normalizedUsername.length > 0 ? normalizedUsername : undefined,
+              result: "DENIED",
+            });
+          }
+          throw error;
+        }
+
+        try {
+          const result = auth.login(payload);
+          loginRateLimiter.reset(rateLimitKey);
+          return { data: result };
+        } catch (error) {
+          if (error instanceof InvalidCredentialsError || error instanceof ValidationError) {
+            loginRateLimiter.recordFailure(rateLimitKey);
+          }
+          throw error;
+        }
+      },
     },
     {
       method: "POST",
@@ -303,6 +343,7 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
         method: req.method ?? "GET",
         pathname,
         headers: req.headers,
+        remoteAddress: req.socket?.remoteAddress ?? "127.0.0.1",
         token,
         actor,
         params,

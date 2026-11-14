@@ -7,7 +7,7 @@
 | Branch | `task/p06-009` (lokal; belum PR) |
 | Basis | `origin/master` @ `db4cf69` (memuat TASK-008 + TASK-006 + CI) |
 | Tanggal | 14 November 2026 |
-| Status | **REVIEW** — login/sesi/otorisasi lulus tes DB + HTTP development; belum diuji offline PC tujuan, belum ada rate-limit, dan keputusan sesi/sandi masih terbuka |
+| Status | **REVIEW** — login/sesi/otorisasi/rate-limit lulus tes DB + HTTP development; belum diuji offline PC tujuan dan keputusan sesi/sandi masih terbuka |
 | Lingkup | Hash sandi, sesi server-side, login/logout/me, manajemen akun ADMIN, guard HTTP, bootstrap ADMIN |
 
 > Dokumen ini mencatat bukti yang benar-benar dijalankan. Tidak ada klaim
@@ -25,11 +25,12 @@
 | `backend/src/auth/validation.ts` | Validasi username/sandi/role/ID bersama |
 | `backend/src/auth/cli.ts` | Bootstrap ADMIN pertama dari `POS_BOOTSTRAP_PASSWORD` |
 | `backend/src/security/securityLog.ts` | Log keamanan AUD-09 tanpa sandi/token/hash |
-| `backend/src/http/app.ts` | Server `node:http` loopback: JSON, batas body, Host/Origin, Bearer, RBAC per handler, envelope error |
+| `backend/src/security/loginRateLimiter.ts` | Rate-limiter in-memory login (`maxAttempts` 1–100, `windowMs` 1.000–3.600.000 ms) dan error 429 generik |
+| `backend/src/http/app.ts` | Server `node:http` loopback: JSON, batas body, Host/Origin, Bearer, RBAC per handler, rate-limit `/auth/login`, header `Retry-After`, envelope error |
 | `backend/src/http/cli.ts` | `serve` (bind 127.0.0.1, secret sesi acak per proses) |
 | `backend/src/auth/password.test.ts` | 4 tes hash/verifikasi |
 | `backend/src/auth/service.test.ts` | 7 tes login/logout/sesi/akun/audit |
-| `backend/src/http/app.test.ts` | 6 tes HTTP end-to-end incl. restart |
+| `backend/src/http/app.test.ts` | 6 tes HTTP end-to-end incl. restart & rate-limit 429 |
 | `backend/package.json`, `backend/tsconfig.json` | Script `start`, `auth:bootstrap-admin`, daftar tes, include `src/**` |
 | `backend/README.md` | §9 autentikasi/server, perintah bootstrap, batas |
 
@@ -62,7 +63,7 @@ database uji di direktori temp OS (di luar source tree).
 | # | Perintah (dari `backend/`) | Hasil |
 |---|---|---|
 | V1 | `npm run typecheck` | **PASS**, exit 0 tanpa diagnostik |
-| V2 | `npm test` (DB + QA + auth + HTTP) | **PASS 51/51**, 0 fail, ±9,5 s |
+| V2 | `npm test` (DB + QA + auth + HTTP) | **PASS 52/52**, 0 fail, ±2,6 s |
 | V3 | `node --test src/auth/password.test.ts` | **PASS 4/4** |
 | V4 | `node --test src/auth/service.test.ts` | **PASS 7/7** |
 | V5 | `node --test src/http/app.test.ts` | **PASS 6/6** |
@@ -77,6 +78,7 @@ database uji di direktori temp OS (di luar source tree).
 |---|---|
 | Login benar | 200 + token; `/auth/me` mengembalikan userId/username/role |
 | Login salah | 401 `INVALID_CREDENTIALS`, pesan identik untuk sandi salah, username tidak ada, akun nonaktif, hash seed DEMO |
+| Rate-limit login | Gagal berulang pada user terdaftar maupun tak dikenal → 429 `LOGIN_RATE_LIMITED` + header `Retry-After` + `retryable: true` tanpa membocorkan status registrasi; setelah cooldown berakhir login berhasil 200 |
 | Akun nonaktif | login 401; sesi yang masih ada dicabut saat penonaktifan |
 | Logout lalu replay token | logout 200; pemakaian ulang token 401; logout kedua 401 |
 | Restart backend | server baru dengan secret baru: token lama 401, baris sesi tetap ada di SQLite, login ulang 200 |
@@ -89,7 +91,7 @@ database uji di direktori temp OS (di luar source tree).
 | AC | Terbukti di level DB/HTTP | Belum terbukti |
 |---|---|---|
 | AC-01.01 | Login lokal akun aktif, `/auth/me`, berjalan di proses lokal | Login tanpa internet di PC tujuan, UI nyata (TASK-011) |
-| AC-01.02 | Sandi salah/akun nonaktif ditolak generik; seed DEMO terkunci | Lockout/rate-limit, waktu respons riil |
+| AC-01.02 | Sandi salah/akun nonaktif ditolak generik; seed DEMO terkunci; rate-limit 429 + pemulihan cooldown diuji | Waktu respons riil di PC tujuan |
 | AC-01.03 | CASHIER ditolak 403 pada endpoint ADMIN; identitas/role dari sesi | Matriks penuh shift/checkout/penerimaan/laporan (butuh endpoint tugas lain) |
 | AC-01.04 | ADMIN membuat/menonaktifkan/ mengaktifkan/ubah role + audit; admin terakhir dilindungi | UI manajemen akun (TASK-011), reset sandi, prosedur kepemilikan |
 
@@ -101,7 +103,7 @@ database uji di direktori temp OS (di luar source tree).
 | Secret sesi di memori | Restart membatalkan semua sesi (sesuai AUTH-05) tetapi update/crash mengharuskan login ulang. Belum ada rotasi/persistensi terenkripsi. |
 | Token dibawa `Authorization: Bearer` | HTTP loopback plaintext; risiko sniffing lokal. Cookie HttpOnly/SameSite dan/atau IPC Electron menunggu keputusan (SECURITY.md §2). |
 | Timeout sesi | Default 12 jam, env `POS_SESSION_TTL_MS` dijaga 5 menit–7 hari. Timeout idle/absolute belum disahkan. |
-| Rate-limit login | Belum ada (API_CONTRACT menyebut throttle). Prioritas berikutnya; bukan blocker tes ini. |
+| Rate-limit login | In-memory pada `POST /api/v1/auth/login` (default 5 percobaan per 60 detik, key `ip:username`). Hitungan reset saat proses restart (batasan DEMO). |
 | `ACCOUNT_ENABLED` | Usulan perluasan AUD-01 (AUD-01 hanya mencantumkan CREATED/DISABLED/ROLE_CHANGED). Perlu review Naazmi/David. |
 | Server `node:http` | Adapter tipis, bukan Express. Perlu review arsitektur; API contract endpoint tidak berubah. |
 | Reset sandi / pemulihan akun | Belum ada; menunggu SOP pengelola (AUTHORIZATION.md §6). |
@@ -121,10 +123,9 @@ database uji di direktori temp OS (di luar source tree).
 ## 5. Langkah berikutnya
 
 1. Review David/Naazmi: scrypt vs Argon2id, `ACCOUNT_ENABLED`, HTTP adapter vs
-   Express, kebijakan sesi/token.
-2. Tambahkan rate-limit login dan uji throttle.
-3. TASK-011: hubungkan layar login ke `POST /auth/login` + `GET /auth/me`, simpan
+   Express, kebijakan sesi/token, batas rate-limit.
+2. TASK-011: hubungkan layar login ke `POST /auth/login` + `GET /auth/me`, simpan
    token di memori renderer (bukan localStorage), tampilkan peran dari sesi.
-4. TASK-013: uji matriks penuh dengan endpoint modul lain, termasuk kepemilikan
+3. TASK-013: uji matriks penuh dengan endpoint modul lain, termasuk kepemilikan
    shift/sale, lalu catat bukti AC.
-5. Uji bootstrap + login + restart pada PC tujuan dengan jaringan terputus.
+4. Uji bootstrap + login + restart pada PC tujuan dengan jaringan terputus.
