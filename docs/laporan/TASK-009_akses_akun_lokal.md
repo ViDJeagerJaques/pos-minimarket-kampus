@@ -4,7 +4,7 @@
 |---|---|
 | Tugas | TASK-009 · Coding DEMO · Owner Rahmat · Reviewer David, Naazmi |
 | Referensi | POS-01.01–04 · AC-01.01, AC-01.02, AC-01.03, AC-01.04 · DEC-001, DEC-003, DEC-014 · AUTHORIZATION.md, SECURITY.md, AUDIT_LOG.md |
-| Branch | `task/p06-009` (lokal; belum PR) |
+| Branch | `task/p06-009` (HEAD `40c674c` + perubahan lokal belum di-commit; belum PR) |
 | Basis | `origin/master` @ `db4cf69` (memuat TASK-008 + TASK-006 + CI) |
 | Tanggal | 14 November 2026 |
 | Status | **REVIEW** — login/sesi/otorisasi/rate-limit lulus tes DB + HTTP development; belum diuji offline PC tujuan dan keputusan sesi/sandi masih terbuka |
@@ -30,7 +30,7 @@
 | `backend/src/http/cli.ts` | `serve` (bind 127.0.0.1, secret sesi acak per proses) |
 | `backend/src/auth/password.test.ts` | 4 tes hash/verifikasi |
 | `backend/src/auth/service.test.ts` | 7 tes login/logout/sesi/akun/audit |
-| `backend/src/http/app.test.ts` | 6 tes HTTP end-to-end incl. restart & rate-limit 429 |
+| `backend/src/http/app.test.ts` | 7 tes HTTP end-to-end incl. restart, rate-limit per `IP:username` & per-IP 429 |
 | `backend/package.json`, `backend/tsconfig.json` | Script `start`, `auth:bootstrap-admin`, daftar tes, include `src/**` |
 | `backend/README.md` | §9 autentikasi/server, perintah bootstrap, batas |
 
@@ -63,10 +63,10 @@ database uji di direktori temp OS (di luar source tree).
 | # | Perintah (dari `backend/`) | Hasil |
 |---|---|---|
 | V1 | `npm run typecheck` | **PASS**, exit 0 tanpa diagnostik |
-| V2 | `npm test` (DB + QA + auth + HTTP) | **PASS 52/52**, 0 fail, ±2,6 s |
+| V2 | `npm test` (DB + QA + auth + HTTP) | **PASS 53/53**, 0 fail, ±3,2 s |
 | V3 | `node --test src/auth/password.test.ts` | **PASS 4/4** |
 | V4 | `node --test src/auth/service.test.ts` | **PASS 7/7** |
-| V5 | `node --test src/http/app.test.ts` | **PASS 6/6** |
+| V5 | `node --test src/http/app.test.ts` | **PASS 7/7** |
 | V6 | CLI manual: `node db/src/cli.ts migrate --db <temp>` lalu `POS_BOOTSTRAP_PASSWORD=… node src/auth/cli.ts bootstrap-admin --username admin.pertama --db <temp> --json` | **PASS** — `{"created":true,"username":"admin.pertama","role":"ADMIN"}` |
 | V7 | CLI bootstrap diulang pada DB berisi akun | **PASS (ditolak)** — exit 1, pesan hanya menyebut aturan bootstrap |
 | V8 | CLI bootstrap tanpa `POS_BOOTSTRAP_PASSWORD` | **PASS (ditolak)** — exit 1, sandi tidak dicetak |
@@ -78,7 +78,7 @@ database uji di direktori temp OS (di luar source tree).
 |---|---|
 | Login benar | 200 + token; `/auth/me` mengembalikan userId/username/role |
 | Login salah | 401 `INVALID_CREDENTIALS`, pesan identik untuk sandi salah, username tidak ada, akun nonaktif, hash seed DEMO |
-| Rate-limit login | Gagal berulang pada user terdaftar maupun tak dikenal → 429 `LOGIN_RATE_LIMITED` + header `Retry-After` + `retryable: true` tanpa membocorkan status registrasi; setelah cooldown berakhir login berhasil 200 |
+| Rate-limit login | Gagal berulang per `IP:username` dan per-IP (banyak username berbeda) → 429 `LOGIN_RATE_LIMITED` + header `Retry-After` + `retryable: true` tanpa membocorkan status registrasi; login normal bergantian tetap 200 dan pulih 200 setelah cooldown berakhir |
 | Akun nonaktif | login 401; sesi yang masih ada dicabut saat penonaktifan |
 | Logout lalu replay token | logout 200; pemakaian ulang token 401; logout kedua 401 |
 | Restart backend | server baru dengan secret baru: token lama 401, baris sesi tetap ada di SQLite, login ulang 200 |
@@ -103,7 +103,7 @@ database uji di direktori temp OS (di luar source tree).
 | Secret sesi di memori | Restart membatalkan semua sesi (sesuai AUTH-05) tetapi update/crash mengharuskan login ulang. Belum ada rotasi/persistensi terenkripsi. |
 | Token dibawa `Authorization: Bearer` | HTTP loopback plaintext; risiko sniffing lokal. Cookie HttpOnly/SameSite dan/atau IPC Electron menunggu keputusan (SECURITY.md §2). |
 | Timeout sesi | Default 12 jam, env `POS_SESSION_TTL_MS` dijaga 5 menit–7 hari. Timeout idle/absolute belum disahkan. |
-| Rate-limit login | In-memory pada `POST /api/v1/auth/login` (default 5 percobaan per 60 detik, key `ip:username`). Hitungan reset saat proses restart (batasan DEMO). |
+| Rate-limit login | In-memory pada `POST /api/v1/auth/login`: per `IP:username` (default 5 gagal / 60 dtk) + per-IP (default 20 gagal / 60 dtk). Login sukses hanya mereset bucket `IP:username` dan tidak dihitung sebagai kegagalan di bucket per-IP, sehingga pergantian kasir normal pada 1 PC (`127.0.0.1`) tetap berjalan. Konsekuensi 1 PC kasir: jika gagal berulang melampaui 20x/menit dari PC tersebut, pengguna lain di PC yang sama ikut terkena cooldown IP. Hitungan reset saat proses restart (batasan DEMO). |
 | `ACCOUNT_ENABLED` | Usulan perluasan AUD-01 (AUD-01 hanya mencantumkan CREATED/DISABLED/ROLE_CHANGED). Perlu review Naazmi/David. |
 | Server `node:http` | Adapter tipis, bukan Express. Perlu review arsitektur; API contract endpoint tidak berubah. |
 | Reset sandi / pemulihan akun | Belum ada; menunggu SOP pengelola (AUTHORIZATION.md §6). |
@@ -111,14 +111,13 @@ database uji di direktori temp OS (di luar source tree).
 
 ## 4. Git
 
-- Branch `task/p06-009` semula menunjuk `f45d396` (basis basi, tanpa TASK-008).
-  Karena branch itu tidak punya commit unik dan `f45d396` adalah ancestor
-  `origin/master`, basis branch dipindahkan ke `origin/master` @ `db4cf69`
-  (`git reset --hard origin/master`). Tidak ada pekerjaan yang hilang;
-  TASK-010 tetap aman di branch `task/p08-010` (`adac0dd`).
-- Perubahan TASK-009 saat ini **belum di-commit**; tidak ada push/PR.
-- `backend/node_modules` yang tersisa sebelum reset tidak terhapus dan tetap
-  diabaikan `.gitignore`.
+- Branch `task/p06-009` berbasis `origin/master` @ `db4cf69`, dengan riwayat
+  commit: `1e0c8e2` (`feat: TASK-009 local authentication and RBAC`) dan `40c674c`
+  (`fix: TASK-009 login rate limiting`).
+- Penambahan proteksi per-IP (`loginIpRateLimiter`), tes HTTP terkait, dan
+  pembaruan laporan ini saat ini masih **perubahan lokal yang belum di-commit**;
+  tidak ada push/PR/merge otomatis.
+- `backend/node_modules` tetap diabaikan `.gitignore`.
 
 ## 5. Langkah berikutnya
 

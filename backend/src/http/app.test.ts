@@ -31,7 +31,13 @@ type ServerHandle = {
 function startServerFor(
   db: DatabaseSync,
   secret: Buffer = DEFAULT_SECRET,
-  options: { maxBodyBytes?: number; port?: number; loginRateLimiter?: LoginRateLimiter; now?: () => number } = {},
+  options: {
+    maxBodyBytes?: number;
+    port?: number;
+    loginRateLimiter?: LoginRateLimiter;
+    loginIpRateLimiter?: LoginRateLimiter;
+    now?: () => number;
+  } = {},
 ): Promise<ServerHandle> {
   const securityLines: string[] = [];
   const sessions = createSessionStore(db, {
@@ -49,6 +55,7 @@ function startServerFor(
     sessions,
     securityLog,
     loginRateLimiter: options.loginRateLimiter,
+    loginIpRateLimiter: options.loginIpRateLimiter,
     now: options.now,
     maxBodyBytes: options.maxBodyBytes,
     port: options.port,
@@ -448,6 +455,73 @@ test("Rate limiter login: validasi jendela, HTTP 429 generik untuk user terdafta
     // 4. Pastikan password & token tidak pernah bocor ke security log
     const securityBlob = handle.securityLines.join("\n");
     for (const secret of [CASHIER_PASSWORD, "sandi-salah", token]) {
+      assert.equal(securityBlob.includes(secret), false, `security log bocor: ${secret}`);
+    }
+  } finally {
+    await handle.running.close();
+    db.close();
+    database.cleanup();
+  }
+});
+
+test("Rate limiter per-IP: banyak username berbeda dibatasi 429, cooldown pulih, login normal tidak terganggu", async () => {
+  const { database, db } = createDatabase();
+  let fakeNow = FIXED_NOW;
+  const windowMs = 10_000;
+  const userLimiter = createLoginRateLimiter({
+    maxAttempts: 5,
+    windowMs,
+    now: () => fakeNow,
+  });
+  const ipLimiter = createLoginRateLimiter({
+    maxAttempts: 4,
+    windowMs,
+    now: () => fakeNow,
+  });
+  const handle = await startServerFor(db, DEFAULT_SECRET, {
+    loginRateLimiter: userLimiter,
+    loginIpRateLimiter: ipLimiter,
+    now: () => fakeNow,
+  });
+
+  try {
+    const base = handle.running.url;
+
+    // 1. Login normal bergantian dari satu IP (lebih dari maxAttempts=4) tetap selalu 200.
+    for (let i = 0; i < 6; i += 1) {
+      const ok =
+        i % 2 === 0
+          ? await login(base, "admin.http", ADMIN_PASSWORD)
+          : await login(base, "kasir.http", CASHIER_PASSWORD);
+      assert.equal(ok.status, 200);
+    }
+
+    // 2. Percobaan gagal dengan 4 username berbeda dari IP yang sama -> semua 401.
+    for (let i = 1; i <= 4; i += 1) {
+      const fail = await login(base, `spray.user.${i}`, "sandi-salah");
+      assert.equal(fail.status, 401);
+    }
+
+    // 3. Username ke-5 (termasuk username valid) dari IP yang sama -> ditolak 429 generik.
+    const blockedSpray = await login(base, "kasir.http", CASHIER_PASSWORD);
+    assert.equal(blockedSpray.status, 429);
+    assert.ok(Number(blockedSpray.headers.get("retry-after")) >= 1);
+    const err = (blockedSpray.json as {
+      error: { code: string; message: string; retryable: boolean };
+    }).error;
+    assert.equal(err.code, "LOGIN_RATE_LIMITED");
+    assert.equal(err.retryable, true);
+    assert.equal(err.message, "Terlalu banyak percobaan login. Coba lagi nanti.");
+
+    // 4. Setelah cooldown berakhir, login normal kembali berhasil 200.
+    fakeNow += windowMs + 1;
+    const recoveredAdmin = await login(base, "admin.http", ADMIN_PASSWORD);
+    const recoveredCashier = await login(base, "kasir.http", CASHIER_PASSWORD);
+    assert.equal(recoveredAdmin.status, 200);
+    assert.equal(recoveredCashier.status, 200);
+
+    const securityBlob = handle.securityLines.join("\n");
+    for (const secret of [ADMIN_PASSWORD, CASHIER_PASSWORD, "sandi-salah"]) {
       assert.equal(securityBlob.includes(secret), false, `security log bocor: ${secret}`);
     }
   } finally {

@@ -5,6 +5,7 @@ import { AuthError, InvalidCredentialsError, ValidationError } from "../auth/err
 import type { Role, SessionStore, SessionUser } from "../auth/session.ts";
 import {
   createLoginRateLimiter,
+  DEFAULT_LOGIN_IP_MAX_ATTEMPTS,
   LoginRateLimitError,
   type LoginRateLimiter,
 } from "../security/loginRateLimiter.ts";
@@ -23,6 +24,7 @@ export type HttpAppOptions = {
   sessions: SessionStore;
   securityLog: SecurityLogger;
   loginRateLimiter?: LoginRateLimiter;
+  loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
   maxBodyBytes?: number;
 };
@@ -164,6 +166,12 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   const { auth, sessions, securityLog } = options;
   const loginRateLimiter =
     options.loginRateLimiter ?? createLoginRateLimiter({ now: options.now });
+  const loginIpRateLimiter =
+    options.loginIpRateLimiter ??
+    createLoginRateLimiter({
+      maxAttempts: DEFAULT_LOGIN_IP_MAX_ATTEMPTS,
+      now: options.now,
+    });
 
   const routes: Route[] = [
     {
@@ -174,9 +182,11 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
         const payload = asObject(ctx.body) as { username?: unknown; password?: unknown };
         const normalizedUsername =
           typeof payload.username === "string" ? payload.username.trim().toLowerCase() : "";
+        const ipKey = `ip:${ctx.remoteAddress}`;
         const rateLimitKey = `${ctx.remoteAddress}:${normalizedUsername}`;
 
         try {
+          loginIpRateLimiter.assertAllowed(ipKey);
           loginRateLimiter.assertAllowed(rateLimitKey);
         } catch (error) {
           if (error instanceof LoginRateLimitError) {
@@ -197,6 +207,7 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
         } catch (error) {
           if (error instanceof InvalidCredentialsError || error instanceof ValidationError) {
             loginRateLimiter.recordFailure(rateLimitKey);
+            loginIpRateLimiter.recordFailure(ipKey);
           }
           throw error;
         }

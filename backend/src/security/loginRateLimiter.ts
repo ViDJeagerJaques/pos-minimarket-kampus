@@ -12,6 +12,7 @@ import { AuthError } from "../auth/errors.ts";
  * username.
  */
 export const DEFAULT_LOGIN_MAX_ATTEMPTS = 5;
+export const DEFAULT_LOGIN_IP_MAX_ATTEMPTS = 20;
 export const DEFAULT_LOGIN_WINDOW_MS = 60_000;
 const MIN_LOGIN_MAX_ATTEMPTS = 1;
 const MAX_LOGIN_MAX_ATTEMPTS = 100;
