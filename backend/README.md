@@ -194,3 +194,59 @@ menentukan aturan operasional yang masih `PENDING`.
   membuktikan perilaku SQLite pada mesin development ini.
 - **Belum ada** API/otorisasi; `AC-03.05`, `AC-07.02`, dan `AC-10.02` baru
   terbukti pada level DDL/constraint, bukan alur pengguna.
+
+## 9. Autentikasi, akun lokal, dan server loopback (TASK-009)
+
+Status: **DEMO**, lulus tes `node --test` pada mesin development. Belum diuji di
+PC tujuan, belum ada rate-limit login, dan timeout/idle sesi belum disahkan.
+
+### 9.1 Bootstrap ADMIN pertama
+
+Akun ADMIN dibuat terpisah dari alur kasir dan dari seed DEMO. Sandi hanya
+dibaca dari environment, tidak pernah dari argv/repo/log:
+
+```powershell
+npm run db:migrate
+$env:POS_BOOTSTRAP_PASSWORD = "<sandi-kuat>"
+npm run auth:bootstrap-admin -- --username admin
+```
+
+Perintah hanya berlaku bila tabel `users` masih kosong; diulang akan ditolak.
+Seed DEMO memakai hash `DEMO_LOCKED_NO_LOGIN` yang ditolak login.
+
+### 9.2 Server
+
+```powershell
+npm start                      # bind 127.0.0.1, port acak (atau POS_HTTP_PORT)
+node src/http/cli.ts serve --port 8787 --session-ttl-ms 43200000
+```
+
+Endpoint (base `/api/v1`): `POST /auth/login`, `POST /auth/logout`,
+`GET /auth/me`, `GET /users`, `POST /users`, `PATCH /users/:id`.
+Hanya `POST /users`/`PATCH` yang mengubah data; keduanya khusus ADMIN.
+
+### 9.3 Aturan implementasi
+
+- Sandi di-hash `scrypt$N$r$p$salt$hash` (salt unik, `timingSafeEqual`);
+  hash seed DEMO ditolak. Hash lama dengan parameter lain dianggap tidak cocok.
+- Token sesi acak 32 byte; yang disimpan hanya digest HMAC-SHA256 dengan secret
+  proses (32 byte acak per start). Secret tidak masuk SQLite/repo, sehingga
+  restart backend membatalkan semua token lama dan bocornya DB tidak cukup
+  untuk memalsukan sesi.
+- Sesi diverifikasi ulang per request (kedaluwarsa, revoke, `users.active`);
+  penonaktifan/perpindahan role mencabut sesi target dalam transaksi yang sama.
+- Login gagal selalu memakai pesan/status yang sama (401
+  `INVALID_CREDENTIALS`), termasuk biaya komputasi untuk username tak dikenal.
+- Server hanya menerima `Host`/`Origin` loopback, `Authorization: Bearer`,
+  body JSON maksimum 64 KiB, dan `Cache-Control: no-store`.
+- Audit akun (`ACCOUNT_CREATED`, `ACCOUNT_DISABLED`, `ACCOUNT_ENABLED`,
+  `ROLE_CHANGED`) ditulis dalam transaksi; `LOGIN_FAILED`/`ACCESS_DENIED` ke
+  log keamanan. Tidak ada sandi/token/hash di audit atau log.
+
+### 9.4 Batas TASK-009
+
+- Matriks penuh (shift, checkout, penerimaan, stok, laporan) belum ada
+  endpointnya; TASK-010/014/016/025/026 akan memakai pola guard yang sama.
+- Rate-limit/lockout login, timeout/idle sesi, penyimpanan token di Electron,
+  dan kebijakan sandi akhir masih menunggu review (AUTHORIZATION.md §8).
+- Server HTTP loopback adalah adapter tipis; Express tetap kandidat DEC-010.
