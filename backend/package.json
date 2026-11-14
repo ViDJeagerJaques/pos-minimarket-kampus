@@ -14,7 +14,7 @@
     "db:seed:demo": "node db/src/cli.ts seed --demo",
     "db:check": "node db/src/cli.ts migrate && node db/src/cli.ts verify",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test db/test/migrate.test.ts db/test/constraints.test.ts db/test/seed.test.ts db/test/failure.test.ts db/test/safety.test.ts qa/qa_fixtures.test.ts"
+    "test": "node --test db/test/migrate.test.ts db/test/constraints.test.ts db/test/seed.test.ts db/test/failure.test.ts db/test/safety.test.ts qa/qa_fixtures.test.ts src/catalog/service.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
