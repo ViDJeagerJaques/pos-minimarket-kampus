@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import {
@@ -542,6 +543,22 @@ test("Rate limiter per-IP: banyak username berbeda dibatasi 429, cooldown pulih,
   }
 });
 
+function allocateFreeLoopbackPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      if (typeof address !== "object" || address === null) {
+        probe.close(() => reject(new Error("Gagal membaca port sementara.")));
+        return;
+      }
+      const { port } = address;
+      probe.close((err) => (err ? reject(err) : resolve(port)));
+    });
+  });
+}
+
 test("HTTP CLI port & pembersihan bucket rate-limiter kedaluwarsa", async () => {
   // 1. CLI tanpa --port membiarkan port undefined agar startHttpServer memakai POS_HTTP_PORT.
   const withoutPort = parseHttpCliArgs(["serve"]);
@@ -551,11 +568,24 @@ test("HTTP CLI port & pembersihan bucket rate-limiter kedaluwarsa", async () => 
 
   const prevEnvPort = process.env.POS_HTTP_PORT;
   const { database, db } = createDatabase();
-  process.env.POS_HTTP_PORT = "49155";
   let handle: ServerHandle | undefined;
   try {
-    handle = await startServerFor(db, DEFAULT_SECRET, { port: withoutPort.port });
-    assert.equal(handle.running.port, 49155);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const chosenPort = await allocateFreeLoopbackPort();
+      process.env.POS_HTTP_PORT = String(chosenPort);
+      try {
+        handle = await startServerFor(db, DEFAULT_SECRET, { port: withoutPort.port });
+        assert.equal(handle.running.port, chosenPort);
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        if (code === "EADDRINUSE" && attempt < 2) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    assert.ok(handle, "Server gagal dimulai menggunakan POS_HTTP_PORT dinamis");
   } finally {
     if (prevEnvPort === undefined) {
       delete process.env.POS_HTTP_PORT;

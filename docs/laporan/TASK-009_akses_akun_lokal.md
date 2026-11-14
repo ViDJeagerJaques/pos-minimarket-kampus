@@ -4,7 +4,7 @@
 |---|---|
 | Tugas | TASK-009 · Coding DEMO · Owner Rahmat · Reviewer David, Naazmi |
 | Referensi | POS-01.01–04 · AC-01.01, AC-01.02, AC-01.03, AC-01.04 · DEC-001, DEC-003, DEC-014 · AUTHORIZATION.md, SECURITY.md, AUDIT_LOG.md |
-| Branch | `task/p06-009` (HEAD `40c674c` + perubahan lokal belum di-commit; belum PR) |
+| Branch | `task/p06-009` (PR #11; HEAD `5691d11` + perbaikan port dinamis tes HTTP lokal) |
 | Basis | `origin/master` @ `db4cf69` (memuat TASK-008 + TASK-006 + CI) |
 | Tanggal | 14 November 2026 |
 | Status | **REVIEW** — login/sesi/otorisasi/rate-limit lulus tes DB + HTTP development; belum diuji offline PC tujuan dan keputusan sesi/sandi masih terbuka |
@@ -111,12 +111,15 @@ database uji di direktori temp OS (di luar source tree).
 
 ## 4. Git
 
-- Branch `task/p06-009` berbasis `origin/master` @ `db4cf69`, dengan riwayat
-  commit: `1e0c8e2` (`feat: TASK-009 local authentication and RBAC`) dan `40c674c`
-  (`fix: TASK-009 login rate limiting`).
-- Penambahan proteksi per-IP (`loginIpRateLimiter`), tes HTTP terkait, dan
-  pembaruan laporan ini saat ini masih **perubahan lokal yang belum di-commit**;
-  tidak ada push/PR/merge otomatis.
+- Branch `task/p06-009` (PR #11) berbasis `origin/master` @ `db4cf69`, dengan riwayat
+  commit: `1e0c8e2` (`feat: TASK-009 local authentication and RBAC`), `40c674c`
+  (`fix: TASK-009 login rate limiting`), `beb7aad` (`fix: TASK-009 add per-IP
+  login rate limiting`), dan `5691d11` (`fix: TASK-009 address CodeRabbit review
+  findings`).
+- Perbaikan pemilihan port dinamis pada tes `POS_HTTP_PORT` di
+  `backend/src/http/app.test.ts` serta pembaruan laporan ini masih berupa
+  **perubahan lokal yang belum di-commit**; tidak ada commit/push/merge
+  otomatis.
 - `backend/node_modules` tetap diabaikan `.gitignore`.
 
 ## 5. Langkah berikutnya
