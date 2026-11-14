@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -14,25 +15,40 @@ import {
 import { createTempDatabase } from "./helpers.ts";
 
 test("lokasi default database berada di luar source tree", () => {
-  const fakeEnv = { LOCALAPPDATA: "C:\\Users\\contoh\\AppData\\Local" };
-  assert.equal(
-    defaultDataDir(fakeEnv),
-    path.join("C:\\Users\\contoh\\AppData\\Local", "PosMinimarketKampus", "data"),
-  );
-  const dbPath = resolveDatabasePath(fakeEnv);
-  assert.equal(isInsideSourceTree(dbPath), false);
+  if (process.platform === "win32") {
+    const fakeEnv = { LOCALAPPDATA: "C:\\Users\\contoh\\AppData\\Local" };
+    assert.equal(
+      defaultDataDir(fakeEnv),
+      path.join("C:\\Users\\contoh\\AppData\\Local", "PosMinimarketKampus", "data"),
+    );
+    const dbPath = resolveDatabasePath(fakeEnv);
+    assert.equal(isInsideSourceTree(dbPath), false);
+  } else {
+    const defaultDir = defaultDataDir({});
+    assert.equal(
+      defaultDir,
+      path.join(homedir(), ".local", "share", "pos-minimarket-kampus", "data"),
+    );
+    assert.equal(isInsideSourceTree(resolveDatabasePath({})), false);
+
+    const posixEnv = { POS_DATA_DIR: "/var/tmp/pos-minimarket-data" };
+    assert.equal(defaultDataDir(posixEnv), "/var/tmp/pos-minimarket-data");
+    assert.equal(isInsideSourceTree(resolveDatabasePath(posixEnv)), false);
+  }
   assert.equal(isInsideSourceTree(path.join(REPO_ROOT, "data", "pos-dev.sqlite")), true);
 });
 
 test("POS_DB_PATH dipakai sebagai override dan guard source tree menolak path repo", () => {
-  const override = resolveDatabasePath({ POS_DB_PATH: "D:\\pos-data\\dev.sqlite" });
-  assert.equal(path.resolve(override), path.resolve("D:\\pos-data\\dev.sqlite"));
+  const outsidePath =
+    process.platform === "win32" ? "D:\\pos-data\\dev.sqlite" : "/var/tmp/pos-data/dev.sqlite";
+  const override = resolveDatabasePath({ POS_DB_PATH: outsidePath });
+  assert.equal(path.resolve(override), path.resolve(outsidePath));
 
   assert.throws(
     () => assertOutsideSourceTree(path.join(REPO_ROOT, "backend", "db", "dev.sqlite")),
     /Menolak database di dalam source tree/,
   );
-  assert.doesNotThrow(() => assertOutsideSourceTree("D:\\pos-data\\dev.sqlite", REPO_ROOT));
+  assert.doesNotThrow(() => assertOutsideSourceTree(outsidePath, REPO_ROOT));
 });
 
 test("runner migrasi menolak database di dalam repo tanpa membuat file", () => {
