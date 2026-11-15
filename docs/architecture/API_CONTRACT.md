@@ -39,8 +39,8 @@
 | `GET /products?query=&barcode=` | ADMIN/CASHIER | list id, sku, name, price, stock, active | minimal fields |
 | `POST /products` | ADMIN | produk baru | validasi SKU/barcode unik |
 | `PATCH /products/:id` | ADMIN | perubahan katalog | audit harga |
-| `GET /shifts/current` | login | shift aktif atau null | satu shift aktif |
-| `POST /shifts/open` | CASHIER/ADMIN dengan izin, identitas pembuka dari sesi | shiftId, openingCashRp | cek tidak ada shift aktif |
+| `GET /shifts/current` | login | shift aktif atau null | kasir hanya shift milik sendiri; ADMIN ringkasan |
+| `POST /shifts/open` | CASHIER | shiftId, openingCashRp | ADMIN **belum diizinkan** selama DEC-019 `PENDING`; cek tidak ada shift aktif |
 | `POST /shifts/:id/close` | CASHIER pemegang shift saja (atau ADMIN jika dia sendiri pemilik shift) | closing, totals, variance | closeKey idempotent |
 | `POST /checkouts/prepare` | CASHIER pada shift | attemptKey, ringkasan harga dan status | **tidak** membuat sale |
 | `POST /checkouts/commit` | CASHIER pada shift | saleId, saleNo, totalRp, payment method | commit atomik |
@@ -54,6 +54,8 @@
 | `POST /backups` | ADMIN | metadata lokasi/hash | path tidak arbitrer dari UI |
 
 Pembagian endpoint hanya usulan; perubahan harus diselaraskan dengan UI, backend, dan tests. **Jangan implementasi endpoint sampai skema `DATABASE.md` untuk verifikasi QRIS disetujui**.
+
+**Shift (TASK-014, baseline DEMO).** `POST /shifts/open` hanya untuk `CASHIER`; `ADMIN` **belum diizinkan** membuka shift selama DEC-019 masih `PENDING` (AUTHORIZATION.md §3 dan SECURITY.md §4: ADMIN bukan otomatis kasir). Perubahan ini memerlukan review David dan pembaruan DEC-019. `openingCashRp` bersifat opsional (DEMO); kewajiban modal awal menunggu konfirmasi SOP pengelola. Satu shift aktif per PC ditegakkan constraint `ux_shifts_single_open`; pemilik shift hanya dari sesi.
 
 ## 4. Kontrak contoh checkout QRIS manual
 
