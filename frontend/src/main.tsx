@@ -12,21 +12,19 @@ if (!container) {
 }
 
 /**
- * TASK-011: autentikasi & akun memakai backend lokal nyata.
- * Katalog produk masih mock DEMO sampai TASK-012.
+ * TASK-011/TASK-012: autentikasi, akun, dan katalog memakai backend lokal nyata.
  *
- * - Default: `POST /auth/login` via proxy Vite `/api` → 127.0.0.1:8787.
- * - `VITE_AUTH_MODE=demo`: kembali ke mock login (hanya untuk kerja UI terisolasi).
+ * - Default: `POST /auth/login` dan katalog via proxy Vite `/api` → 127.0.0.1:8787.
+ * - `VITE_AUTH_MODE=demo`: kembali ke mock DEMO (hanya untuk kerja UI terisolasi).
+ *   Mode DEMO menandai dirinya di UI dan menolak operasi tulis katalog.
  * - Build Electron: set `VITE_API_BASE_URL=http://127.0.0.1:8787/api/v1`
  *   (CSP `connect-src` sudah mengizinkan loopback).
  */
-const catalog = createMockDataSource({ latencyMs: 150 });
 const dataSource =
   import.meta.env.VITE_AUTH_MODE === "demo"
-    ? catalog
+    ? createMockDataSource({ latencyMs: 150 })
     : createHttpDataSource({
         baseUrl: import.meta.env.VITE_API_BASE_URL ?? "/api/v1",
-        catalog,
       });
 
 createRoot(container).render(

@@ -325,6 +325,83 @@ body {
   gap: var(--space-3);
 }
 
+/* Katalog admin (TASK-012) */
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.catalog-form,
+.product-form {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.product-form {
+  margin: var(--space-4) 0;
+}
+
+.catalog-form .btn,
+.product-form .btn {
+  margin-top: var(--space-2);
+}
+
+.catalog-form .input {
+  margin-bottom: var(--space-2);
+}
+
+.catalog-list {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: 14px;
+}
+
+.catalog-list li {
+  margin-bottom: var(--space-1);
+}
+
+.catalog-fieldset {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  margin-bottom: var(--space-1);
+}
+
+.catalog-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.catalog-barcodes {
+  margin: var(--space-3) 0;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.barcode-cell {
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+}
+
 
 /* Login */
 .login {

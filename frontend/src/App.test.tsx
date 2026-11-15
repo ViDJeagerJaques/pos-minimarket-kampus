@@ -117,6 +117,18 @@ describe("TASK-007 Kerangka layar lokal (MODE DEMO)", () => {
     await screen.findByRole("table", { name: "Keranjang" });
     expect(screen.getByText("1 barang")).toBeTruthy();
 
+    // Tambah/kurangi/hapus hanya mengubah draft di memori.
+    await user.click(screen.getByRole("button", { name: "Tambah satu Roti Isi Cokelat (DEMO)" }));
+    expect(screen.getByLabelText("Jumlah Roti Isi Cokelat (DEMO)").textContent).toBe("2");
+    await user.click(screen.getByRole("button", { name: "Kurangi Roti Isi Cokelat (DEMO)" }));
+    expect(screen.getByLabelText("Jumlah Roti Isi Cokelat (DEMO)").textContent).toBe("1");
+    await user.click(screen.getByRole("button", { name: "Hapus Roti Isi Cokelat (DEMO)" }));
+    expect(screen.getByText("0 barang")).toBeTruthy();
+
+    // Isi ulang lalu batalkan draft.
+    await user.type(barcodeInput, "0000000000017{Enter}");
+    await screen.findByRole("table", { name: "Keranjang" });
+
     const payButton = screen.getByRole("button", { name: "Lanjut pembayaran" }) as HTMLButtonElement;
     expect(payButton.disabled).toBe(true);
 

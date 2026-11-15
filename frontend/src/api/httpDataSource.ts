@@ -1,5 +1,6 @@
 /**
- * Klien API auth/akun lokal (TASK-011) untuk backend TASK-009.
+ * Klien API lokal untuk autentikasi/akun (TASK-011) dan katalog master
+ * (TASK-010/TASK-012) pada backend loopback.
  *
  * Aturan keamanan:
  * - Token sesi HANYA disimpan di memori modul ini (bukan localStorage/sessionStorage).
@@ -7,29 +8,40 @@
  * - Tidak ada `console.log`/debug yang memuat kata sandi atau token.
  * - UI tidak pernah menganggap login sukses tanpa respons API; setelah `POST /auth/login`
  *   klien memverifikasi sesi lewat `GET /auth/me`.
- * - Katalog produk masih didelegasikan ke mock DEMO (TASK-012 belum ada).
+ * - Otorisasi tetap di backend; 403/401 dipetakan ke ApiError agar UI menanganinya.
  */
 import { ApiError, type ApiErrorCode } from "./errors";
 import type {
   AccountSummary,
+  CatalogProduct,
+  CatalogQuery,
+  CategorySummary,
   CreateAccountInput,
+  CreateProductInput,
   LoginResult,
   PosDataSource,
   ProductSummary,
   Role,
   SessionUser,
+  SupplierSummary,
+  UpdateProductInput,
 } from "./types";
 
 const KNOWN_CODES = new Set<ApiErrorCode>([
   "NETWORK_ERROR",
   "INVALID_RESPONSE",
   "AUTH_REQUIRED",
+  "SESSION_INVALID",
   "INVALID_CREDENTIALS",
   "LOGIN_RATE_LIMITED",
   "FORBIDDEN",
   "NOT_FOUND",
   "CONFLICT",
   "VALIDATION_ERROR",
+  "DUPLICATE_SKU",
+  "DUPLICATE_BARCODE",
+  "DUPLICATE_CATEGORY",
+  "PRODUCT_INACTIVE",
   "INTERNAL_ERROR",
   "DEMO_UNSUPPORTED",
 ]);
@@ -49,11 +61,6 @@ export type HttpDataSourceOptions = {
   fetchImpl?: typeof fetch;
   /** Batas waktu tunggu per permintaan HTTP (ms); default 10.000 ms. */
   timeoutMs?: number;
-  /** Sumber katalog sementara; tidak ikut terhubung ke API pada TASK-011. */
-  catalog: Pick<
-    PosDataSource,
-    "findActiveProductByBarcode" | "searchActiveProducts" | "listProducts"
-  >;
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -70,11 +77,16 @@ function safeMessage(status: number, code: ApiErrorCode, serverMessage: unknown)
     case "LOGIN_RATE_LIMITED":
       return "Terlalu banyak percobaan login. Coba lagi nanti.";
     case "AUTH_REQUIRED":
+    case "SESSION_INVALID":
       return "Sesi berakhir. Silakan masuk lagi.";
     case "FORBIDDEN":
-      return "Akses ditolak oleh backend (403). Halaman ini hanya untuk ADMIN.";
+      return "Akses ditolak oleh backend (403). Tindakan ini hanya untuk ADMIN.";
     case "CONFLICT":
     case "VALIDATION_ERROR":
+    case "DUPLICATE_SKU":
+    case "DUPLICATE_BARCODE":
+    case "DUPLICATE_CATEGORY":
+    case "PRODUCT_INACTIVE":
       return typeof serverMessage === "string" && serverMessage.length > 0
         ? serverMessage
         : "Data tidak valid atau bertentangan dengan data yang tersimpan.";
@@ -95,24 +107,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isPositiveInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isNonNegativeInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function invalidResponse(message: string): ApiError {
+  return new ApiError(200, "INVALID_RESPONSE", message);
+}
+
 function toRole(value: unknown): Role {
   if (value === "ADMIN" || value === "CASHIER") {
     return value;
   }
-  throw new ApiError(200, "INVALID_RESPONSE", "Role pengguna dari backend tidak dikenal.");
+  throw invalidResponse("Role pengguna dari backend tidak dikenal.");
 }
 
 function toSessionUser(value: unknown): SessionUser {
   if (!isRecord(value)) {
-    throw new ApiError(200, "INVALID_RESPONSE", "Profil pengguna dari backend tidak valid.");
+    throw invalidResponse("Profil pengguna dari backend tidak valid.");
   }
   const id = value.id;
   const username = value.username;
-  if (!Number.isSafeInteger(id) || Number(id) <= 0 || typeof username !== "string" || username.length === 0) {
-    throw new ApiError(200, "INVALID_RESPONSE", "Profil pengguna dari backend tidak valid.");
+  if (!isPositiveInt(id) || typeof username !== "string" || username.length === 0) {
+    throw invalidResponse("Profil pengguna dari backend tidak valid.");
   }
   return {
-    userId: Number(id),
+    userId: id,
     username,
     displayName: username,
     role: toRole(value.role),
@@ -121,22 +145,91 @@ function toSessionUser(value: unknown): SessionUser {
 
 function toAccountSummary(value: unknown): AccountSummary {
   if (!isRecord(value)) {
-    throw new ApiError(200, "INVALID_RESPONSE", "Data akun dari backend tidak valid.");
+    throw invalidResponse("Data akun dari backend tidak valid.");
   }
   const id = value.id;
   const username = value.username;
-  if (!Number.isSafeInteger(id) || Number(id) <= 0 || typeof username !== "string" || username.length === 0) {
-    throw new ApiError(200, "INVALID_RESPONSE", "Data akun dari backend tidak valid.");
+  if (!isPositiveInt(id) || typeof username !== "string" || username.length === 0) {
+    throw invalidResponse("Data akun dari backend tidak valid.");
   }
   return {
-    id: Number(id),
+    id,
     username,
     role: toRole(value.role),
     active: value.active === true,
   };
 }
 
-export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSource {
+function toCategory(value: unknown): CategorySummary {
+  if (!isRecord(value)) {
+    throw invalidResponse("Data kategori dari backend tidak valid.");
+  }
+  if (!isPositiveInt(value.id) || typeof value.name !== "string" || value.name.length === 0) {
+    throw invalidResponse("Data kategori dari backend tidak valid.");
+  }
+  return { id: value.id, name: value.name };
+}
+
+function toSupplier(value: unknown): SupplierSummary {
+  if (!isRecord(value)) {
+    throw invalidResponse("Data supplier dari backend tidak valid.");
+  }
+  if (!isPositiveInt(value.id) || typeof value.name !== "string" || value.name.length === 0) {
+    throw invalidResponse("Data supplier dari backend tidak valid.");
+  }
+  return { id: value.id, name: value.name };
+}
+
+function toCatalogProduct(value: unknown): CatalogProduct {
+  if (!isRecord(value)) {
+    throw invalidResponse("Data produk dari backend tidak valid.");
+  }
+  const barcodes = value.barcodes;
+  const supplierIds = value.supplierIds;
+  if (
+    !isPositiveInt(value.id) ||
+    !isPositiveInt(value.categoryId) ||
+    typeof value.categoryName !== "string" ||
+    typeof value.sku !== "string" ||
+    value.sku.length === 0 ||
+    typeof value.name !== "string" ||
+    value.name.length === 0 ||
+    !isNonNegativeInt(value.priceRp) ||
+    typeof value.active !== "boolean" ||
+    !isNonNegativeInt(value.stockOnHand) ||
+    !Array.isArray(barcodes) ||
+    !barcodes.every((item) => typeof item === "string") ||
+    !Array.isArray(supplierIds) ||
+    !supplierIds.every((item) => isPositiveInt(item))
+  ) {
+    throw invalidResponse("Data produk dari backend tidak valid.");
+  }
+  return {
+    id: value.id,
+    categoryId: value.categoryId,
+    categoryName: value.categoryName,
+    sku: value.sku,
+    name: value.name,
+    priceRp: value.priceRp,
+    active: value.active,
+    barcodes: barcodes as string[],
+    supplierIds: supplierIds as number[],
+    stockOnHand: value.stockOnHand,
+  };
+}
+
+function toSummary(product: CatalogProduct): ProductSummary {
+  return {
+    id: product.id,
+    sku: product.sku,
+    name: product.name,
+    priceRp: product.priceRp,
+    stock: product.stockOnHand,
+    active: product.active,
+  };
+}
+
+export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDataSource {
   const baseUrl = (options.baseUrl ?? "/api/v1").replace(/\/+$/, "");
   const fetchImpl = options.fetchImpl;
   const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -163,7 +256,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSou
   }
 
   async function request(
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
     authToken: string | null = token,
@@ -309,7 +402,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSou
     const activeToken = requireToken();
     const data = await request("GET", "/users", undefined, activeToken);
     if (!Array.isArray(data)) {
-      throw new ApiError(200, "INVALID_RESPONSE", safeMessage(200, "INVALID_RESPONSE", null));
+      throw invalidResponse("Daftar akun dari backend tidak valid.");
     }
     return data.map(toAccountSummary);
   }
@@ -327,26 +420,160 @@ export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSou
 
   async function setAccountActive(userId: number, active: boolean): Promise<AccountSummary> {
     const activeToken = requireToken();
-    if (!Number.isSafeInteger(userId) || userId <= 0) {
+    if (!isPositiveInt(userId)) {
       throw new ApiError(422, "VALIDATION_ERROR", "ID akun tidak valid.");
     }
     const data = await request("PATCH", `/users/${userId}`, { active }, activeToken);
     return toAccountSummary(data);
   }
 
+  async function listCategories(): Promise<CategorySummary[]> {
+    const activeToken = requireToken();
+    const data = await request("GET", "/categories", undefined, activeToken);
+    if (!Array.isArray(data)) {
+      throw invalidResponse("Daftar kategori dari backend tidak valid.");
+    }
+    return data.map(toCategory);
+  }
+
+  async function createCategory(name: string): Promise<CategorySummary> {
+    const activeToken = requireToken();
+    return toCategory(await request("POST", "/categories", { name }, activeToken));
+  }
+
+  async function listSuppliers(): Promise<SupplierSummary[]> {
+    const activeToken = requireToken();
+    const data = await request("GET", "/suppliers", undefined, activeToken);
+    if (!Array.isArray(data)) {
+      throw invalidResponse("Daftar supplier dari backend tidak valid.");
+    }
+    return data.map(toSupplier);
+  }
+
+  async function createSupplier(name: string): Promise<SupplierSummary> {
+    const activeToken = requireToken();
+    return toSupplier(await request("POST", "/suppliers", { name }, activeToken));
+  }
+
+  async function listCatalogProducts(query: CatalogQuery = {}): Promise<CatalogProduct[]> {
+    const activeToken = requireToken();
+    const params = new URLSearchParams();
+    if (query.query !== undefined && query.query.trim().length > 0) {
+      params.set("query", query.query.trim());
+    }
+    if (query.barcode !== undefined && query.barcode.trim().length > 0) {
+      params.set("barcode", query.barcode.trim());
+    }
+    if (query.includeInactive === true) {
+      params.set("includeInactive", "true");
+    }
+    if (query.limit !== undefined) {
+      params.set("limit", String(query.limit));
+    }
+    const suffix = params.toString().length > 0 ? `?${params.toString()}` : "";
+    const data = await request("GET", `/products${suffix}`, undefined, activeToken);
+    if (!Array.isArray(data)) {
+      throw invalidResponse("Daftar produk dari backend tidak valid.");
+    }
+    return data.map(toCatalogProduct);
+  }
+
+  async function createProduct(input: CreateProductInput): Promise<CatalogProduct> {
+    const activeToken = requireToken();
+    const data = await request(
+      "POST",
+      "/products",
+      {
+        categoryId: input.categoryId,
+        sku: input.sku,
+        name: input.name,
+        priceRp: input.priceRp,
+        barcodes: input.barcodes,
+        supplierIds: input.supplierIds,
+      },
+      activeToken,
+    );
+    return toCatalogProduct(data);
+  }
+
+  async function updateProduct(
+    productId: number,
+    input: UpdateProductInput,
+  ): Promise<CatalogProduct> {
+    const activeToken = requireToken();
+    if (!isPositiveInt(productId)) {
+      throw new ApiError(422, "VALIDATION_ERROR", "ID produk tidak valid.");
+    }
+    const body: Record<string, unknown> = {};
+    if (input.name !== undefined) body.name = input.name;
+    if (input.categoryId !== undefined) body.categoryId = input.categoryId;
+    if (input.priceRp !== undefined) body.priceRp = input.priceRp;
+    if (input.active !== undefined) body.active = input.active;
+    return toCatalogProduct(await request("PATCH", `/products/${productId}`, body, activeToken));
+  }
+
+  async function addBarcode(productId: number, barcode: string): Promise<CatalogProduct> {
+    const activeToken = requireToken();
+    if (!isPositiveInt(productId)) {
+      throw new ApiError(422, "VALIDATION_ERROR", "ID produk tidak valid.");
+    }
+    return toCatalogProduct(
+      await request("POST", `/products/${productId}/barcodes`, { barcode }, activeToken),
+    );
+  }
+
+  async function removeBarcode(productId: number, barcode: string): Promise<CatalogProduct> {
+    const activeToken = requireToken();
+    if (!isPositiveInt(productId)) {
+      throw new ApiError(422, "VALIDATION_ERROR", "ID produk tidak valid.");
+    }
+    return toCatalogProduct(
+      await request(
+        "DELETE",
+        `/products/${productId}/barcodes/${encodeURIComponent(barcode)}`,
+        undefined,
+        activeToken,
+      ),
+    );
+  }
+
+  async function findActiveProductByBarcode(barcode: string): Promise<ProductSummary | null> {
+    if (barcode.trim().length === 0) {
+      return null;
+    }
+    const items = await listCatalogProducts({ barcode, limit: 1 });
+    const first = items[0];
+    return first ? toSummary(first) : null;
+  }
+
+  async function searchActiveProducts(query: string): Promise<ProductSummary[]> {
+    return (await listCatalogProducts({ query, limit: 50 })).map(toSummary);
+  }
+
+  async function listProducts(): Promise<ProductSummary[]> {
+    return (await listCatalogProducts({ limit: 100 })).map(toSummary);
+  }
+
   return {
     authMode: "LOCAL_API",
-    catalogMode: "DEMO",
+    catalogMode: "LOCAL_API",
     login,
     logout,
     getProfile,
     listAccounts,
     createAccount,
     setAccountActive,
-    findActiveProductByBarcode: (barcode: string): Promise<ProductSummary | null> =>
-      options.catalog.findActiveProductByBarcode(barcode),
-    searchActiveProducts: (query: string): Promise<ProductSummary[]> =>
-      options.catalog.searchActiveProducts(query),
-    listProducts: (): Promise<ProductSummary[]> => options.catalog.listProducts(),
+    listCategories,
+    createCategory,
+    listSuppliers,
+    createSupplier,
+    listCatalogProducts,
+    createProduct,
+    updateProduct,
+    addBarcode,
+    removeBarcode,
+    findActiveProductByBarcode,
+    searchActiveProducts,
+    listProducts,
   };
 }

@@ -124,7 +124,18 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       );
     }
     if (activePage === "products") {
-      return <ProductsPage dataSource={dataSource} />;
+      const expectedEpoch = sessionEpochRef.current;
+      return (
+        <ProductsPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={() => {
+            if (sessionEpochRef.current === expectedEpoch) {
+              handleSessionExpired();
+            }
+          }}
+        />
+      );
     }
     if (activePage === "accounts") {
       const expectedEpoch = sessionEpochRef.current;

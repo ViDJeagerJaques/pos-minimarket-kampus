@@ -3,6 +3,7 @@ import { openDatabase, readUserVersion } from "../../db/src/db.ts";
 import { assertOutsideSourceTree, resolveDatabasePath } from "../../db/src/paths.ts";
 import { createAuthService } from "../auth/service.ts";
 import { createSessionStore } from "../auth/session.ts";
+import { createCatalogService } from "../catalog/service.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { startHttpServer } from "./app.ts";
 
@@ -105,10 +106,12 @@ async function main(argv: string[]): Promise<number> {
       sink: (line) => process.stderr.write(`${line}\n`),
     });
     const auth = createAuthService(db, { sessions, securityLog });
+    const catalog = createCatalogService(db);
     const running = await startHttpServer({
       auth,
       sessions,
       securityLog,
+      catalog,
       port: options.port,
     });
     process.stdout.write(
