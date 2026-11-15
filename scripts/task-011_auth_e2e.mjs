@@ -205,7 +205,21 @@ async function main() {
   assert.equal(typeof cashierToken, "string");
   pass("AC-01.04 ADMIN membuat akun kasir; akun baru dapat login");
 
-  // 6. CASHIER ditolak 403 pada endpoint ADMIN; DB tidak berubah.
+  // 6. CASHIER ditolak 403 pada endpoint ADMIN; DB & audit_log tidak berubah.
+  const countSnapshot = () => {
+    const ro = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const users = Number(ro.prepare("SELECT COUNT(*) AS total FROM users").get().total);
+      const audits = Number(ro.prepare("SELECT COUNT(*) AS total FROM audit_log").get().total);
+      const forbiddenUser = ro
+        .prepare("SELECT 1 AS found FROM users WHERE username = ?")
+        .get("kasir.tidak.boleh");
+      return { users, audits, hasForbiddenUser: forbiddenUser !== undefined };
+    } finally {
+      ro.close();
+    }
+  };
+  const beforeDenied = countSnapshot();
   const deniedList = await call(baseUrl, "/users", { token: cashierToken });
   assert.equal(deniedList.status, 403);
   assert.equal(errorCode(deniedList), "FORBIDDEN");
@@ -215,7 +229,12 @@ async function main() {
     body: { username: "kasir.tidak.boleh", password: cashierPassword, role: "CASHIER" },
   });
   assert.equal(deniedCreate.status, 403);
-  pass("AC-01.03 CASHIER menerima 403 dari backend dan tidak dapat membuat akun");
+  assert.equal(errorCode(deniedCreate), "FORBIDDEN");
+  const afterDenied = countSnapshot();
+  assert.equal(afterDenied.users, beforeDenied.users, "403 tidak boleh menambah baris users");
+  assert.equal(afterDenied.audits, beforeDenied.audits, "403 tidak boleh menambah entri audit_log");
+  assert.equal(afterDenied.hasForbiddenUser, false, "akun kasir.tidak.boleh tidak boleh ada di DB");
+  pass("AC-01.03 CASHIER menerima 403 dari backend tanpa perubahan users maupun audit_log");
 
   // 7. Nonaktifkan kasir -> sesi lama 401 -> login ditolak generik.
   const disabled = await call(baseUrl, `/users/${cashierId}`, {

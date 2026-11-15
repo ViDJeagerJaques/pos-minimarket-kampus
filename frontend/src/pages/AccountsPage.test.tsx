@@ -27,10 +27,17 @@ function renderAccounts(source: PosDataSource, onSessionExpired = vi.fn()) {
   return { onSessionExpired, user: userEvent.setup() };
 }
 
-async function fillCreateForm(user: ReturnType<typeof userEvent.setup>) {
+function makeTestPassword(prefix = "pw"): string {
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  return `${prefix}-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function fillCreateForm(user: ReturnType<typeof userEvent.setup>, password = makeTestPassword("kasir")) {
   await user.type(screen.getByLabelText("Nama pengguna"), "kasir.baru");
-  await user.type(screen.getByLabelText("Kata sandi awal"), "sandi-rahasia-uji");
+  await user.type(screen.getByLabelText("Kata sandi awal"), password);
   await user.click(screen.getByRole("button", { name: "Buat akun kasir" }));
+  return password;
 }
 
 describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
@@ -67,11 +74,11 @@ describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
     const { user } = renderAccounts(source);
 
     await screen.findByRole("table", { name: "Daftar akun" });
-    await fillCreateForm(user);
+    const createdPassword = await fillCreateForm(user);
 
     const dialog = await screen.findByRole("dialog", { name: "Buat akun kasir?" });
     expect(dialog.textContent).toContain("kasir.baru");
-    expect(dialog.textContent).not.toContain("sandi-rahasia-uji");
+    expect(dialog.textContent).not.toContain(createdPassword);
     expect(createAccount).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Ya, buat akun" }));
@@ -79,7 +86,7 @@ describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
     await waitFor(() => {
       expect(createAccount).toHaveBeenCalledWith({
         username: "kasir.baru",
-        password: "sandi-rahasia-uji",
+        password: createdPassword,
         role: "CASHIER",
       });
     });
@@ -89,7 +96,7 @@ describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
 
     for (const spy of consoleSpies) {
       const logged = JSON.stringify(spy.mock.calls);
-      expect(logged).not.toContain("sandi-rahasia-uji");
+      expect(logged).not.toContain(createdPassword);
     }
     consoleSpies.forEach((spy) => spy.mockRestore());
   });
@@ -189,6 +196,32 @@ describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
 
     await waitFor(() => {
       expect(onSessionExpired).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("respons daftar akun lama yang terlambat tidak menimpa akun yang baru dibuat", async () => {
+    let resolveList!: (items: AccountSummary[]) => void;
+    const listAccounts = vi.fn(
+      () =>
+        new Promise<AccountSummary[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    const created: AccountSummary = { id: 9, username: "kasir.baru", role: "CASHIER", active: true };
+    const createAccount = vi.fn(async () => created);
+    const { user } = renderAccounts(makeSource({ listAccounts, createAccount }));
+
+    // Buat akun saat listAccounts masih menggantung
+    await fillCreateForm(user);
+    await user.click(await screen.findByRole("button", { name: "Ya, buat akun" }));
+    expect(await screen.findByText(/Akun kasir "kasir.baru" dibuat/)).toBeTruthy();
+
+    // Respons listAccounts lama baru datang berisi hanya ADMIN_ACCOUNT
+    resolveList([ADMIN_ACCOUNT]);
+    const table = await screen.findByRole("table", { name: "Daftar akun" });
+    await waitFor(() => {
+      expect(within(table).getByText("admin.lokal")).toBeTruthy();
+      expect(within(table).getByText("kasir.baru")).toBeTruthy();
     });
   });
 });

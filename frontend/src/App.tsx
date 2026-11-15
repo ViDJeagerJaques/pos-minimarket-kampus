@@ -69,16 +69,15 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
 
   async function handleLogout() {
     sessionEpochRef.current += 1;
+    // Sembunyikan halaman terlindungi dan bersihkan state klien seketika
+    // tanpa menunggu respons backend.
     setDraftLines([]);
+    setUser(null);
+    setPage("cashier");
+    setNotice(null);
     try {
       await dataSource.logout();
     } finally {
-      // Bersihkan seluruh state klien, lalu muat ulang. Tidak ada route sensitif
-      // yang bisa dibuka dengan tombol Back karena sesi & data klien hilang.
-      setDraftLines([]);
-      setUser(null);
-      setPage("cashier");
-      setNotice(null);
       onAfterLogout();
     }
   }
@@ -125,11 +124,16 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       return <ProductsPage dataSource={dataSource} />;
     }
     if (activePage === "accounts") {
+      const expectedEpoch = sessionEpochRef.current;
       return (
         <AccountsPage
           dataSource={dataSource}
           currentUser={currentUser}
-          onSessionExpired={handleSessionExpired}
+          onSessionExpired={() => {
+            if (sessionEpochRef.current === expectedEpoch) {
+              handleSessionExpired();
+            }
+          }}
         />
       );
     }

@@ -71,22 +71,42 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
   // Kunci ref terpisah untuk PATCH status: dua klik cepat sebelum re-render
   // tidak boleh mengirim dua permintaan.
   const updateLockRef = useRef(false);
+  const listRequestSeqRef = useRef(0);
+  const listMutationSeqRef = useRef(0);
   const usernameId = useId();
   const passwordId = useId();
   const formErrorId = useId();
 
   useEffect(() => {
     let isActive = true;
+    const seq = ++listRequestSeqRef.current;
+    const mutationAtStart = listMutationSeqRef.current;
     setIsLoading(true);
     dataSource
       .listAccounts()
       .then((items) => {
-        if (!isActive) return;
-        setAccounts(sortAccounts(items));
+        if (!isActive || seq !== listRequestSeqRef.current) return;
+        if (listMutationSeqRef.current === mutationAtStart) {
+          setAccounts(sortAccounts(items));
+        } else {
+          setAccounts((previous) => {
+            if (previous === null) {
+              return sortAccounts(items);
+            }
+            const merged = new Map<number, AccountSummary>();
+            for (const item of items) {
+              merged.set(item.id, item);
+            }
+            for (const localItem of previous) {
+              merged.set(localItem.id, localItem);
+            }
+            return sortAccounts([...merged.values()]);
+          });
+        }
         setLoadError(null);
       })
       .catch((error: unknown) => {
-        if (!isActive) return;
+        if (!isActive || seq !== listRequestSeqRef.current) return;
         if (error instanceof ApiError && error.isSessionExpired) {
           onSessionExpired();
           return;
@@ -94,7 +114,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
         setLoadError(error instanceof ApiError ? error.message : "Daftar akun gagal dimuat.");
       })
       .finally(() => {
-        if (isActive) setIsLoading(false);
+        if (isActive && seq === listRequestSeqRef.current) setIsLoading(false);
       });
     return () => {
       isActive = false;
@@ -138,6 +158,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
         password,
         role: target.role,
       });
+      listMutationSeqRef.current += 1;
       setAccounts((previous) => sortAccounts([...(previous ?? []), created]));
       setUsername("");
       setPassword("");
@@ -160,6 +181,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
     setUpdatingId(target.account.id);
     try {
       const updated = await dataSource.setAccountActive(target.account.id, false);
+      listMutationSeqRef.current += 1;
       setAccounts((previous) =>
         previous === null
           ? previous

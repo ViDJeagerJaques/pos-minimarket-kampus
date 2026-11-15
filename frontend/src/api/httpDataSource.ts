@@ -47,12 +47,16 @@ export type HttpDataSourceOptions = {
   /** Contoh: `/api/v1` (dev via proxy Vite) atau `http://127.0.0.1:8787/api/v1`. */
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  /** Batas waktu tunggu per permintaan HTTP (ms); default 10.000 ms. */
+  timeoutMs?: number;
   /** Sumber katalog sementara; tidak ikut terhubung ke API pada TASK-011. */
   catalog: Pick<
     PosDataSource,
     "findActiveProductByBarcode" | "searchActiveProducts" | "listProducts"
   >;
 };
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 function toApiErrorCode(value: unknown): ApiErrorCode {
   return typeof value === "string" && KNOWN_CODES.has(value as ApiErrorCode)
@@ -135,8 +139,11 @@ function toAccountSummary(value: unknown): AccountSummary {
 export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSource {
   const baseUrl = (options.baseUrl ?? "/api/v1").replace(/\/+$/, "");
   const fetchImpl = options.fetchImpl;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   /** Token mentah hanya di memori. Jangan pindahkan ke localStorage (AUTHORIZATION §2). */
   let token: string | null = null;
+  /** Monotonic counter untuk mengabaikan respons dari sesi/upaya login yang sudah usang. */
+  let sessionSeq = 0;
 
   function getFetch(): typeof fetch {
     if (fetchImpl) {
@@ -169,25 +176,38 @@ export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSou
       headers.Authorization = `Bearer ${authToken}`;
     }
 
-    let response: Response;
-    try {
-      response = await getFetch()(`${baseUrl}${path}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-        credentials: "omit",
-        cache: "no-store",
-      });
-    } catch {
-      // Detail error jaringan (URL internal) tidak perlu ditampilkan ke kasir.
-      throw new ApiError(0, "NETWORK_ERROR", safeMessage(0, "NETWORK_ERROR", null), true);
-    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
 
+    let response: Response;
     let text: string;
     try {
-      text = await response.text();
-    } catch {
-      throw new ApiError(response.status, "INVALID_RESPONSE", safeMessage(response.status, "INVALID_RESPONSE", null));
+      try {
+        response = await getFetch()(`${baseUrl}${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+          credentials: "omit",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      } catch {
+        // Detail error jaringan / timeout (URL internal) tidak perlu ditampilkan ke kasir.
+        throw new ApiError(0, "NETWORK_ERROR", safeMessage(0, "NETWORK_ERROR", null), true);
+      }
+
+      try {
+        text = await response.text();
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+          throw new ApiError(0, "NETWORK_ERROR", safeMessage(0, "NETWORK_ERROR", null), true);
+        }
+        throw new ApiError(response.status, "INVALID_RESPONSE", safeMessage(response.status, "INVALID_RESPONSE", null));
+      }
+    } finally {
+      clearTimeout(timer);
     }
 
     let parsed: ApiEnvelope | null = null;
@@ -222,6 +242,8 @@ export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSou
 
   async function login(username: string, password: string): Promise<LoginResult> {
     // Jangan pernah memakai sesi lama saat login baru dimulai.
+    sessionSeq += 1;
+    const attemptSeq = sessionSeq;
     token = null;
     let data: unknown;
     try {
@@ -234,17 +256,27 @@ export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSou
       throw error;
     }
 
+    if (attemptSeq !== sessionSeq) {
+      throw new ApiError(401, "AUTH_REQUIRED", safeMessage(401, "AUTH_REQUIRED", null));
+    }
+
     if (!isRecord(data) || typeof data.token !== "string" || data.token.length === 0) {
       throw new ApiError(200, "INVALID_RESPONSE", safeMessage(200, "INVALID_RESPONSE", null));
     }
-    token = data.token;
+    const nextToken = data.token;
+    token = nextToken;
     try {
       // Verifikasi profil dari API; jangan mengaku sukses hanya dari state UI.
-      const profile = await request("GET", "/auth/me");
+      const profile = await request("GET", "/auth/me", undefined, nextToken);
+      if (attemptSeq !== sessionSeq) {
+        throw new ApiError(401, "AUTH_REQUIRED", safeMessage(401, "AUTH_REQUIRED", null));
+      }
       return { ok: true, user: toSessionUser(profile) };
     } catch (error) {
-      // Token sempat dibuat tetapi /auth/me menolak: jangan klaim login berhasil.
-      token = null;
+      // Token sempat dibuat tetapi /auth/me menolak: hanya bersihkan jika masih upaya yang sama.
+      if (attemptSeq === sessionSeq) {
+        token = null;
+      }
       if (error instanceof ApiError && error.status === 401) {
         throw new ApiError(401, "AUTH_REQUIRED", "Sesi login tidak dapat diverifikasi. Coba lagi.");
       }
@@ -253,6 +285,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions): PosDataSou
   }
 
   async function logout(): Promise<void> {
+    sessionSeq += 1;
     const current = token;
     token = null;
     if (current === null) {

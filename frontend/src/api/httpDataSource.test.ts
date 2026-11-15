@@ -5,6 +5,12 @@ import type { ProductSummary } from "./types";
 
 type Call = { url: string; init: RequestInit | undefined };
 
+function makeTestPassword(prefix = "pw"): string {
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  return `${prefix}-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
 function fakeResponse(status: number, body: unknown): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -67,7 +73,8 @@ describe("TASK-011 klien API auth lokal", () => {
     const { fetchImpl, calls } = stubFetch([loginEnvelope(), meEnvelope()]);
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
 
-    const result = await dataSource.login("admin.lokal", "sandi-rahasia-uji");
+    const testPassword = makeTestPassword("admin");
+    const result = await dataSource.login("admin.lokal", testPassword);
 
     expect(result).toEqual({
       ok: true,
@@ -77,7 +84,7 @@ describe("TASK-011 klien API auth lokal", () => {
     expect(calls[0]?.url).toBe("/api/v1/auth/login");
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
       username: "admin.lokal",
-      password: "sandi-rahasia-uji",
+      password: testPassword,
     });
     expect(calls[1]?.url).toBe("/api/v1/auth/me");
     expect(authHeader(calls[1]?.init)).toBe("Bearer token-1");
@@ -102,7 +109,7 @@ describe("TASK-011 klien API auth lokal", () => {
     ]);
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
 
-    const result = await dataSource.login("kasir.nonaktif", "sandi-salah");
+    const result = await dataSource.login("kasir.nonaktif", makeTestPassword("wrong"));
 
     expect(result).toEqual({ ok: false, code: "INVALID_CREDENTIALS" });
     expect(calls).toHaveLength(1);
@@ -120,7 +127,7 @@ describe("TASK-011 klien API auth lokal", () => {
     ]);
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
 
-    await expect(dataSource.login("admin.lokal", "sandi-rahasia-uji")).rejects.toMatchObject({
+    await expect(dataSource.login("admin.lokal", makeTestPassword("admin"))).rejects.toMatchObject({
       status: 401,
       code: "AUTH_REQUIRED",
     });
@@ -141,7 +148,7 @@ describe("TASK-011 klien API auth lokal", () => {
     ]);
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
 
-    await expect(dataSource.login("admin.lokal", "sandi")).rejects.toMatchObject({
+    await expect(dataSource.login("admin.lokal", makeTestPassword("rate"))).rejects.toMatchObject({
       status: 429,
       code: "LOGIN_RATE_LIMITED",
       retryable: true,
@@ -157,7 +164,7 @@ describe("TASK-011 klien API auth lokal", () => {
     ]);
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
 
-    await dataSource.login("admin.lokal", "sandi-rahasia-uji");
+    await dataSource.login("admin.lokal", makeTestPassword("logout"));
     await dataSource.logout();
 
     expect(calls).toHaveLength(3);
@@ -185,13 +192,14 @@ describe("TASK-011 klien API auth lokal", () => {
       { status: 200, body: { data: { ...created, active: false }, requestId: "r-patch" } },
     ]);
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
-    await dataSource.login("admin.lokal", "sandi-rahasia-uji");
+    const createdPw = makeTestPassword("ksr");
+    await dataSource.login("admin.lokal", makeTestPassword("adm"));
 
     await expect(dataSource.listAccounts()).resolves.toEqual([
       { id: 1, username: "admin.lokal", role: "ADMIN", active: true },
     ]);
     await expect(
-      dataSource.createAccount({ username: "kasir.baru", password: "sandi-baru-uji", role: "CASHIER" }),
+      dataSource.createAccount({ username: "kasir.baru", password: createdPw, role: "CASHIER" }),
     ).resolves.toEqual({ id: 2, username: "kasir.baru", role: "CASHIER", active: true });
     await expect(dataSource.setAccountActive(2, false)).resolves.toEqual({
       id: 2,
@@ -204,7 +212,7 @@ describe("TASK-011 klien API auth lokal", () => {
     expect(calls[3]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
       username: "kasir.baru",
-      password: "sandi-baru-uji",
+      password: createdPw,
       role: "CASHIER",
     });
     expect(calls[4]?.url).toBe("/api/v1/users/2");
@@ -229,7 +237,7 @@ describe("TASK-011 klien API auth lokal", () => {
       },
     ]);
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
-    await dataSource.login("kasir.lokal", "sandi-rahasia-uji");
+    await dataSource.login("kasir.lokal", makeTestPassword("ksr"));
 
     await expect(dataSource.listAccounts()).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
   });
@@ -240,8 +248,63 @@ describe("TASK-011 klien API auth lokal", () => {
     }) as unknown as typeof fetch;
     const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
 
-    const error = await dataSource.login("admin.lokal", "sandi-rahasia-uji").catch((caught: unknown) => caught);
+    const error = await dataSource.login("admin.lokal", makeTestPassword("net")).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 0, code: "NETWORK_ERROR" });
+  });
+
+  it("permintaan HTTP yang menggantung dibatalkan oleh timeout dan menghasilkan NETWORK_ERROR", async () => {
+    const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      });
+    }) as unknown as typeof fetch;
+
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, timeoutMs: 25, catalog });
+    const error = await dataSource.login("admin.lokal", makeTestPassword("timeout")).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 0, code: "NETWORK_ERROR", retryable: true });
+  });
+
+  it("respons gagal dari upaya login lama tidak mengakhiri sesi baru", async () => {
+    let rejectStaleMe!: (reason?: unknown) => void;
+    let callIndex = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      callIndex += 1;
+      if (callIndex === 1 && url.endsWith("/auth/login")) {
+        return fakeResponse(200, { data: { token: "token-lama", user: ADMIN_USER } });
+      }
+      if (callIndex === 2 && url.endsWith("/auth/me")) {
+        return new Promise<Response>((_resolve, reject) => {
+          rejectStaleMe = reject;
+        });
+      }
+      if (url.endsWith("/auth/login")) {
+        return fakeResponse(200, { data: { token: "token-baru", user: ADMIN_USER } });
+      }
+      if (url.endsWith("/auth/me")) {
+        return fakeResponse(200, { data: ADMIN_USER });
+      }
+      throw new Error(`Unexpected url: ${url}`);
+    }) as unknown as typeof fetch;
+
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const staleLogin = dataSource.login("admin.lokal", makeTestPassword("lama"));
+    // Tunggu hingga staleLogin masuk ke /auth/me
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Login baru dimulai dan berhasil sebelum /auth/me lama gagal
+    const freshResult = await dataSource.login("admin.lokal", makeTestPassword("baru"));
+    expect(freshResult.ok).toBe(true);
+
+    // /auth/me milik sesi lama gagal -> tidak boleh menghapus token-baru
+    rejectStaleMe(new Error("stale failure"));
+    await expect(staleLogin).rejects.toBeInstanceOf(ApiError);
+
+    const profile = await dataSource.getProfile();
+    expect(profile.username).toBe("admin.lokal");
   });
 });

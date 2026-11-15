@@ -103,7 +103,7 @@ export function LoginPage({ dataSource, onLoggedIn, notice = null }: LoginPagePr
           className="input"
           type="password"
           autoComplete="current-password"
-          maxLength={128}
+          maxLength={1024}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           aria-describedby={error ? errorId : undefined}
