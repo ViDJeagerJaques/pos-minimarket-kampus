@@ -790,3 +790,102 @@ test("AC-02.01/02/03 & AC-03.01 via HTTP: katalog ADMIN, 403 CASHIER, barcode no
     database.cleanup();
   }
 });
+
+test("BUG-005: POST /products/:id/suppliers menolak body tanpa supplierIds atau null, dan mengizinkan [] eksplisit", async () => {
+  const { database, db } = createDatabase();
+  const handle = await startServerFor(db);
+  const base = handle.running.url;
+  const dataOf = <T,>(result: { json: unknown }): T =>
+    (result.json as { data: T }).data;
+  const codeOf = (result: { json: unknown }): string | undefined =>
+    (result.json as { error?: { code?: string } }).error?.code;
+
+  try {
+    const adminLogin = await login(base, "admin.http", ADMIN_PASSWORD);
+    assert.equal(adminLogin.status, 200);
+    const adminToken = dataOf<{ token: string }>(adminLogin).token;
+
+    const category = await call(base, "/categories", {
+      token: adminToken,
+      payload: JSON.stringify({ name: "Minuman" }),
+    });
+    const categoryId = dataOf<{ id: number }>(category).id;
+
+    const supplier = await call(base, "/suppliers", {
+      token: adminToken,
+      payload: JSON.stringify({ name: "PT Supplier Uji" }),
+    });
+    const supplierId = dataOf<{ id: number }>(supplier).id;
+
+    const product = await call(base, "/products", {
+      token: adminToken,
+      payload: JSON.stringify({
+        categoryId,
+        sku: "SUP-001",
+        name: "Air Mineral",
+        priceRp: 3000,
+        barcodes: [],
+        supplierIds: [supplierId],
+      }),
+    });
+    assert.equal(product.status, 201);
+    const productId = dataOf<{ id: number }>(product).id;
+
+    const auditCountBefore = (
+      db.prepare("SELECT COUNT(*) AS c FROM audit_log").get() as { c: number }
+    ).c;
+
+    // 1. Body kosong `{}` -> ditolak, relasi supplier & audit tidak berubah
+    const missingField = await call(base, `/products/${productId}/suppliers`, {
+      token: adminToken,
+      payload: JSON.stringify({}),
+    });
+    assert.equal(missingField.status, 422);
+    assert.equal(codeOf(missingField), "VALIDATION_ERROR");
+
+    // 2. `{"supplierIds": null}` -> ditolak, relasi supplier & audit tidak berubah
+    const nullField = await call(base, `/products/${productId}/suppliers`, {
+      token: adminToken,
+      payload: JSON.stringify({ supplierIds: null }),
+    });
+    assert.equal(nullField.status, 422);
+    assert.equal(codeOf(nullField), "VALIDATION_ERROR");
+
+    // 3. Tipe non-array `{"supplierIds": "1"}` -> ditolak
+    const nonArrayField = await call(base, `/products/${productId}/suppliers`, {
+      token: adminToken,
+      payload: JSON.stringify({ supplierIds: "1" }),
+    });
+    assert.equal(nonArrayField.status, 422);
+    assert.equal(codeOf(nonArrayField), "VALIDATION_ERROR");
+
+    const linkedAfterInvalid = db
+      .prepare("SELECT supplier_id FROM product_suppliers WHERE product_id = ?")
+      .all(productId) as Array<{ supplier_id: number }>;
+    assert.deepEqual(
+      linkedAfterInvalid.map((r) => Number(r.supplier_id)),
+      [supplierId],
+    );
+    const auditCountAfterInvalid = (
+      db.prepare("SELECT COUNT(*) AS c FROM audit_log").get() as { c: number }
+    ).c;
+    assert.equal(auditCountAfterInvalid, auditCountBefore);
+
+    // 4. `{"supplierIds": []}` eksplisit -> diizinkan untuk menghapus relasi
+    const explicitEmpty = await call(base, `/products/${productId}/suppliers`, {
+      token: adminToken,
+      payload: JSON.stringify({ supplierIds: [] }),
+    });
+    assert.equal(explicitEmpty.status, 200);
+    assert.deepEqual(dataOf<{ supplierIds: number[] }>(explicitEmpty).supplierIds, []);
+
+    const linkedAfterEmpty = db
+      .prepare("SELECT supplier_id FROM product_suppliers WHERE product_id = ?")
+      .all(productId) as Array<{ supplier_id: number }>;
+    assert.deepEqual(linkedAfterEmpty, []);
+  } finally {
+    await handle.running.close();
+    db.close();
+    database.cleanup();
+  }
+});

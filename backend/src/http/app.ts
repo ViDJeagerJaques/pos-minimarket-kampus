@@ -286,13 +286,19 @@ function createCatalogRoutes(catalog: CatalogService): Route[] {
       method: "POST",
       pattern: /^\/products\/(?<id>\d+)\/suppliers$/,
       roles: ["ADMIN"],
-      handler: (ctx) => ({
-        data: catalog.setProductSuppliers(
-          actorOf(ctx),
-          Number(ctx.params.id),
-          (asObject(ctx.body).supplierIds ?? []) as number[],
-        ),
-      }),
+      handler: (ctx) => {
+        const body = asObject(ctx.body);
+        if (!Array.isArray(body.supplierIds)) {
+          throw new ValidationError("supplierIds harus berupa daftar ID.", "supplierIds");
+        }
+        return {
+          data: catalog.setProductSuppliers(
+            actorOf(ctx),
+            Number(ctx.params.id),
+            body.supplierIds as number[],
+          ),
+        };
+      },
     },
     {
       method: "POST",
