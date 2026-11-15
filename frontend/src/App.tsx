@@ -69,6 +69,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
 
   async function handleLogout() {
     sessionEpochRef.current += 1;
+    const logoutEpoch = sessionEpochRef.current;
     // Sembunyikan halaman terlindungi dan bersihkan state klien seketika
     // tanpa menunggu respons backend.
     setDraftLines([]);
@@ -78,7 +79,9 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     try {
       await dataSource.logout();
     } finally {
-      onAfterLogout();
+      if (sessionEpochRef.current === logoutEpoch) {
+        onAfterLogout();
+      }
     }
   }
 

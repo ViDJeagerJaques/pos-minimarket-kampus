@@ -5,7 +5,7 @@
 | Tanggal | 2026-11-15 |
 | Branch | `task/p07-011` (base `origin/master`, diverifikasi via `git rev-parse --abbrev-ref origin/HEAD` → `origin/master`) |
 | Owner | Syafroni (frontend) — QA pendamping Naazmi |
-| Status | **REVIEW** — kode & tes lokal PASS; belum commit/push/PR, belum uji perangkat/pengelola |
+| Status | **REVIEW** — PR #12 terbuka di `task/p07-011`; perbaikan lokal terbaru (`handleLogout` epoch guard + regresi) lulus `typecheck`, tes, dan `build`; belum uji perangkat/pengelola |
 | Lingkup | POS-01.01/AC-01.01, POS-01.02/AC-01.02, POS-01.03/AC-01.03, POS-01.04/AC-01.04; DEC-001, DEC-014 |
 | Dependensi | TASK-007 (UI mock) dan TASK-009 (backend auth/akun) — keduanya tersedia nyata di checkout |
 | Mesin uji | win32 10.0.19045 x64, Node v26.13.1, npm 11.20.0 |
@@ -33,11 +33,11 @@ pengelola, Electron, maupun transaksi uang sungguhan.
 |---|---|
 | `frontend/src/api/httpDataSource.ts` | Klien API auth/akun: login → `/auth/me`, logout, list/create/PATCH user, pemetaan error 401/403/429/jaringan. Token hanya di memori. |
 | `frontend/src/api/errors.ts` | `ApiError` bertipe untuk status/kode/retryable; pesan aman tanpa kredensial. |
-| `frontend/src/api/httpDataSource.test.ts` | 8 tes kontrak klien: sukses hanya setelah `/auth/me`, kredensial generik, rate limit, logout membuang token, payload akun, 403, jaringan. |
+| `frontend/src/api/httpDataSource.test.ts` | 10 tes kontrak klien: sukses hanya setelah `/auth/me`, kredensial generik, rate limit, logout membuang token, payload akun, 403, jaringan, timeout. |
 | `frontend/src/pages/AccountsPage.tsx` | Layar ADMIN: daftar akun, buat kasir dengan konfirmasi, nonaktifkan dengan konfirmasi, validasi input, penanganan 401/403, kata sandi tidak ditampilkan ulang. |
-| `frontend/src/pages/AccountsPage.test.tsx` | 7 tes UI: render daftar, konfirmasi sebelum mutasi, sandi tidak masuk dialog/log, double-click tidak menggandakan request create/disable, 403 vs 401. |
+| `frontend/src/pages/AccountsPage.test.tsx` | 8 tes UI: render daftar, konfirmasi sebelum mutasi, sandi tidak masuk dialog/log, double-click tidak menggandakan request create/disable, respons daftar akun lama tidak menimpa akun baru, 403 vs 401. |
 | `frontend/src/pages/ForbiddenPage.tsx` | Pesan akses ditolak untuk navigasi UI, menegaskan backend tetap menolak dengan 403. |
-| `frontend/src/App.auth.test.tsx` | 5 tes alur App: Enter ganda → 1 request, login gagal tidak membuka menu, logout + Back tidak membuka halaman sensitif, 401 membersihkan sesi, 403 mempertahankan sesi. |
+| `frontend/src/App.auth.test.tsx` | 9 tes alur App: Enter ganda → 1 request, login gagal tidak membuka menu, logout + Back tidak membuka halaman sensitif, 401 membersihkan sesi, 403 mempertahankan sesi, logout langsung menyembunyikan halaman terlindungi, 401 sesi lama & logout sesi A tertunda tidak menghapus sesi B. |
 | `scripts/task-011_auth_e2e.mjs` | E2E API nyata: migrasi SQLite sementara di luar repo, bootstrap ADMIN dari env, server loopback acak, login/403/nonaktif/logout/audit. |
 | `frontend/README.md` | Cara menjalankan backend 8787 + proxy, variabel `VITE_AUTH_MODE`/`VITE_API_BASE_URL`, batasan. |
 
@@ -64,8 +64,8 @@ Semua dijalankan di checkout ini pada 2026-11-15.
 | # | Perintah | Hasil | Bukti ringkas |
 |---|---|---|---|
 | 1 | `cd frontend; npm run typecheck` | **PASS** | `tsc --noEmit` tanpa error |
-| 2 | `cd frontend; npm test` | **PASS** | 4 file tes, **31/31** tes lulus |
-| 3 | `cd frontend; npm run build` | **PASS** | `vite build` 40 modul; `dist/` dihasilkan (JS 253,55 kB, CSS 9,54 kB) |
+| 2 | `cd frontend; npm test` | **PASS** | 4 file tes, **38/38** tes lulus (`httpDataSource.test.ts` 10, `AccountsPage.test.tsx` 8, `App.auth.test.tsx` 9, `App.test.tsx` 11) |
+| 3 | `cd frontend; npm run build` | **PASS** | `vite build` 40 modul; `dist/` dihasilkan (JS 254,39 kB, CSS 9,54 kB) |
 | 4 | `cd backend; npm run typecheck` | **PASS** | tanpa error (setelah `npm ci`, 4 paket dev) |
 | 5 | `cd backend; npm test` | **PASS** | **55/55** tes lulus |
 | 6 | `node scripts/task-011_auth_e2e.mjs` | **PASS** | 9 pemeriksaan E2E API nyata |
@@ -116,8 +116,9 @@ kata sandi asli; `audit_log` memuat `ACCOUNT_CREATED`/`ACCOUNT_DISABLED` dengan
 
 - Branch nyata: `task/p07-011`.
 - Base: `origin/master` (bukan `main`; diverifikasi dari `origin/HEAD`).
-- **Belum ada commit, push, atau PR** — menunggu instruksi eksplisit user.
-- Tidak ada tautan PR yang bisa dilaporkan karena belum dibuat.
+- PR: #12 (`https://github.com/ViDJeagerJaques/pos-minimarket-kampus/pull/12`).
+- Commit terdorong di branch: `c0deb02` (implementasi awal TASK-011) dan `e14daa9` (perbaikan temuan CodeRabbit batch sebelumnya).
+- Perubahan lokal terbaru (`frontend/src/App.tsx`, `frontend/src/App.auth.test.tsx`, dan pembaruan laporan ini) belum di-commit/push — menunggu instruksi eksplisit user.
 
 ## 5. Risiko, asumsi DEMO, dan celah GO-LIVE
 

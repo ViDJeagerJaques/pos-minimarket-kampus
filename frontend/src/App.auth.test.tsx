@@ -209,4 +209,40 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     const passwordInput = screen.getByLabelText("Kata sandi") as HTMLInputElement;
     expect(passwordInput.maxLength).toBe(1024);
   });
+
+  it("logout sesi A yang tertunda lalu selesai setelah sesi B login tidak memanggil onAfterLogout atau menghapus sesi B", async () => {
+    const deferredLogoutA = createDeferred<void>();
+    let logoutCalls = 0;
+    const logout = vi.fn(() => {
+      logoutCalls += 1;
+      if (logoutCalls === 1) {
+        return deferredLogoutA.promise;
+      }
+      return Promise.resolve();
+    });
+    const { user, onAfterLogout } = renderApp(makeSource({ logout }));
+
+    // Sesi A login lalu menekan Keluar (request logout tertunda)
+    await loginAs(user, "admin.demo");
+    await screen.findByRole("navigation", { name: "Menu utama" });
+    await user.click(screen.getByRole("button", { name: "Keluar" }));
+    expect(screen.getByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+
+    // Sesi B login sebelum logout sesi A selesai
+    await loginAs(user, "kasir.demo");
+    const navB = await screen.findByRole("navigation", { name: "Menu utama" });
+    expect(navB).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
+
+    // Logout sesi A selesai -> sesi B harus tetap aktif dan onAfterLogout tidak dipanggil
+    await act(async () => {
+      deferredLogoutA.resolve(undefined);
+      await Promise.resolve();
+    });
+
+    expect(onAfterLogout).not.toHaveBeenCalled();
+    expect(screen.getByRole("navigation", { name: "Menu utama" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+  });
 });
