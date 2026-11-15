@@ -253,3 +253,24 @@ Hanya `POST /users`/`PATCH` yang mengubah data; keduanya khusus ADMIN.
 - Rate-limit/lockout login, timeout/idle sesi, penyimpanan token di Electron,
   dan kebijakan sandi akhir masih menunggu review (AUTHORIZATION.md §8).
 - Server HTTP loopback adalah adapter tipis; Express tetap kandidat DEC-010.
+
+## 10. Ledger stok dan saldo awal uji (TASK-015)
+
+Status: **DEMO**, lulus `node --test` pada database sementara. Belum ada
+endpoint HTTP untuk ledger (TASK-026/025 akan memakainya).
+
+- Saldo hanya dibaca/agregasi dari `inventory_movements` (`stock_balances` /
+  `inventory/ledger.ts`). Tidak ada kolom saldo yang dapat diubah langsung.
+- `applyOpeningFixture()` menulis mutasi `OPENING` + audit
+  `STOCK_OPENING_IMPORTED` dalam satu transaksi. Idempoten per
+  `batchRef`; batch berbeda untuk produk yang sama ditolak 409. Partial unique
+  index `ux_movements_opening_product` menjamin maksimal satu OPENING per
+  produk.
+- `reconcileProduct()` menghitung `opening + receipt + sale + adjustment`
+  lalu membandingkan dengan total ledger; `assertSufficientStock()` menolak
+  permintaan di atas saldo (DEC-018, PROPOSED) tanpa mengubah ledger/audit.
+- `STOCK_OPENING_IMPORTED` adalah **usulan kontrak** (AUDIT_LOG.md AUD-04 belum
+  mencantumkan impor stok); perlu review David/Naazmi.
+- `catalog/service.ts` memakai agregasi ledger yang sama untuk `stockOnHand`;
+  tes membuktikan keduanya sama.
+
