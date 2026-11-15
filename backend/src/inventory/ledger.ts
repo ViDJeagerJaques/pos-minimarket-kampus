@@ -188,6 +188,34 @@ export function reconcileProduct(db: DatabaseSync, productId: unknown): Reconcil
   if (Number(illegal.total) > 0) {
     issues.push(`${Number(illegal.total)} mutasi tanpa sumber/alasan yang sah.`);
   }
+  const saleMismatches = db
+    .prepare(
+      `SELECT m.id, m.delta, m.sale_item_id, si.quantity AS sale_quantity
+       FROM inventory_movements m
+       LEFT JOIN sale_items si ON si.id = m.sale_item_id
+       WHERE m.product_id = ?
+         AND m.kind = 'SALE'
+         AND m.sale_item_id IS NOT NULL
+         AND (si.id IS NULL OR m.delta != -si.quantity)
+       ORDER BY m.id`,
+    )
+    .all(id) as Array<{
+    id: number;
+    delta: number;
+    sale_item_id: number;
+    sale_quantity: number | null;
+  }>;
+  for (const mismatch of saleMismatches) {
+    if (mismatch.sale_quantity === null) {
+      issues.push(
+        `Mutasi SALE #${Number(mismatch.id)} (sale_item_id=${Number(mismatch.sale_item_id)}): item penjualan sumber tidak ditemukan.`,
+      );
+    } else {
+      issues.push(
+        `Mutasi SALE #${Number(mismatch.id)} (sale_item_id=${Number(mismatch.sale_item_id)}): delta ${Number(mismatch.delta)} tidak sama dengan -quantity (-${Number(mismatch.sale_quantity)}).`,
+      );
+    }
+  }
   if (ledgerOnHand < 0) {
     issues.push(`Saldo ledger negatif (${ledgerOnHand}).`);
   }

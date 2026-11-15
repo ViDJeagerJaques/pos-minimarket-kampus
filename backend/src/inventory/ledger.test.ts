@@ -242,3 +242,34 @@ test("Constraint DB menolak mutasi ilegal dan OPENING ganda", () => {
     database.cleanup();
   }
 });
+
+test("BUG-009: reconcileProduct menandai matched=false dan melaporkan issue jika delta SALE berbeda dari -quantity sale_items", () => {
+  const { database, db } = setup();
+  try {
+    insertOpening(db, 1, 10, "LEDGER-OPEN-1");
+    const saleItemId = insertSaleFixture(db, 1, 4);
+    // Delta SALE seharusnya -4 (sesuai sale_items.quantity = 4), tetapi dicatat -2.
+    const movement = db
+      .prepare(
+        `INSERT INTO inventory_movements (product_id, kind, delta, sale_item_id, actor_id, created_at_ms)
+         VALUES (1, 'SALE', -2, ?, 2, ?)`,
+      )
+      .run(saleItemId, FIXED_NOW + 1);
+    const movementId = Number(movement.lastInsertRowid);
+
+    const report = reconcileProduct(db, 1);
+    assert.equal(report.opening, 10);
+    assert.equal(report.sale, -2);
+    assert.equal(report.computedOnHand, 8);
+    assert.equal(report.ledgerOnHand, 8);
+    assert.equal(report.matched, false);
+    assert.equal(report.issues.length, 1);
+    assert.match(report.issues[0]!, /SALE/);
+    assert.match(report.issues[0]!, new RegExp(`#${movementId}`));
+    assert.match(report.issues[0]!, /delta -2/);
+    assert.match(report.issues[0]!, /-4/);
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});
