@@ -274,3 +274,22 @@ endpoint HTTP untuk ledger (TASK-026/025 akan memakainya).
 - `catalog/service.ts` memakai agregasi ledger yang sama untuk `stockOnHand`;
   tes membuktikan keduanya sama.
 
+## 11. Pembukaan shift (TASK-014)
+
+Status: **DEMO**, lulus tes service + HTTP pada database sementara.
+
+- `POST /api/v1/shifts/open` (khusus CASHIER) dan `GET /api/v1/shifts/current`.
+- Pemilik shift diambil dari sesi; `BEGIN IMMEDIATE` + partial unique index
+  `ux_shifts_single_open` menjamin tepat satu shift aktif per PC. Dua request
+  bersamaan: satu 200, satu 409 `SHIFT_ALREADY_OPEN`.
+- Shift tersimpan di SQLite; logout/restart tidak mengubahnya. Pemilik login
+  ulang mendapatkan shift yang sama; kasir lain mendapat `null` dan tidak bisa
+  membuka shift kedua.
+- ADMIN **ditolak 403** pada pembukaan: baseline konservatif AUTHORIZATION.md
+  §3 dan SECURITY.md §4 (ADMIN bukan otomatis kasir). API_CONTRACT.md §3 sudah
+  diselaraskan: `POST /shifts/open` khusus CASHIER; ADMIN belum diizinkan
+  selama DEC-019 `PENDING`. Perubahan status menunggu review David.
+- Audit `SHIFT_OPENED` (AUD-05) ditulis dalam transaksi pembukaan; nominal kas
+  tidak diduplikasi ke audit.
+
+

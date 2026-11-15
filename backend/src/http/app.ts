@@ -19,6 +19,8 @@ import {
   type LoginRateLimiter,
 } from "../security/loginRateLimiter.ts";
 import type { SecurityLogger } from "../security/securityLog.ts";
+import type { ShiftService } from "../shift/service.ts";
+import { ShiftError } from "../shift/errors.ts";
 
 /**
  * Server HTTP loopback dengan dependensi nol. Ini adapter tipis, bukan
@@ -34,6 +36,8 @@ export type HttpAppOptions = {
   securityLog: SecurityLogger;
   /** Service katalog TASK-010; bila tidak diisi, route katalog tidak aktif. */
   catalog?: CatalogService;
+  /** Service shift TASK-014; bila tidak diisi, route shift tidak aktif. */
+  shift?: ShiftService;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -176,6 +180,17 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
     });
     return;
   }
+  if (error instanceof ShiftError) {
+    sendJson(res, error.httpStatus, {
+      error: {
+        code: error.code,
+        message: error.message,
+        requestId,
+        retryable: false,
+      },
+    });
+    return;
+  }
   // Detail internal tidak pernah dikirim ke renderer (ERROR_HANDLING.md §1).
   sendJson(res, 500, {
     error: {
@@ -311,6 +326,29 @@ function createCatalogRoutes(catalog: CatalogService): Route[] {
   ];
 }
 
+/**
+ * Route shift TASK-014. `POST /shifts/open` khusus CASHIER (ADMIN ditolak 403,
+ * baseline konservatif AUTHORIZATION.md §3/SECURITY.md §4). `GET
+ * /shifts/current` mengembalikan shift aktif milik kasir; kasir lain null.
+ */
+function createShiftRoutes(shift: ShiftService): Route[] {
+  const actorOf = (ctx: RequestContext): SessionUser => ctx.actor as SessionUser;
+  return [
+    {
+      method: "POST",
+      pattern: /^\/shifts\/open$/,
+      roles: ["CASHIER"],
+      handler: (ctx) => ({ data: shift.openShift(actorOf(ctx), asObject(ctx.body)) }),
+    },
+    {
+      method: "GET",
+      pattern: /^\/shifts\/current$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => ({ data: shift.getCurrentShift(actorOf(ctx)) }),
+    },
+  ];
+}
+
 export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
   const { auth, sessions, securityLog } = options;
@@ -409,6 +447,9 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
 
   if (options.catalog) {
     routes.push(...createCatalogRoutes(options.catalog));
+  }
+  if (options.shift) {
+    routes.push(...createShiftRoutes(options.shift));
   }
 
   return async (req, res) => {
