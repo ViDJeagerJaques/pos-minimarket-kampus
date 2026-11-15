@@ -14,7 +14,8 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self'",
+  // Backend lokal (TASK-009) untuk auth; tetap loopback, bukan domain publik/CDN.
+  "connect-src 'self' http://127.0.0.1:* http://localhost:*",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
@@ -38,8 +39,20 @@ export default defineConfig({
   base: "./",
   plugins: [react(), buildCsp()],
   // Hanya loopback; jangan bind 0.0.0.0 (TECH_STACK §3).
-  server: { host: "127.0.0.1", port: 5173, strictPort: true },
-  preview: { host: "127.0.0.1", port: 4173, strictPort: true },
+  server: {
+    host: "127.0.0.1",
+    port: 5173,
+    strictPort: true,
+    // Proxy /api ke backend TASK-009 agar fetch same-origin dan tidak perlu CORS.
+    // Jalankan backend: `cd backend && npm start -- --port 8787`.
+    proxy: { "/api": { target: "http://127.0.0.1:8787", changeOrigin: false } },
+  },
+  preview: {
+    host: "127.0.0.1",
+    port: 4173,
+    strictPort: true,
+    proxy: { "/api": { target: "http://127.0.0.1:8787", changeOrigin: false } },
+  },
   build: { outDir: "dist", sourcemap: false },
   test: {
     environment: "jsdom",

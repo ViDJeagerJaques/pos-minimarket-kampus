@@ -91,6 +91,33 @@ function catchError(fn: () => unknown): unknown {
   assert.fail("Operasi seharusnya melempar error, tetapi berhasil.");
 }
 
+test("Input penggantian supplier tidak valid mempertahankan relasi dan audit", () => {
+  const { database, db, service, admin } = setup();
+  try {
+    const category = service.createCategory(admin, { name: "Kategori Uji Supplier" });
+    const supplier = service.createSupplier(admin, { name: "Supplier Uji" });
+    const product = service.createProduct(admin, {
+      categoryId: category.id, sku: "SUP-TEST", name: "Produk Uji", priceRp: 1000,
+      supplierIds: [supplier.id],
+    });
+    const linksBefore = db.prepare("SELECT * FROM product_suppliers ORDER BY product_id, supplier_id").all();
+    const auditBefore = db.prepare("SELECT * FROM audit_log ORDER BY id").all();
+    for (const input of [undefined, null, "invalid", {}, [0], [999999]]) {
+      assert.throws(
+        () => service.setProductSuppliers(admin, product.id, input as number[]),
+        (error: unknown) => isCatalogError(error, ValidationError, "VALIDATION_ERROR", "supplierIds"),
+      );
+      assert.deepEqual(db.prepare("SELECT * FROM product_suppliers ORDER BY product_id, supplier_id").all(), linksBefore);
+      assert.deepEqual(db.prepare("SELECT * FROM audit_log ORDER BY id").all(), auditBefore);
+    }
+    assert.deepEqual(service.setProductSuppliers(admin, product.id, []).supplierIds, []);
+    assert.deepEqual(service.setProductSuppliers(admin, product.id, [supplier.id]).supplierIds, [supplier.id]);
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});
+
 test("AC-02.01: ADMIN menyimpan kategori, supplier, produk, lalu CASHIER dapat mencarinya", () => {
   const { database, db, service, admin, cashier } = setup();
   try {

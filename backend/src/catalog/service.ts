@@ -253,10 +253,7 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
     return normalized;
   }
 
-  function normalizeSupplierIds(supplierIds: number[] | undefined): number[] {
-    if (supplierIds === undefined) {
-      return [];
-    }
+  function normalizeSupplierIds(supplierIds: unknown): number[] {
     if (!Array.isArray(supplierIds)) {
       throw new ValidationError("supplierIds harus berupa daftar ID.", "supplierIds");
     }
@@ -501,7 +498,7 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
     const name = normalizeText(input?.name, "name", MAX_NAME_LENGTH);
     const priceRp = assertPriceRp(input?.priceRp);
     const barcodes = normalizeBarcodeList(input?.barcodes);
-    const supplierIds = normalizeSupplierIds(input?.supplierIds);
+    const supplierIds = normalizeSupplierIds(input?.supplierIds === undefined ? [] : input.supplierIds);
 
     return withTransaction(() => {
       assertActiveActor(actor);

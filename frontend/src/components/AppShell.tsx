@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import type { SessionUser } from "../api/types";
+import type { AuthMode, SessionUser } from "../api/types";
 import type { NavItem, PageId } from "../app/navigation";
 import { Button } from "./Button";
 import { DemoBanner } from "./DemoBanner";
 
 interface AppShellProps {
   user: SessionUser;
+  authMode: AuthMode;
   navItems: readonly NavItem[];
   activePage: PageId;
   onNavigate: (page: PageId) => void;
@@ -16,13 +17,23 @@ interface AppShellProps {
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
 
 /** Kerangka aplikasi: identitas, status lokal, info shift, navigasi role. */
-export function AppShell({ user, navItems, activePage, onNavigate, onLogout, children }: AppShellProps) {
+export function AppShell({
+  user,
+  authMode,
+  navItems,
+  activePage,
+  onNavigate,
+  onLogout,
+  children,
+}: AppShellProps) {
   return (
     <div className="shell">
-      <DemoBanner />
+      <DemoBanner authMode={authMode} />
       <header className="shell__header">
         <span className="shell__brand">POS MINIMARKET</span>
-        <span className="chip chip--local">Lokal · data DEMO di memori</span>
+        <span className="chip chip--local">
+          {authMode === "LOCAL_API" ? "Lokal · login API, katalog DEMO" : "Lokal · data DEMO di memori"}
+        </span>
         {user.role === "CASHIER" && (
           // Shift BELUM terhubung: endpoint shift BLOCKED (TASK-001 K-01/K-02, TASK-014).
           <span className="chip chip--warning">Shift: belum terhubung (DEMO)</span>
@@ -51,4 +62,3 @@ export function AppShell({ user, navItems, activePage, onNavigate, onLogout, chi
     </div>
   );
 }
-

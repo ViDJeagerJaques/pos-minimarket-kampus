@@ -24,7 +24,13 @@ function renderDemoApp(override?: Partial<PosDataSource>) {
   return { dataSource, callLog: base.callLog, onAfterLogout, user: userEvent.setup() };
 }
 
-async function loginAs(user: ReturnType<typeof userEvent.setup>, username: string, password = "demo-password") {
+function makeTestPassword(prefix = "pw"): string {
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  return `${prefix}-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function loginAs(user: ReturnType<typeof userEvent.setup>, username: string, password = makeTestPassword("demo")) {
   const usernameInput = screen.getByLabelText("Nama pengguna");
   const passwordInput = screen.getByLabelText("Kata sandi");
   await user.clear(usernameInput);
