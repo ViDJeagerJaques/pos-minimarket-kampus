@@ -1,0 +1,271 @@
+{
+  "task": "TASK-013",
+  "generatedAtIso": "2026-11-15T08:46:21.448Z",
+  "environment": {
+    "os": "win32 10.0.26200 (x64)",
+    "node": "v24.22.3",
+    "commit": "26ed97350a331a6b274463c83a3e0f4e36c4e6eb",
+    "branch": "task/p10-013",
+    "dataMode": "DEMO/QA synthetic (TASK-006 fixture qa-synthetic-v1)"
+  },
+  "paths": {
+    "fixtureDb": "C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-qa-task013-fixture-HNNmwa\\fixture.sqlite",
+    "sessionDb": "C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-task013-e2e-nMAfZt\\session.sqlite",
+    "kept": false
+  },
+  "fixtureResetOutput": "{\n  \"dbPath\": \"C:\\\\Users\\\\Nazmi\\\\AppData\\\\Local\\\\Temp\\\\pos-qa-task013-fixture-HNNmwa\\\\fixture.sqlite\",\n  \"seeded\": true,\n  \"qaApplied\": true\n}\n",
+  "fixtureVerifyOutput": "PASS: snapshot C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-qa-task013-fixture-HNNmwa\\fixture.sqlite cocok dengan EXPECTED_QA_SNAPSHOT.\n",
+  "fixtureUsersWithTemporaryPasswords": [
+    "demo.admin",
+    "demo.kasir.pagi",
+    "demo.kasir.sore",
+    "demo.kasir.nonaktif"
+  ],
+  "activeShift": {
+    "id": 102,
+    "cashierId": 3,
+    "openedAtMs": 1762999300000,
+    "owner": "demo.kasir.sore"
+  },
+  "loginRateLimit": {
+    "username": "t13.spray.uji",
+    "statuses": [
+      401,
+      401,
+      401,
+      401,
+      401,
+      429
+    ],
+    "blocked": true
+  },
+  "results": [
+    {
+      "ac": "FIXTURE",
+      "label": "TASK-006 fixture reset + verify PASS (DB sementara pos-qa-*)",
+      "status": "PASS"
+    },
+    {
+      "ac": "FIXTURE",
+      "label": "Salinan sesi dibuat; kata sandi acak hanya di salinan untuk demo.admin, demo.kasir.pagi, demo.kasir.sore, demo.kasir.nonaktif",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-01.01",
+      "label": "ADMIN & CASHIER fixture login; /auth/me mengembalikan role backend; sesi menyimpan digest 32 byte, bukan token mentah",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-01.01",
+      "label": "Pergantian role lewat logout/login: sesi CASHIER lama dicabut, sesi ADMIN tetap valid, role CASHIER kembali dari backend",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-01.02",
+      "label": "Sandi salah, akun nonaktif (sandi benar), dan username tak dikenal: 401 generik identik, tanpa sesi baru, tidak membocorkan status akun; brute force 5x gagal lalu 429 LOGIN_RATE_LIMITED generik tanpa sesi",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-01.03",
+      "label": "CASHIER 403 pada GET/POST /users, POST kategori/produk, PATCH produk, includeInactive; tanpa token 401; tidak ada perubahan DB/audit/sesi",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-01.04",
+      "label": "ADMIN membuat akun CASHIER, akun dapat login; setelah dinonaktifkan sesi lama 401 dan login ditolak generik; ACCOUNT_CREATED/ACCOUNT_DISABLED tercatat dengan pelaku+waktu tanpa rahasia",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-02.01",
+      "label": "ADMIN membuat kategori/supplier/produk valid; CASHIER menemukan produk via pencarian manual dan barcode",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-02.01",
+      "label": "Relasi kategori/supplier yang tidak ada ditolak 422 tanpa baris produk baru",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-02.02",
+      "label": "Barcode fixture 0000000000017 dan barcode ganda dalam satu permintaan ditolak (409/422) tanpa baris baru; scan 0000000000017 tetap ke DEMO-001",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-02.03",
+      "label": "Harga QA-HARGA-UBAH 6000→6500 terlihat untuk keranjang baru; snapshot sale_items 303 tetap 5000; audit PRICE_CHANGED mencatat SKU/harga lama/baru",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-02.03",
+      "label": "Harga invalid (-100, 1.5, string \"7000\") ditolak 422 dan harga master tidak berubah",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-03.01",
+      "label": "Login pemilik shift aktif (shift 102); premis \"shift sendiri aktif\" terpenuhi",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-03.01",
+      "label": "Scan barcode valid menemukan DEMO-001; barcode tak dikenal/parsial tidak menambah hasil; pencarian manual tetap tersedia; barcode berspasi 422; tidak ada mutasi penjualan/stok",
+      "status": "PASS"
+    },
+    {
+      "ac": "AC-03.07",
+      "label": "Tidak ada endpoint checkout/sale pada baseline; saldo stok & tabel sale/payment/mutasi identik dengan fixture (draft/batal hanya di memori UI)",
+      "status": "PASS"
+    }
+  ],
+  "finalCounts": {
+    "users": 5,
+    "sessions": 5,
+    "categories": 4,
+    "suppliers": 3,
+    "products": 9,
+    "product_barcodes": 9,
+    "sales": 3,
+    "sale_items": 3,
+    "payments": 3,
+    "inventory_movements": 10,
+    "audit_log": 9
+  },
+  "integrity": "ok",
+  "foreignKeyViolations": 0,
+  "audit": [
+    {
+      "actorId": 1,
+      "action": "PRICE_CHANGE",
+      "entityType": "product",
+      "entityId": 8,
+      "createdAtMs": 1762995800000
+    },
+    {
+      "actorId": 2,
+      "action": "SHIFT_CLOSE",
+      "entityType": "shift",
+      "entityId": 101,
+      "createdAtMs": 1762999200000
+    },
+    {
+      "actorId": 1,
+      "action": "ACCOUNT_CREATED",
+      "entityType": "users",
+      "entityId": 5,
+      "createdAtMs": 1794732380643
+    },
+    {
+      "actorId": 1,
+      "action": "ACCOUNT_DISABLED",
+      "entityType": "users",
+      "entityId": 5,
+      "createdAtMs": 1794732380710
+    },
+    {
+      "actorId": 1,
+      "action": "CATEGORY_CREATED",
+      "entityType": "categories",
+      "entityId": 4,
+      "createdAtMs": 1794732380785
+    },
+    {
+      "actorId": 1,
+      "action": "SUPPLIER_CREATED",
+      "entityType": "suppliers",
+      "entityId": 3,
+      "createdAtMs": 1794732380790
+    },
+    {
+      "actorId": 1,
+      "action": "PRODUCT_CREATED",
+      "entityType": "products",
+      "entityId": 9,
+      "createdAtMs": 1794732380795
+    },
+    {
+      "actorId": 1,
+      "action": "BARCODE_CHANGED",
+      "entityType": "products",
+      "entityId": 9,
+      "createdAtMs": 1794732380795
+    },
+    {
+      "actorId": 1,
+      "action": "PRICE_CHANGED",
+      "entityType": "products",
+      "entityId": 8,
+      "createdAtMs": 1794732380855
+    }
+  ],
+  "priceSnapshot": {
+    "productId": 8,
+    "masterPriceRp": 6500,
+    "saleItemId": 303,
+    "saleUnitPriceRp": 5000,
+    "saleLineTotalRp": 5000
+  },
+  "stockBalances": [
+    {
+      "productId": 1,
+      "sku": "DEMO-001",
+      "barcode": "0000000000017",
+      "priceRp": 3000,
+      "onHand": 22
+    },
+    {
+      "productId": 2,
+      "sku": "DEMO-002",
+      "barcode": "8991234567890",
+      "priceRp": 4000,
+      "onHand": 12
+    },
+    {
+      "productId": 3,
+      "sku": "DEMO-003",
+      "barcode": "0000000000034",
+      "priceRp": 5000,
+      "onHand": 7
+    },
+    {
+      "productId": 4,
+      "sku": "DEMO-004",
+      "barcode": "8999876543210",
+      "priceRp": 15000,
+      "onHand": 5
+    },
+    {
+      "productId": 5,
+      "sku": "QA-STOK-0",
+      "barcode": "0000000000058",
+      "priceRp": 2000,
+      "onHand": 0
+    },
+    {
+      "productId": 6,
+      "sku": "QA-STOK-1",
+      "barcode": "0000000000065",
+      "priceRp": 4500,
+      "onHand": 1
+    },
+    {
+      "productId": 7,
+      "sku": "QA-STOK-10",
+      "barcode": "0000000000072",
+      "priceRp": 7500,
+      "onHand": 10
+    },
+    {
+      "productId": 8,
+      "sku": "QA-HARGA-UBAH",
+      "barcode": "0000000000089",
+      "priceRp": 6500,
+      "onHand": 9
+    },
+    {
+      "productId": 9,
+      "sku": "T13-001",
+      "barcode": "000777",
+      "priceRp": 8000,
+      "onHand": 0
+    }
+  ]
+}
