@@ -12,6 +12,7 @@ import {
 import { createAuthService, type AuthService } from "../auth/service.ts";
 import { createSessionStore, type SessionStore } from "../auth/session.ts";
 import { hashPassword } from "../auth/password.ts";
+import { createCatalogService } from "../catalog/service.ts";
 import { createSecurityLogger, type SecurityLogger } from "../security/securityLog.ts";
 import {
   createLoginRateLimiter,
@@ -61,10 +62,12 @@ function startServerFor(
     now: options.now,
   });
   const auth = createAuthService(db, { sessions, securityLog, now: options.now });
+  const catalog = createCatalogService(db, { now: options.now });
   return startHttpServer({
     auth,
     sessions,
     securityLog,
+    catalog,
     loginRateLimiter: options.loginRateLimiter,
     loginIpRateLimiter: options.loginIpRateLimiter,
     now: options.now,
@@ -611,4 +614,179 @@ test("HTTP CLI port & pembersihan bucket rate-limiter kedaluwarsa", async () => 
   fakeNow += 5_001;
   limiter.assertAllowed("127.0.0.1:baru");
   assert.equal(limiter.size(), 0);
+});
+
+test("AC-02.01/02/03 & AC-03.01 via HTTP: katalog ADMIN, 403 CASHIER, barcode nol awal, audit harga", async () => {
+  const { database, db } = createDatabase();
+  const handle = await startServerFor(db);
+  const base = handle.running.url;
+  const dataOf = <T,>(result: { json: unknown }): T =>
+    (result.json as { data: T }).data;
+  const codeOf = (result: { json: unknown }): string | undefined =>
+    (result.json as { error?: { code?: string } }).error?.code;
+  const count = (table: string): number =>
+    Number((db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number }).total);
+
+  try {
+    const adminLogin = await login(base, "admin.http", ADMIN_PASSWORD);
+    const cashierLogin = await login(base, "kasir.http", CASHIER_PASSWORD);
+    assert.equal(adminLogin.status, 200);
+    assert.equal(cashierLogin.status, 200);
+    const adminToken = dataOf<{ token: string }>(adminLogin).token;
+    const cashierToken = dataOf<{ token: string }>(cashierLogin).token;
+
+    // AC-02.01: ADMIN menyimpan kategori, supplier, produk aktif valid.
+    const category = await call(base, "/categories", {
+      token: adminToken,
+      payload: JSON.stringify({ name: "Kategori HTTP" }),
+    });
+    assert.equal(category.status, 201);
+    const categoryId = dataOf<{ id: number }>(category).id;
+
+    const supplier = await call(base, "/suppliers", {
+      token: adminToken,
+      payload: JSON.stringify({ name: "Supplier HTTP" }),
+    });
+    assert.equal(supplier.status, 201);
+    const supplierId = dataOf<{ id: number }>(supplier).id;
+
+    const product = await call(base, "/products", {
+      token: adminToken,
+      payload: JSON.stringify({
+        categoryId,
+        sku: "HTTP-001",
+        name: "Produk HTTP",
+        priceRp: 5000,
+        barcodes: ["000123"],
+        supplierIds: [supplierId],
+      }),
+    });
+    assert.equal(product.status, 201);
+    const productData = dataOf<{
+      id: number;
+      barcodes: string[];
+      supplierIds: number[];
+      stockOnHand: number;
+      active: boolean;
+    }>(product);
+    assert.deepEqual(productData.barcodes, ["000123"]);
+    assert.deepEqual(productData.supplierIds, [supplierId]);
+    assert.equal(productData.stockOnHand, 0);
+    assert.equal(productData.active, true);
+
+    // AC-02.02: barcode duplikat ditolak server dan produk tidak tersimpan.
+    const productsBefore = count("products");
+    const duplicate = await call(base, "/products", {
+      token: adminToken,
+      payload: JSON.stringify({
+        categoryId,
+        sku: "HTTP-002",
+        name: "Produk Duplikat",
+        priceRp: 1000,
+        barcodes: ["000123"],
+      }),
+    });
+    assert.equal(duplicate.status, 409);
+    assert.equal(codeOf(duplicate), "DUPLICATE_BARCODE");
+    assert.equal(count("products"), productsBefore);
+
+    const invalidSku = await call(base, "/products", {
+      token: adminToken,
+      payload: JSON.stringify({
+        categoryId,
+        sku: "SKU SALAH",
+        name: "SKU Tidak Valid",
+        priceRp: 1000,
+        barcodes: [],
+      }),
+    });
+    assert.equal(invalidSku.status, 422);
+    assert.equal(codeOf(invalidSku), "VALIDATION_ERROR");
+
+    // AC-03.01: CASHIER mencari barcode; nol awal tetap akurat.
+    const cashierScan = await call(base, "/products?barcode=000123", { token: cashierToken });
+    assert.equal(cashierScan.status, 200);
+    const scanRows = dataOf<Array<{ id: number }>>(cashierScan);
+    assert.equal(scanRows.length, 1);
+    assert.equal(scanRows[0]?.id, productData.id);
+
+    const tanpaNol = await call(base, "/products?barcode=123", { token: cashierToken });
+    assert.equal(tanpaNol.status, 200);
+    assert.equal(dataOf<unknown[]>(tanpaNol).length, 0);
+
+    // AC-02.03: harga master berubah dan audit mencatat harga lama/baru.
+    const priceUpdate = await call(base, `/products/${productData.id}`, {
+      method: "PATCH",
+      token: adminToken,
+      payload: JSON.stringify({ priceRp: 6000 }),
+    });
+    assert.equal(priceUpdate.status, 200);
+    assert.equal(dataOf<{ priceRp: number }>(priceUpdate).priceRp, 6000);
+    const priceAudit = db
+      .prepare("SELECT details FROM audit_log WHERE action = 'PRICE_CHANGED' ORDER BY id DESC LIMIT 1")
+      .get() as { details: string } | undefined;
+    assert.ok(priceAudit, "audit PRICE_CHANGED harus ada");
+    const auditDetails = JSON.parse(priceAudit.details) as {
+      oldPriceRp: number;
+      newPriceRp: number;
+      sku: string;
+    };
+    assert.equal(auditDetails.sku, "HTTP-001");
+    assert.equal(auditDetails.oldPriceRp, 5000);
+    assert.equal(auditDetails.newPriceRp, 6000);
+
+    // Otorisasi backend: CASHIER tidak boleh menulis atau melihat nonaktif.
+    const productsBeforeDenied = count("products");
+    const cashierCreate = await call(base, "/products", {
+      token: cashierToken,
+      payload: JSON.stringify({
+        categoryId,
+        sku: "CASHIER-001",
+        name: "Dilarang",
+        priceRp: 1000,
+        barcodes: [],
+      }),
+    });
+    assert.equal(cashierCreate.status, 403);
+    assert.equal(codeOf(cashierCreate), "FORBIDDEN");
+    assert.equal(count("products"), productsBeforeDenied);
+
+    const includeInactive = await call(base, "/products?includeInactive=true", {
+      token: cashierToken,
+    });
+    assert.equal(includeInactive.status, 403);
+
+    const categoriesRead = await call(base, "/categories", { token: cashierToken });
+    assert.equal(categoriesRead.status, 200);
+
+    // Produk nonaktif tidak terlihat CASHIER, tetapi ADMIN dapat memeriksanya.
+    const deactivate = await call(base, `/products/${productData.id}`, {
+      method: "PATCH",
+      token: adminToken,
+      payload: JSON.stringify({ active: false }),
+    });
+    assert.equal(deactivate.status, 200);
+    assert.equal(dataOf<{ active: boolean }>(deactivate).active, false);
+
+    const cashierAfterDisable = await call(base, "/products?barcode=000123", {
+      token: cashierToken,
+    });
+    assert.equal(cashierAfterDisable.status, 200);
+    assert.equal(dataOf<unknown[]>(cashierAfterDisable).length, 0);
+
+    const adminInactive = await call(base, "/products?includeInactive=true&barcode=000123", {
+      token: adminToken,
+    });
+    assert.equal(adminInactive.status, 200);
+    assert.equal(dataOf<unknown[]>(adminInactive).length, 1);
+
+    // Katalog tidak boleh membuat penjualan, pembayaran, atau mutasi stok.
+    assert.equal(count("sales"), 0);
+    assert.equal(count("payments"), 0);
+    assert.equal(count("inventory_movements"), 0);
+  } finally {
+    await handle.running.close();
+    db.close();
+    database.cleanup();
+  }
 });

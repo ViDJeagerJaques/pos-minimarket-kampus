@@ -12,19 +12,52 @@
  *   keputusan D-08 TASK-001. Jangan simpan token di localStorage.
  * - Penyembunyian menu di UI bukan otorisasi; backend wajib menolak (DEC-014).
  */
-import { DEMO_ACCOUNTS, DEMO_PRODUCTS, type DemoProduct } from "../demo/demoData";
+import {
+  DEMO_ACCOUNTS,
+  DEMO_CATEGORIES,
+  DEMO_PRODUCTS,
+  DEMO_SUPPLIERS,
+  type DemoProduct,
+} from "../demo/demoData";
 import { ApiError } from "./errors";
 import type {
   AccountSummary,
+  CatalogProduct,
+  CatalogQuery,
+  CategorySummary,
   CreateAccountInput,
+  CreateProductInput,
   LoginResult,
   PosDataSource,
   ProductSummary,
   SessionUser,
+  SupplierSummary,
+  UpdateProductInput,
 } from "./types";
 
 const MAX_QUERY_LENGTH = 64;
 const BARCODE_PATTERN = /^[0-9A-Za-z\-]{1,64}$/;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
+function categoryName(categoryId: number): string {
+  return DEMO_CATEGORIES.find((item) => item.id === categoryId)?.name ?? "Tanpa kategori (DEMO)";
+}
+
+function toCatalogProduct(product: DemoProduct): CatalogProduct {
+  return {
+    id: product.id,
+    categoryId: product.categoryId,
+    categoryName: categoryName(product.categoryId),
+    sku: product.sku,
+    name: product.name,
+    priceRp: product.priceRp,
+    active: product.active,
+    barcodes: [...product.barcodes],
+    supplierIds: [...product.supplierIds],
+    stockOnHand: product.stock,
+  };
+}
 
 function toSummary(product: DemoProduct): ProductSummary {
   return {
@@ -126,6 +159,102 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
         0,
         "DEMO_UNSUPPORTED",
         "Mode DEMO tidak mengubah status akun. Jalankan backend lokal untuk mengelola akun.",
+      );
+    },
+
+    async listCategories(): Promise<CategorySummary[]> {
+      callLog.push({ operation: "listCategories", isMutation: false });
+      await delay();
+      return DEMO_CATEGORIES.map((item) => ({ ...item }));
+    },
+
+    async createCategory(_name: string): Promise<CategorySummary> {
+      callLog.push({ operation: "createCategory", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan kategori. Jalankan backend lokal untuk mengelola katalog.",
+      );
+    },
+
+    async listSuppliers(): Promise<SupplierSummary[]> {
+      callLog.push({ operation: "listSuppliers", isMutation: false });
+      await delay();
+      return DEMO_SUPPLIERS.map((item) => ({ ...item }));
+    },
+
+    async createSupplier(_name: string): Promise<SupplierSummary> {
+      callLog.push({ operation: "createSupplier", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan supplier. Jalankan backend lokal untuk mengelola katalog.",
+      );
+    },
+
+    async listCatalogProducts(options: CatalogQuery = {}): Promise<CatalogProduct[]> {
+      callLog.push({ operation: "listCatalogProducts", isMutation: false });
+      await delay();
+      const needle = (options.query ?? "").trim().toLowerCase().slice(0, MAX_QUERY_LENGTH);
+      const barcode = (options.barcode ?? "").trim();
+      const limitRaw = options.limit ?? DEFAULT_LIMIT;
+      const limit = Number.isSafeInteger(limitRaw)
+        ? Math.min(Math.max(limitRaw, 1), MAX_LIMIT)
+        : DEFAULT_LIMIT;
+      const rows = DEMO_PRODUCTS.filter((item) => {
+        if (options.includeInactive !== true && !item.active) return false;
+        if (barcode.length > 0 && !item.barcodes.includes(barcode)) return false;
+        if (needle.length > 0) {
+          return (
+            item.name.toLowerCase().includes(needle) ||
+            item.sku.toLowerCase().includes(needle) ||
+            item.barcodes.some((code) => code.toLowerCase().includes(needle))
+          );
+        }
+        return true;
+      });
+      return rows.slice(0, limit).map(toCatalogProduct);
+    },
+
+    async createProduct(_input: CreateProductInput): Promise<CatalogProduct> {
+      callLog.push({ operation: "createProduct", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan produk. Jalankan backend lokal untuk mengelola katalog.",
+      );
+    },
+
+    async updateProduct(_productId: number, _input: UpdateProductInput): Promise<CatalogProduct> {
+      callLog.push({ operation: "updateProduct", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak mengubah produk. Jalankan backend lokal untuk mengelola katalog.",
+      );
+    },
+
+    async addBarcode(_productId: number, _barcode: string): Promise<CatalogProduct> {
+      callLog.push({ operation: "addBarcode", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menambah barcode. Jalankan backend lokal untuk mengelola katalog.",
+      );
+    },
+
+    async removeBarcode(_productId: number, _barcode: string): Promise<CatalogProduct> {
+      callLog.push({ operation: "removeBarcode", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menghapus barcode. Jalankan backend lokal untuk mengelola katalog.",
       );
     },
 

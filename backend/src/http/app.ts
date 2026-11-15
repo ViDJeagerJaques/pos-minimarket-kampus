@@ -3,6 +3,15 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AuthService } from "../auth/service.ts";
 import { AuthError, InvalidCredentialsError, ValidationError } from "../auth/errors.ts";
 import type { Role, SessionStore, SessionUser } from "../auth/session.ts";
+import { CatalogError } from "../catalog/errors.ts";
+import type { CatalogService } from "../catalog/service.ts";
+import type {
+  Actor,
+  CreateCategoryInput,
+  CreateProductInput,
+  CreateSupplierInput,
+  UpdateProductInput,
+} from "../catalog/types.ts";
 import {
   createLoginRateLimiter,
   DEFAULT_LOGIN_IP_MAX_ATTEMPTS,
@@ -23,6 +32,8 @@ export type HttpAppOptions = {
   auth: AuthService;
   sessions: SessionStore;
   securityLog: SecurityLogger;
+  /** Service katalog TASK-010; bila tidak diisi, route katalog tidak aktif. */
+  catalog?: CatalogService;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -33,6 +44,7 @@ type RequestContext = {
   requestId: string;
   method: string;
   pathname: string;
+  searchParams: URLSearchParams;
   headers: IncomingMessage["headers"];
   remoteAddress: string;
   token: string | null;
@@ -150,6 +162,20 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
     });
     return;
   }
+  if (error instanceof CatalogError) {
+    // Pesan domain katalog sudah aman (tanpa SQL/stack) dan dipakai UI untuk
+    // menampilkan konflik SKU/barcode atau validasi input.
+    sendJson(res, error.httpStatus, {
+      error: {
+        code: error.code,
+        message: error.message,
+        requestId,
+        field: error.field,
+        retryable: false,
+      },
+    });
+    return;
+  }
   // Detail internal tidak pernah dikirim ke renderer (ERROR_HANDLING.md §1).
   sendJson(res, 500, {
     error: {
@@ -159,6 +185,130 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
       retryable: false,
     },
   });
+}
+
+function catalogQuery(ctx: RequestContext) {
+  const rawLimit = ctx.searchParams.get("limit");
+  const limit =
+    rawLimit === null || rawLimit.trim() === "" ? undefined : Number(rawLimit);
+  const includeInactiveRaw = ctx.searchParams.get("includeInactive");
+  return {
+    query: ctx.searchParams.get("query") ?? undefined,
+    barcode: ctx.searchParams.get("barcode") ?? undefined,
+    // Parser boolean eksplisit: nilai lain dianggap false, bukan truthy.
+    includeInactive: includeInactiveRaw === "true" || includeInactiveRaw === "1",
+    limit,
+  };
+}
+
+/**
+ * Route katalog tipis di atas service TASK-010. `Actor` diambil dari sesi
+ * terverifikasi, bukan body. Endpoint kategori/supplier belum tercantum di
+ * API_CONTRACT (TASK-001 K-12); statusnya usulan yang dicatat di laporan
+ * TASK-012, bukan kontrak final.
+ */
+function createCatalogRoutes(catalog: CatalogService): Route[] {
+  const actorOf = (ctx: RequestContext): Actor => ctx.actor as Actor;
+  return [
+    {
+      method: "GET",
+      pattern: /^\/categories$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => ({ data: catalog.listCategories(actorOf(ctx)) }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/categories$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        status: 201,
+        data: catalog.createCategory(actorOf(ctx), asObject(ctx.body) as unknown as CreateCategoryInput),
+      }),
+    },
+    {
+      method: "GET",
+      pattern: /^\/suppliers$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => ({ data: catalog.listSuppliers(actorOf(ctx)) }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/suppliers$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        status: 201,
+        data: catalog.createSupplier(actorOf(ctx), asObject(ctx.body) as unknown as CreateSupplierInput),
+      }),
+    },
+    {
+      method: "GET",
+      pattern: /^\/products$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => ({ data: catalog.listProducts(actorOf(ctx), catalogQuery(ctx)) }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/products$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        status: 201,
+        data: catalog.createProduct(actorOf(ctx), asObject(ctx.body) as unknown as CreateProductInput),
+      }),
+    },
+    {
+      method: "PATCH",
+      pattern: /^\/products\/(?<id>\d+)$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        data: catalog.updateProduct(
+          actorOf(ctx),
+          Number(ctx.params.id),
+          asObject(ctx.body) as unknown as UpdateProductInput,
+        ),
+      }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/products\/(?<id>\d+)\/suppliers$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        data: catalog.setProductSuppliers(
+          actorOf(ctx),
+          Number(ctx.params.id),
+          (asObject(ctx.body).supplierIds ?? []) as number[],
+        ),
+      }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/products\/(?<id>\d+)\/barcodes$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        status: 201,
+        data: catalog.addBarcode(
+          actorOf(ctx),
+          Number(ctx.params.id),
+          asObject(ctx.body).barcode as string,
+        ),
+      }),
+    },
+    {
+      method: "DELETE",
+      pattern: /^\/products\/(?<id>\d+)\/barcodes\/(?<barcode>[^/]+)$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => {
+        let barcode: string;
+        try {
+          barcode = decodeURIComponent(ctx.params.barcode ?? "");
+        } catch {
+          throw new ValidationError("Barcode pada URL tidak valid.", "barcode");
+        }
+        return {
+          data: catalog.removeBarcode(actorOf(ctx), Number(ctx.params.id), barcode),
+        };
+      },
+    },
+  ];
 }
 
 export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, res: ServerResponse) => void {
@@ -257,6 +407,10 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
     },
   ];
 
+  if (options.catalog) {
+    routes.push(...createCatalogRoutes(options.catalog));
+  }
+
   return async (req, res) => {
     const requestId = randomUUID();
     try {
@@ -353,6 +507,7 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
         requestId,
         method: req.method ?? "GET",
         pathname,
+        searchParams: url.searchParams,
         headers: req.headers,
         remoteAddress: req.socket?.remoteAddress ?? "127.0.0.1",
         token,

@@ -40,7 +40,10 @@ perlu CORS.
 | `VITE_AUTH_MODE` | (kosong = API lokal) | `demo` memakai mock login di memori; **bukan** bukti autentikasi |
 | `VITE_API_BASE_URL` | `/api/v1` | Base URL API; untuk build desktop dapat diarahkan ke `http://127.0.0.1:8787/api/v1` |
 
-Katalog produk **selalu** mock DEMO sampai TASK-012 tersedia.
+`VITE_AUTH_MODE=demo` memakai mock katalog sintetis di memori dan menolak operasi
+tulis katalog dengan `DEMO_UNSUPPORTED` (tidak ada sukses palsu). Default tanpa
+variabel memakai katalog backend lokal nyata; halaman **Barang/Stok** memerlukan
+role ADMIN di backend.
 
 ## 4. Keamanan yang sudah diterapkan di klien
 

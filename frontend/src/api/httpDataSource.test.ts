@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./errors";
 import { createHttpDataSource } from "./httpDataSource";
-import type { ProductSummary } from "./types";
 
 type Call = { url: string; init: RequestInit | undefined };
 
@@ -18,12 +17,6 @@ function fakeResponse(status: number, body: unknown): Response {
     text: async () => (body === undefined ? "" : JSON.stringify(body)),
   } as Response;
 }
-
-const catalog = {
-  findActiveProductByBarcode: async (): Promise<ProductSummary | null> => null,
-  searchActiveProducts: async (): Promise<ProductSummary[]> => [],
-  listProducts: async (): Promise<ProductSummary[]> => [],
-};
 
 const ADMIN_USER = { id: 1, username: "admin.lokal", role: "ADMIN", active: true };
 
@@ -71,7 +64,7 @@ describe("TASK-011 klien API auth lokal", () => {
 
   it("login hanya sukses setelah API mengembalikan token dan /auth/me memverifikasi profil", async () => {
     const { fetchImpl, calls } = stubFetch([loginEnvelope(), meEnvelope()]);
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
 
     const testPassword = makeTestPassword("admin");
     const result = await dataSource.login("admin.lokal", testPassword);
@@ -107,7 +100,7 @@ describe("TASK-011 klien API auth lokal", () => {
         },
       },
     ]);
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
 
     const result = await dataSource.login("kasir.nonaktif", makeTestPassword("wrong"));
 
@@ -125,7 +118,7 @@ describe("TASK-011 klien API auth lokal", () => {
         body: { error: { code: "AUTH_REQUIRED", message: "Sesi tidak valid.", retryable: false } },
       },
     ]);
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
 
     await expect(dataSource.login("admin.lokal", makeTestPassword("admin"))).rejects.toMatchObject({
       status: 401,
@@ -146,7 +139,7 @@ describe("TASK-011 klien API auth lokal", () => {
         },
       },
     ]);
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
 
     await expect(dataSource.login("admin.lokal", makeTestPassword("rate"))).rejects.toMatchObject({
       status: 429,
@@ -162,7 +155,7 @@ describe("TASK-011 klien API auth lokal", () => {
       meEnvelope(),
       { status: 200, body: { data: { loggedOut: true }, requestId: "r-out" } },
     ]);
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
 
     await dataSource.login("admin.lokal", makeTestPassword("logout"));
     await dataSource.logout();
@@ -191,7 +184,7 @@ describe("TASK-011 klien API auth lokal", () => {
       { status: 201, body: { data: created, requestId: "r-create" } },
       { status: 200, body: { data: { ...created, active: false }, requestId: "r-patch" } },
     ]);
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
     const createdPw = makeTestPassword("ksr");
     await dataSource.login("admin.lokal", makeTestPassword("adm"));
 
@@ -236,7 +229,7 @@ describe("TASK-011 klien API auth lokal", () => {
         },
       },
     ]);
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
     await dataSource.login("kasir.lokal", makeTestPassword("ksr"));
 
     await expect(dataSource.listAccounts()).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
@@ -246,7 +239,7 @@ describe("TASK-011 klien API auth lokal", () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error("ECONNREFUSED");
     }) as unknown as typeof fetch;
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
 
     const error = await dataSource.login("admin.lokal", makeTestPassword("net")).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ApiError);
@@ -262,7 +255,7 @@ describe("TASK-011 klien API auth lokal", () => {
       });
     }) as unknown as typeof fetch;
 
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, timeoutMs: 25, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, timeoutMs: 25 });
     const error = await dataSource.login("admin.lokal", makeTestPassword("timeout")).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 0, code: "NETWORK_ERROR", retryable: true });
@@ -291,7 +284,7 @@ describe("TASK-011 klien API auth lokal", () => {
       throw new Error(`Unexpected url: ${url}`);
     }) as unknown as typeof fetch;
 
-    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl, catalog });
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
     const staleLogin = dataSource.login("admin.lokal", makeTestPassword("lama"));
     // Tunggu hingga staleLogin masuk ke /auth/me
     await new Promise((r) => setTimeout(r, 10));
@@ -306,5 +299,171 @@ describe("TASK-011 klien API auth lokal", () => {
 
     const profile = await dataSource.getProfile();
     expect(profile.username).toBe("admin.lokal");
+  });
+});
+
+const CATALOG_PRODUCT = {
+  id: 10,
+  categoryId: 1,
+  categoryName: "Minuman (DEMO)",
+  sku: "DEMO-010",
+  name: "Produk Uji",
+  priceRp: 5000,
+  active: true,
+  barcodes: ["000123"],
+  supplierIds: [1],
+  stockOnHand: 0,
+};
+
+async function loginAdmin(fetchImpl: typeof fetch) {
+  const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
+  await dataSource.login("admin.lokal", makeTestPassword("admin"));
+  return dataSource;
+}
+
+describe("TASK-012 klien katalog lokal", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("POST /products mengirim barcode string dan mempertahankan nol awal", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 201, body: { data: CATALOG_PRODUCT, requestId: "r-prod" } },
+    ]);
+    const dataSource = await loginAdmin(fetchImpl);
+
+    const created = await dataSource.createProduct({
+      categoryId: 1,
+      sku: "DEMO-010",
+      name: "Produk Uji",
+      priceRp: 5000,
+      barcodes: ["000123"],
+      supplierIds: [1],
+    });
+
+    expect(created.barcodes).toEqual(["000123"]);
+    const body = JSON.parse(String(calls[2]?.init?.body)) as { barcodes: unknown[] };
+    expect(body.barcodes).toEqual(["000123"]);
+    expect(typeof body.barcodes[0]).toBe("string");
+    expect(calls[2]?.url).toBe("/api/v1/products");
+    expect(calls[2]?.init?.method).toBe("POST");
+  });
+
+  it("barcode duplikat dari server ditampilkan sebagai DUPLICATE_BARCODE", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      {
+        status: 409,
+        body: {
+          error: {
+            code: "DUPLICATE_BARCODE",
+            message: "Barcode sudah dipakai produk lain.",
+            field: "barcodes",
+            retryable: false,
+          },
+        },
+      },
+    ]);
+    const dataSource = await loginAdmin(fetchImpl);
+
+    await expect(
+      dataSource.createProduct({
+        categoryId: 1,
+        sku: "DEMO-011",
+        name: "Duplikat",
+        priceRp: 1000,
+        barcodes: ["000123"],
+        supplierIds: [],
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "DUPLICATE_BARCODE",
+      message: "Barcode sudah dipakai produk lain.",
+    });
+  });
+
+  it("SKU invalid dari server diteruskan sebagai VALIDATION_ERROR", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      {
+        status: 422,
+        body: {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "SKU tidak boleh mengandung spasi.",
+            field: "sku",
+            retryable: false,
+          },
+        },
+      },
+    ]);
+    const dataSource = await loginAdmin(fetchImpl);
+
+    await expect(
+      dataSource.createProduct({
+        categoryId: 1,
+        sku: "SKU SALAH",
+        name: "SKU Salah",
+        priceRp: 1000,
+        barcodes: [],
+        supplierIds: [],
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "VALIDATION_ERROR",
+      message: "SKU tidak boleh mengandung spasi.",
+    });
+  });
+
+  it("lookup kasir mengirim barcode apa adanya dan barcode kosong tidak memanggil API", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: [CATALOG_PRODUCT], requestId: "r-scan" } },
+    ]);
+    const dataSource = await loginAdmin(fetchImpl);
+
+    const found = await dataSource.findActiveProductByBarcode("000123");
+    expect(found).toMatchObject({ id: 10, sku: "DEMO-010", stock: 0 });
+    expect(calls[2]?.url).toBe("/api/v1/products?barcode=000123&limit=1");
+
+    const before = calls.length;
+    await expect(dataSource.findActiveProductByBarcode("   ")).resolves.toBeNull();
+    expect(calls).toHaveLength(before);
+  });
+
+  it("ADMIN dapat meminta produk nonaktif lewat includeInactive", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: [{ ...CATALOG_PRODUCT, active: false }], requestId: "r-all" } },
+    ]);
+    const dataSource = await loginAdmin(fetchImpl);
+
+    const items = await dataSource.listCatalogProducts({ includeInactive: true });
+    expect(items[0]?.active).toBe(false);
+    expect(calls[2]?.url).toBe("/api/v1/products?includeInactive=true");
+  });
+
+  it("CASHIER yang ditolak backend mendapat FORBIDDEN, bukan sukses palsu", async () => {
+    const cashier = { id: 2, username: "kasir.lokal", role: "CASHIER", active: true };
+    const { fetchImpl } = stubFetch([
+      { status: 200, body: { data: { token: "token-2", user: cashier }, requestId: "r-login" } },
+      { status: 200, body: { data: cashier, requestId: "r-me" } },
+      {
+        status: 403,
+        body: { error: { code: "FORBIDDEN", message: "Akses hanya untuk ADMIN.", retryable: false } },
+      },
+    ]);
+    const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
+    await dataSource.login("kasir.lokal", makeTestPassword("ksr"));
+
+    await expect(
+      dataSource.createCategory("Kategori Dilarang"),
+    ).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
   });
 });
