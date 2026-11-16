@@ -224,35 +224,29 @@ describe("TASK-012 katalog ADMIN", () => {
     expect(screen.queryByText("Produk Uji")).toBeNull();
   });
 
-  it("BUG-006: respons baca lama yang selesai setelah mutasi kategori dan supplier tidak menimpa kategori/supplier baru", async () => {
+  it("BUG-006: respons baca lama yang selesai setelah mutasi kategori tidak menimpa kategori baru", async () => {
     const staleCategories = createDeferred<CategorySummary[]>();
-    const staleSuppliers = createDeferred<SupplierSummary[]>();
     const initialCategory: CategorySummary = { id: 1, name: "Minuman" };
     const createdCategory: CategorySummary = { id: 2, name: "Makanan Ringan" };
-    const initialSupplier: SupplierSummary = { id: 1, name: "Supplier DEMO" };
-    const createdSupplier: SupplierSummary = { id: 2, name: "PT Sumber Segar" };
 
     let catCall = 0;
-    let supCall = 0;
+    let categoryCreated = false;
     const listCategories = vi.fn(() => {
       catCall += 1;
       if (catCall === 1) return Promise.resolve([initialCategory]);
       if (catCall === 2) return staleCategories.promise;
-      return Promise.resolve([initialCategory, createdCategory]);
-    });
-    const listSuppliers = vi.fn(() => {
-      supCall += 1;
-      if (supCall === 1) return Promise.resolve([initialSupplier]);
-      if (supCall === 2) return staleSuppliers.promise;
-      return Promise.resolve([initialSupplier, createdSupplier]);
+      return Promise.resolve(
+        categoryCreated ? [initialCategory, createdCategory] : [initialCategory],
+      );
     });
 
     const { user } = renderPage(
       buildSource({
         listCategories,
-        listSuppliers,
-        createCategory: vi.fn(async () => createdCategory),
-        createSupplier: vi.fn(async () => createdSupplier),
+        createCategory: vi.fn(async () => {
+          categoryCreated = true;
+          return createdCategory;
+        }),
       }),
     );
 
@@ -263,23 +257,66 @@ describe("TASK-012 katalog ADMIN", () => {
     await user.click(screen.getByRole("button", { name: "Cari" }));
     await waitFor(() => expect(listCategories).toHaveBeenCalledTimes(2));
 
-    // Mutasi kategori dan supplier selesai lebih dulu
+    // Mutasi kategori selesai lebih dulu dan memicu refresh (#3)
     await user.type(screen.getByLabelText("Nama kategori baru"), "Makanan Ringan");
     await user.click(screen.getByRole("button", { name: "Tambah kategori" }));
+    await waitFor(() => expect(listCategories).toHaveBeenCalledTimes(3));
     await screen.findByRole("option", { name: "Makanan Ringan" });
 
-    await user.type(screen.getByLabelText("Nama supplier baru"), "PT Sumber Segar");
-    await user.click(screen.getByRole("button", { name: "Tambah supplier" }));
-    await screen.findByLabelText("PT Sumber Segar");
-
-    // Respons lama (#2) tiba terlambat -> kategori & supplier baru harus tetap ada
+    // Respons lama (#2) tiba terlambat -> kategori baru harus tetap ada
     await act(async () => {
       staleCategories.resolve([initialCategory]);
-      staleSuppliers.resolve([initialSupplier]);
       await Promise.resolve();
     });
 
     expect(screen.getByRole("option", { name: "Makanan Ringan" })).toBeTruthy();
+  });
+
+  it("BUG-006: respons baca lama yang selesai setelah mutasi supplier memicu refresh dan tidak menimpa supplier baru", async () => {
+    const staleSuppliers = createDeferred<SupplierSummary[]>();
+    const initialSupplier: SupplierSummary = { id: 1, name: "Supplier DEMO" };
+    const createdSupplier: SupplierSummary = { id: 2, name: "PT Sumber Segar" };
+
+    let supCall = 0;
+    let supplierCreated = false;
+    const listSuppliers = vi.fn(() => {
+      supCall += 1;
+      if (supCall === 1) return Promise.resolve([initialSupplier]);
+      if (supCall === 2) return staleSuppliers.promise;
+      return Promise.resolve(
+        supplierCreated ? [initialSupplier, createdSupplier] : [initialSupplier],
+      );
+    });
+
+    const { user } = renderPage(
+      buildSource({
+        listSuppliers,
+        createSupplier: vi.fn(async () => {
+          supplierCreated = true;
+          return createdSupplier;
+        }),
+      }),
+    );
+
+    await screen.findByLabelText("Supplier DEMO");
+
+    // Picu baca ulang supplier lewat pencarian (call #2 tertunda)
+    await user.type(screen.getByLabelText("Cari produk"), "uji");
+    await user.click(screen.getByRole("button", { name: "Cari" }));
+    await waitFor(() => expect(listSuppliers).toHaveBeenCalledTimes(2));
+
+    // Mutasi supplier selesai lebih dulu -> harus menginvalidasi #2 dan memicu refresh #3
+    await user.type(screen.getByLabelText("Nama supplier baru"), "PT Sumber Segar");
+    await user.click(screen.getByRole("button", { name: "Tambah supplier" }));
+    await waitFor(() => expect(listSuppliers).toHaveBeenCalledTimes(3));
+    await screen.findByLabelText("PT Sumber Segar");
+
+    // Respons lama (#2) tiba terlambat -> supplier baru dari refresh harus tetap ada
+    await act(async () => {
+      staleSuppliers.resolve([initialSupplier]);
+      await Promise.resolve();
+    });
+
     expect(screen.getByLabelText("PT Sumber Segar")).toBeTruthy();
   });
 });
