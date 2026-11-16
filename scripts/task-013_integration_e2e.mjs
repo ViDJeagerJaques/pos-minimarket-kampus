@@ -555,6 +555,19 @@ async function main() {
   });
   assert.equal(newCashierLogin.status, 200, "akun baru harus dapat login");
   const newCashierToken = dataOf(newCashierLogin)?.token;
+  assert.equal(
+    typeof newCashierToken === "string" && newCashierToken.trim().length > 0,
+    true,
+    "login kasir baru wajib mengembalikan token non-kosong",
+  );
+
+  const newCashierMeBeforeDisable = await call(baseUrl, "/auth/me", { token: newCashierToken });
+  assert.equal(
+    newCashierMeBeforeDisable.status,
+    200,
+    "token kasir baru harus valid di /auth/me sebelum akun dinonaktifkan",
+  );
+  assert.equal(dataOf(newCashierMeBeforeDisable)?.id, newCashierId);
 
   const disabled = await call(baseUrl, `/users/${newCashierId}`, {
     method: "PATCH",
