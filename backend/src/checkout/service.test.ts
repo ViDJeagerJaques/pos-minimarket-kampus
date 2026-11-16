@@ -466,3 +466,110 @@ test("AC-04.01: attempt ABANDONED tidak dapat di-commit", () => {
     database.cleanup();
   }
 });
+
+test("BUG-014: retry commit dan status lookup mempertahankan cashReceivedRp/changeRp untuk CASH serta changeRp=0 untuk QRIS_MANUAL", () => {
+  const { database, db, cashier, shift } = setup();
+  try {
+    const checkout = createCheckoutService(db, { now: () => FIXED_NOW + 10 });
+
+    const cashPrep = checkout.prepare(cashier, {
+      attemptKey: "co-bug014-cash",
+      shiftId: shift.id,
+      items: [{ productId: 2, quantity: 1 }],
+      payment: { method: "CASH" },
+    });
+    const cashFirst = checkout.commit(cashier, {
+      attemptKey: cashPrep.attemptKey,
+      requestHash: cashPrep.requestHash,
+      paymentConfirmation: { method: "CASH", cashReceivedRp: 5000 },
+    });
+    assert.equal(cashFirst.payment.cashReceivedRp, 5000);
+    assert.equal(cashFirst.payment.changeRp, 2500);
+
+    const cashRetry = checkout.commit(cashier, {
+      attemptKey: cashPrep.attemptKey,
+      requestHash: cashPrep.requestHash,
+      paymentConfirmation: { method: "CASH", cashReceivedRp: 5000 },
+    });
+    assert.deepEqual(cashRetry, cashFirst);
+
+    const cashStatus = checkout.getStatus(cashier, cashPrep.attemptKey);
+    assert.deepEqual(cashStatus, cashFirst);
+
+    const qrisPrep = checkout.prepare(cashier, {
+      attemptKey: "co-bug014-qris",
+      shiftId: shift.id,
+      items: [{ productId: 1, quantity: 1 }],
+      payment: { method: "QRIS_MANUAL" },
+    });
+    const qrisFirst = checkout.commit(cashier, {
+      attemptKey: qrisPrep.attemptKey,
+      requestHash: qrisPrep.requestHash,
+      paymentConfirmation: {
+        method: "QRIS_MANUAL",
+        merchantConfirmed: true,
+        confirmedAmountRp: qrisPrep.quote.totalRp,
+      },
+    });
+    assert.equal(qrisFirst.payment.cashReceivedRp, null);
+    assert.equal(qrisFirst.payment.changeRp, 0);
+
+    const qrisRetry = checkout.commit(cashier, {
+      attemptKey: qrisPrep.attemptKey,
+      requestHash: qrisPrep.requestHash,
+      paymentConfirmation: {
+        method: "QRIS_MANUAL",
+        merchantConfirmed: true,
+        confirmedAmountRp: qrisPrep.quote.totalRp,
+      },
+    });
+    assert.deepEqual(qrisRetry, qrisFirst);
+
+    const qrisStatus = checkout.getStatus(cashier, qrisPrep.attemptKey);
+    assert.deepEqual(qrisStatus, qrisFirst);
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});
+
+test("BUG-015: prepare identik mengembalikan quote tersimpan meskipun harga produk berubah setelah prepare awal", () => {
+  const { database, db, cashier, shift } = setup();
+  try {
+    const checkout = createCheckoutService(db, { now: () => FIXED_NOW + 10 });
+
+    const first = checkout.prepare(cashier, {
+      attemptKey: "co-bug015-replay",
+      shiftId: shift.id,
+      items: [{ productId: 1, quantity: 2 }],
+      payment: { method: "CASH" },
+    });
+
+    // Harga berubah setelah prepare pertama
+    db.prepare("UPDATE products SET price_rp = 9999 WHERE id = 1").run();
+
+    // Retry prepare identik harus mengembalikan quote lama, bukan IDEMPOTENCY_CONFLICT
+    const replay = checkout.prepare(cashier, {
+      attemptKey: "co-bug015-replay",
+      shiftId: shift.id,
+      items: [{ productId: 1, quantity: 2 }],
+      payment: { method: "CASH" },
+    });
+    assert.deepEqual(replay, first);
+
+    // Prepare dengan key sama tetapi isi berbeda tetap ditolak 409 IDEMPOTENCY_CONFLICT
+    assert.throws(
+      () =>
+        checkout.prepare(cashier, {
+          attemptKey: "co-bug015-replay",
+          shiftId: shift.id,
+          items: [{ productId: 1, quantity: 3 }],
+          payment: { method: "CASH" },
+        }),
+      (error: unknown) => error instanceof IdempotencyConflictError && error.httpStatus === 409,
+    );
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});

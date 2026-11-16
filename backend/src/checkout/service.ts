@@ -241,11 +241,29 @@ export function createCheckoutService(
     if (!paymentRow) {
       throw new CheckoutError("CONFLICT", 500, "Data pembayaran untuk penjualan tersimpan tidak lengkap.");
     }
+    const quoteSummaryRow = db
+      .prepare(
+        "SELECT cash_received_rp, change_rp FROM checkout_attempt_quotes WHERE attempt_key = ?",
+      )
+      .get(attempt.attempt_key) as
+      | { cash_received_rp: number | null; change_rp: number | null }
+      | undefined;
+    const method = paymentRow.method_code as CheckoutPaymentMethod;
+    const cashReceivedRp =
+      quoteSummaryRow?.cash_received_rp === null || quoteSummaryRow?.cash_received_rp === undefined
+        ? null
+        : Number(quoteSummaryRow.cash_received_rp);
+    const changeRp =
+      quoteSummaryRow?.change_rp === null || quoteSummaryRow?.change_rp === undefined
+        ? method === "QRIS_MANUAL"
+          ? 0
+          : null
+        : Number(quoteSummaryRow.change_rp);
     const payment: CommittedPaymentSummary = {
-      method: paymentRow.method_code as CheckoutPaymentMethod,
+      method,
       amountRp: Number(paymentRow.amount_rp),
-      cashReceivedRp: null,
-      changeRp: null,
+      cashReceivedRp,
+      changeRp,
       verifiedBy: paymentRow.verified_by === null ? null : Number(paymentRow.verified_by),
       verifiedAtMs: paymentRow.verified_at_ms === null ? null : Number(paymentRow.verified_at_ms),
     };
@@ -298,11 +316,39 @@ export function createCheckoutService(
           )
           .get(attemptKey) as AttemptRow | undefined;
 
-        if (existingAttempt && Number(existingAttempt.cashier_id) !== actor.userId) {
-          throw new ForbiddenError("Akses attemptKey ditolak.");
-        }
-        if (existingAttempt && existingAttempt.abandoned_at_ms !== null) {
-          throw new AttemptAbandonedError();
+        if (existingAttempt) {
+          if (Number(existingAttempt.cashier_id) !== actor.userId) {
+            throw new ForbiddenError("Akses attemptKey ditolak.");
+          }
+          if (existingAttempt.abandoned_at_ms !== null) {
+            throw new AttemptAbandonedError();
+          }
+          const committed = loadCommittedResult(existingAttempt);
+          if (committed) {
+            throw new IdempotencyConflictError(
+              "attemptKey sudah di-commit. Gunakan GET /checkouts/:attemptKey untuk memeriksa hasil.",
+            );
+          }
+          const storedQuote = loadStoredQuote(attemptKey);
+          const intentMatches =
+            storedQuote !== null &&
+            storedQuote.shiftId === shiftId &&
+            storedQuote.payment.method === paymentMethod &&
+            storedQuote.items.length === requestedItems.length &&
+            storedQuote.items.every(
+              (item, index) =>
+                item.productId === requestedItems[index]!.productId &&
+                item.quantity === requestedItems[index]!.quantity,
+            );
+          if (!intentMatches || storedQuote === null) {
+            throw new IdempotencyConflictError();
+          }
+          return {
+            attemptKey,
+            requestHash: Buffer.from(existingAttempt.request_hash).toString("hex"),
+            status: "PREPARED",
+            quote: storedQuote,
+          };
         }
 
         const shift = db
@@ -361,24 +407,6 @@ export function createCheckoutService(
           payment: { method: paymentMethod },
         };
         const { hex: requestHash, bytes: hashBytes } = computeCheckoutHash(quote);
-
-        if (existingAttempt) {
-          if (Buffer.compare(Buffer.from(existingAttempt.request_hash), hashBytes) !== 0) {
-            throw new IdempotencyConflictError();
-          }
-          const committed = loadCommittedResult(existingAttempt);
-          if (committed) {
-            throw new IdempotencyConflictError(
-              "attemptKey sudah di-commit. Gunakan GET /checkouts/:attemptKey untuk memeriksa hasil.",
-            );
-          }
-          return {
-            attemptKey,
-            requestHash,
-            status: "PREPARED",
-            quote,
-          };
-        }
 
         const preparedAtMs = now();
         db.prepare(
@@ -586,6 +614,12 @@ export function createCheckoutService(
           verifiedBy,
           verifiedAtMs,
         );
+
+        db.prepare(
+          `UPDATE checkout_attempt_quotes
+           SET cash_received_rp = ?, change_rp = ?
+           WHERE attempt_key = ?`,
+        ).run(cashReceivedRp, changeRp, attemptKey);
 
         writeCheckoutAudit(db, {
           actorId: actor.userId,
