@@ -1,10 +1,27 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/errors";
 import { createMockDataSource } from "../api/mockDataSource";
-import type { CatalogProduct, CreateProductInput, PosDataSource, SessionUser } from "../api/types";
+import type {
+  CatalogProduct,
+  CategorySummary,
+  CreateProductInput,
+  PosDataSource,
+  SessionUser,
+  SupplierSummary,
+} from "../api/types";
 import { ProductsPage } from "./ProductsPage";
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 const ADMIN: SessionUser = {
   userId: 1,
@@ -155,5 +172,114 @@ describe("TASK-012 katalog ADMIN", () => {
     const { onSessionExpired } = renderPage(source);
 
     await waitFor(() => expect(onSessionExpired).toHaveBeenCalledTimes(1));
+  });
+
+  it("BUG-006: respons pencarian lama yang selesai setelah mutasi produk tidak menimpa data produk terbaru", async () => {
+    const staleSearch = createDeferred<CatalogProduct[]>();
+    const updatedProduct: CatalogProduct = {
+      ...PRODUCT,
+      name: "Produk Baru",
+      priceRp: 6500,
+    };
+    let catalogCall = 0;
+    const listCatalogProducts = vi.fn(() => {
+      catalogCall += 1;
+      if (catalogCall === 1) {
+        return Promise.resolve([PRODUCT]);
+      }
+      if (catalogCall === 2) {
+        return staleSearch.promise;
+      }
+      return Promise.resolve([updatedProduct]);
+    });
+    const updateProduct = vi.fn(async () => updatedProduct);
+
+    const { user } = renderPage(buildSource({ listCatalogProducts, updateProduct }));
+
+    await screen.findByText("Produk Uji");
+
+    // Picu pencarian yang responsnya tertunda (call #2)
+    await user.type(screen.getByLabelText("Cari produk"), "SKU-001");
+    await user.click(screen.getByRole("button", { name: "Cari" }));
+    await waitFor(() => expect(listCatalogProducts).toHaveBeenCalledTimes(2));
+
+    // Mutasi produk selesai lebih dulu sebelum pencarian #2 selesai
+    await user.click(screen.getByRole("button", { name: "Ubah SKU-001" }));
+    const editForm = screen.getByRole("form", { name: "Ubah produk" });
+    const nameInput = within(editForm).getByLabelText("Nama produk");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Produk Baru");
+    await user.click(within(editForm).getByRole("button", { name: "Simpan perubahan" }));
+
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
+    await screen.findByText("Produk Baru");
+
+    // Respons pencarian lama (#2) tiba terlambat dengan nama lama -> tidak boleh menimpa
+    await act(async () => {
+      staleSearch.resolve([PRODUCT]);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Produk Baru")).toBeTruthy();
+    expect(screen.queryByText("Produk Uji")).toBeNull();
+  });
+
+  it("BUG-006: respons baca lama yang selesai setelah mutasi kategori dan supplier tidak menimpa kategori/supplier baru", async () => {
+    const staleCategories = createDeferred<CategorySummary[]>();
+    const staleSuppliers = createDeferred<SupplierSummary[]>();
+    const initialCategory: CategorySummary = { id: 1, name: "Minuman" };
+    const createdCategory: CategorySummary = { id: 2, name: "Makanan Ringan" };
+    const initialSupplier: SupplierSummary = { id: 1, name: "Supplier DEMO" };
+    const createdSupplier: SupplierSummary = { id: 2, name: "PT Sumber Segar" };
+
+    let catCall = 0;
+    let supCall = 0;
+    const listCategories = vi.fn(() => {
+      catCall += 1;
+      if (catCall === 1) return Promise.resolve([initialCategory]);
+      if (catCall === 2) return staleCategories.promise;
+      return Promise.resolve([initialCategory, createdCategory]);
+    });
+    const listSuppliers = vi.fn(() => {
+      supCall += 1;
+      if (supCall === 1) return Promise.resolve([initialSupplier]);
+      if (supCall === 2) return staleSuppliers.promise;
+      return Promise.resolve([initialSupplier, createdSupplier]);
+    });
+
+    const { user } = renderPage(
+      buildSource({
+        listCategories,
+        listSuppliers,
+        createCategory: vi.fn(async () => createdCategory),
+        createSupplier: vi.fn(async () => createdSupplier),
+      }),
+    );
+
+    await screen.findByRole("option", { name: "Minuman" });
+
+    // Picu baca ulang lewat pencarian (call #2 tertunda)
+    await user.type(screen.getByLabelText("Cari produk"), "uji");
+    await user.click(screen.getByRole("button", { name: "Cari" }));
+    await waitFor(() => expect(listCategories).toHaveBeenCalledTimes(2));
+
+    // Mutasi kategori dan supplier selesai lebih dulu
+    await user.type(screen.getByLabelText("Nama kategori baru"), "Makanan Ringan");
+    await user.click(screen.getByRole("button", { name: "Tambah kategori" }));
+    await screen.findByRole("option", { name: "Makanan Ringan" });
+
+    await user.type(screen.getByLabelText("Nama supplier baru"), "PT Sumber Segar");
+    await user.click(screen.getByRole("button", { name: "Tambah supplier" }));
+    await screen.findByLabelText("PT Sumber Segar");
+
+    // Respons lama (#2) tiba terlambat -> kategori & supplier baru harus tetap ada
+    await act(async () => {
+      staleCategories.resolve([initialCategory]);
+      staleSuppliers.resolve([initialSupplier]);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("option", { name: "Makanan Ringan" })).toBeTruthy();
+    expect(screen.getByLabelText("PT Sumber Segar")).toBeTruthy();
   });
 });

@@ -157,6 +157,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     };
   }, [dataSource, reloadKey, appliedQuery, onSessionExpired]);
 
+  function invalidatePendingReadsAndRefresh(): void {
+    listSeqRef.current += 1;
+    setReloadKey((previous) => previous + 1);
+  }
+
   function replaceProduct(updated: CatalogProduct): void {
     setProducts((previous) =>
       previous === null
@@ -206,6 +211,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         supplierIds: newSupplierIds,
       });
       setProducts((previous) => sortProducts([...(previous ?? []), created]));
+      invalidatePendingReadsAndRefresh();
       setNewSku("");
       setNewName("");
       setNewPrice("");
@@ -254,6 +260,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         categoryId: nextCategoryId,
       });
       replaceProduct(updated);
+      invalidatePendingReadsAndRefresh();
       setEdit(null);
       setStatus({ tone: "success", text: `Produk "${updated.sku}" diperbarui.` });
     } catch (error) {
@@ -278,6 +285,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
       // Dikirim sebagai string; jangan konversi ke angka agar nol awal aman.
       const updated = await dataSource.addBarcode(edit.product.id, barcode);
       replaceProduct(updated);
+      invalidatePendingReadsAndRefresh();
       setEdit((previous) => (previous === null ? previous : { ...previous, newBarcode: "" }));
       setStatus({ tone: "success", text: `Barcode "${barcode}" ditambahkan ke ${updated.sku}.` });
     } catch (error) {
@@ -297,6 +305,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     try {
       const created = await dataSource.createCategory(name);
       setCategories((previous) => [...(previous ?? []), created]);
+      invalidatePendingReadsAndRefresh();
       setCategoryName("");
       setNewCategoryId((previous) => (previous === "" ? String(created.id) : previous));
       setStatus({ tone: "success", text: `Kategori "${created.name}" dibuat.` });
@@ -317,6 +326,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     try {
       const created = await dataSource.createSupplier(name);
       setSuppliers((previous) => [...(previous ?? []), created]);
+      invalidatePendingReadsAndRefresh();
       setSupplierName("");
       setStatus({ tone: "success", text: `Supplier "${created.name}" dibuat.` });
     } catch (error) {
@@ -334,6 +344,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     try {
       const updated = await dataSource.updateProduct(product.id, { active: nextActive });
       replaceProduct(updated);
+      invalidatePendingReadsAndRefresh();
       setStatus({
         tone: "success",
         text: `Produk "${updated.sku}" ${updated.active ? "diaktifkan" : "dinonaktifkan"}.`,
@@ -354,6 +365,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     try {
       const updated = await dataSource.removeBarcode(product.id, barcode);
       replaceProduct(updated);
+      invalidatePendingReadsAndRefresh();
       setStatus({ tone: "success", text: `Barcode "${barcode}" dihapus dari ${updated.sku}.` });
       setConfirmation(null);
     } catch (error) {
