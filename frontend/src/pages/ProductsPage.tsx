@@ -359,8 +359,9 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
   }
 
   async function confirmRemoveBarcode(): Promise<void> {
-    if (confirmation?.kind !== "remove-barcode") return;
+    if (confirmation?.kind !== "remove-barcode" || submitLockRef.current) return;
     const { product, barcode } = confirmation;
+    submitLockRef.current = true;
     setBusyProductId(product.id);
     try {
       const updated = await dataSource.removeBarcode(product.id, barcode);
@@ -372,6 +373,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
       setConfirmation(null);
       handleActionError(error, "Barcode gagal dihapus.");
     } finally {
+      submitLockRef.current = false;
       setBusyProductId(null);
     }
   }
