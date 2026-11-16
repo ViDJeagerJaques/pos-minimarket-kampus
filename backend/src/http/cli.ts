@@ -6,6 +6,7 @@ import { createSessionStore } from "../auth/session.ts";
 import { createCatalogService } from "../catalog/service.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { createShiftService } from "../shift/service.ts";
+import { createCheckoutService } from "../checkout/service.ts";
 import { startHttpServer } from "./app.ts";
 
 /**
@@ -109,12 +110,14 @@ async function main(argv: string[]): Promise<number> {
     const auth = createAuthService(db, { sessions, securityLog });
     const catalog = createCatalogService(db);
     const shift = createShiftService(db);
+    const checkout = createCheckoutService(db);
     const running = await startHttpServer({
       auth,
       sessions,
       securityLog,
       catalog,
       shift,
+      checkout,
       port: options.port,
     });
     process.stdout.write(
