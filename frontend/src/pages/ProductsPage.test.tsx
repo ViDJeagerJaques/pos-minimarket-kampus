@@ -319,4 +319,50 @@ describe("TASK-012 katalog ADMIN", () => {
 
     expect(screen.getByLabelText("PT Sumber Segar")).toBeTruthy();
   });
+
+  it("BUG-006: invalidatePendingReadsAndRefresh menaikkan token secara sinkron sebelum efek refresh berjalan", async () => {
+    const staleCategories = createDeferred<CategorySummary[]>();
+    const pendingCreate = createDeferred<CategorySummary>();
+    const pendingRefresh = createDeferred<CategorySummary[]>();
+    const initialCategory: CategorySummary = { id: 1, name: "Minuman" };
+    const createdCategory: CategorySummary = { id: 2, name: "Makanan Ringan" };
+
+    let catCall = 0;
+    const listCategories = vi.fn(() => {
+      catCall += 1;
+      if (catCall === 1) return Promise.resolve([initialCategory]);
+      if (catCall === 2) return staleCategories.promise;
+      return pendingRefresh.promise;
+    });
+
+    const { user } = renderPage(
+      buildSource({
+        listCategories,
+        createCategory: vi.fn(() => pendingCreate.promise),
+      }),
+    );
+
+    await screen.findByRole("option", { name: "Minuman" });
+
+    // Picu baca ulang (call #2 tertunda)
+    await user.type(screen.getByLabelText("Cari produk"), "uji");
+    await user.click(screen.getByRole("button", { name: "Cari" }));
+    await waitFor(() => expect(listCategories).toHaveBeenCalledTimes(2));
+
+    // Mulai mutasi kategori (masih tertunda)
+    await user.type(screen.getByLabelText("Nama kategori baru"), "Makanan Ringan");
+    await user.click(screen.getByRole("button", { name: "Tambah kategori" }));
+
+    // Selesaikan mutasi lalu langsung selesaikan respons lama sebelum efek refresh #3 berjalan
+    await act(async () => {
+      pendingCreate.resolve(createdCategory);
+      await Promise.resolve();
+      expect(listCategories).toHaveBeenCalledTimes(2);
+
+      staleCategories.resolve([initialCategory]);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("option", { name: "Makanan Ringan" })).toBeTruthy();
+  });
 });
