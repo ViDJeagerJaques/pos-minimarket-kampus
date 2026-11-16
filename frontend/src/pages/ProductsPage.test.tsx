@@ -365,4 +365,38 @@ describe("TASK-012 katalog ADMIN", () => {
 
     expect(screen.getByRole("option", { name: "Makanan Ringan" })).toBeTruthy();
   });
+
+  it("BUG-007: klik ganda konfirmasi hapus barcode hanya mengirim satu permintaan dan hapus normal tetap bekerja", async () => {
+    const pendingRemove = createDeferred<CatalogProduct>();
+    const updatedProduct: CatalogProduct = { ...PRODUCT, barcodes: [] };
+    let removed = false;
+    const removeBarcode = vi.fn(() => {
+      removed = true;
+      return pendingRemove.promise;
+    });
+    const listCatalogProducts = vi.fn(async () => [removed ? updatedProduct : PRODUCT]);
+
+    const { user } = renderPage(buildSource({ listCatalogProducts, removeBarcode }));
+
+    await screen.findByRole("table", { name: "Daftar barang" });
+    await user.click(screen.getByRole("button", { name: "Ubah SKU-001" }));
+    await user.click(screen.getByRole("button", { name: "Hapus barcode 000123" }));
+    const confirmBtn = screen.getByRole("button", { name: "Ya, hapus barcode" });
+
+    await user.click(confirmBtn);
+    await user.click(confirmBtn);
+
+    expect(removeBarcode).toHaveBeenCalledTimes(1);
+    expect(removeBarcode).toHaveBeenCalledWith(PRODUCT.id, "000123");
+
+    await act(async () => {
+      pendingRemove.resolve(updatedProduct);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toContain('Barcode "000123" dihapus dari SKU-001.');
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
