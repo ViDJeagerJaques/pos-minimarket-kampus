@@ -170,18 +170,29 @@ test("Input tidak valid ditolak sebelum transaksi; audit gagal membatalkan mutas
     }
     assert.deepEqual(counts(db), { movements: 0, audit: 0 });
 
-    assert.throws(
-      () =>
-        applyOpeningFixture(db, {
-          batchRef: BATCH,
-          entries: [{ productId: 1, quantity: 10 }],
-          actorId: adminId,
-          now: () => -1,
-        }),
-      /CHECK constraint failed|NOT NULL constraint failed/,
-    );
-    assert.deepEqual(counts(db), { movements: 0, audit: 0 });
-    assert.equal(getStockBalance(db, 1)?.onHand, 0);
+    db.exec(`
+      CREATE TRIGGER test_fail_audit_insert
+      BEFORE INSERT ON audit_log
+      BEGIN
+        SELECT RAISE(ABORT, 'audit write failed');
+      END;
+    `);
+    try {
+      assert.throws(
+        () =>
+          applyOpeningFixture(db, {
+            batchRef: BATCH,
+            entries: [{ productId: 1, quantity: 10 }],
+            actorId: adminId,
+            now: () => FIXED_NOW,
+          }),
+        /audit write failed/,
+      );
+      assert.deepEqual(counts(db), { movements: 0, audit: 0 });
+      assert.equal(getStockBalance(db, 1)?.onHand, 0);
+    } finally {
+      db.exec("DROP TRIGGER IF EXISTS test_fail_audit_insert;");
+    }
   } finally {
     db.close();
     database.cleanup();
