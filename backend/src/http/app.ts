@@ -21,6 +21,8 @@ import {
 import type { SecurityLogger } from "../security/securityLog.ts";
 import type { ShiftService } from "../shift/service.ts";
 import { ShiftError } from "../shift/errors.ts";
+import { CheckoutError } from "../checkout/errors.ts";
+import type { CheckoutService } from "../checkout/service.ts";
 
 /**
  * Server HTTP loopback dengan dependensi nol. Ini adapter tipis, bukan
@@ -38,6 +40,8 @@ export type HttpAppOptions = {
   catalog?: CatalogService;
   /** Service shift TASK-014; bila tidak diisi, route shift tidak aktif. */
   shift?: ShiftService;
+  /** Service checkout TASK-016; bila tidak diisi, route checkout tidak aktif. */
+  checkout?: CheckoutService;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -186,6 +190,18 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
         code: error.code,
         message: error.message,
         requestId,
+        retryable: false,
+      },
+    });
+    return;
+  }
+  if (error instanceof CheckoutError) {
+    sendJson(res, error.httpStatus, {
+      error: {
+        code: error.code,
+        message: error.message,
+        requestId,
+        field: error.field,
         retryable: false,
       },
     });
@@ -355,6 +371,38 @@ function createShiftRoutes(shift: ShiftService): Route[] {
   ];
 }
 
+function createCheckoutRoutes(checkout: CheckoutService): Route[] {
+  const actorOf = (ctx: RequestContext): SessionUser => ctx.actor as SessionUser;
+  return [
+    {
+      method: "POST",
+      pattern: /^\/checkouts\/prepare$/,
+      roles: ["CASHIER"],
+      handler: (ctx) => ({ data: checkout.prepare(actorOf(ctx), asObject(ctx.body)) }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/checkouts\/commit$/,
+      roles: ["CASHIER"],
+      handler: (ctx) => ({ data: checkout.commit(actorOf(ctx), asObject(ctx.body)) }),
+    },
+    {
+      method: "GET",
+      pattern: /^\/checkouts\/([^/]+)$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => {
+        let attemptKey: string;
+        try {
+          attemptKey = decodeURIComponent(ctx.params["1"] ?? "");
+        } catch {
+          throw new ValidationError("attemptKey pada URL tidak valid.", "attemptKey");
+        }
+        return { data: checkout.getStatus(actorOf(ctx), attemptKey) };
+      },
+    },
+  ];
+}
+
 export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
   const { auth, sessions, securityLog } = options;
@@ -456,6 +504,9 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   }
   if (options.shift) {
     routes.push(...createShiftRoutes(options.shift));
+  }
+  if (options.checkout) {
+    routes.push(...createCheckoutRoutes(options.checkout));
   }
 
   return async (req, res) => {
