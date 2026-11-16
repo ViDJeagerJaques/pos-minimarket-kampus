@@ -32,29 +32,37 @@ describe("TASK-013 kuantitas invalid pada draft keranjang", () => {
     ["NaN", Number.NaN],
     ["Infinity", Number.POSITIVE_INFINITY],
   ])("addProduct menolak kuantitas %s tanpa mengubah baris", (_label, quantity) => {
-    const before: CartLine[] = [];
+    const before: CartLine[] = [structuredClone(LINE)];
+    const snapshot = structuredClone(before);
     const result = addProduct(before, PRODUCT, quantity);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("INVALID_QUANTITY");
-    expect(result.lines).toEqual(before);
+    expect(result.lines).toEqual(snapshot);
+    expect(before).toEqual(snapshot);
   });
 
   it("addProduct menolak jumlah yang melebihi stok dan mempertahankan baris", () => {
-    const result = addProduct([LINE], PRODUCT, 3);
+    const before: CartLine[] = [structuredClone(LINE)];
+    const snapshot = structuredClone(before);
+    const result = addProduct(before, PRODUCT, 3);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("INSUFFICIENT_STOCK");
-    expect(result.lines).toEqual([LINE]);
+    expect(result.lines).toEqual(snapshot);
+    expect(before).toEqual(snapshot);
   });
 
   it("addProduct menolak produk bersaldo nol", () => {
-    const result = addProduct([], { ...PRODUCT, stock: 0 }, 1);
+    const before: CartLine[] = [];
+    const snapshot = structuredClone(before);
+    const result = addProduct(before, { ...PRODUCT, stock: 0 }, 1);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("INSUFFICIENT_STOCK");
-    expect(result.lines).toEqual([]);
+    expect(result.lines).toEqual(snapshot);
+    expect(before).toEqual(snapshot);
   });
 
   it.each([
@@ -62,33 +70,45 @@ describe("TASK-013 kuantitas invalid pada draft keranjang", () => {
     ["negatif", -1],
     ["pecahan", 2.5],
   ])("setQuantity menolak kuantitas %s tanpa mengubah baris", (_label, quantity) => {
-    const result = setQuantity([LINE], PRODUCT.id, quantity);
+    const before: CartLine[] = [structuredClone(LINE)];
+    const snapshot = structuredClone(before);
+    const result = setQuantity(before, PRODUCT.id, quantity);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("INVALID_QUANTITY");
-    expect(result.lines).toEqual([LINE]);
+    expect(result.lines).toEqual(snapshot);
+    expect(before).toEqual(snapshot);
   });
 
   it("setQuantity menolak jumlah di atas stok dan mempertahankan baris", () => {
-    const result = setQuantity([LINE], PRODUCT.id, 4);
+    const before: CartLine[] = [structuredClone(LINE)];
+    const snapshot = structuredClone(before);
+    const result = setQuantity(before, PRODUCT.id, 4);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("INSUFFICIENT_STOCK");
-    expect(result.lines).toEqual([LINE]);
+    expect(result.lines).toEqual(snapshot);
+    expect(before).toEqual(snapshot);
   });
 
   it("setQuantity menolak produk yang tidak ada di keranjang", () => {
-    const result = setQuantity([LINE], 999, 1);
+    const before: CartLine[] = [structuredClone(LINE)];
+    const snapshot = structuredClone(before);
+    const result = setQuantity(before, 999, 1);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("INVALID_QUANTITY");
-    expect(result.lines).toEqual([LINE]);
+    expect(result.lines).toEqual(snapshot);
+    expect(before).toEqual(snapshot);
   });
 
   it("menerima kuantitas valid dan menghitung total draft", () => {
-    const result = addProduct([LINE], PRODUCT, 2);
+    const before: CartLine[] = [structuredClone(LINE)];
+    const snapshot = structuredClone(before);
+    const result = addProduct(before, PRODUCT, 2);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lines[0]?.quantity).toBe(3);
+    expect(before).toEqual(snapshot);
   });
 });
