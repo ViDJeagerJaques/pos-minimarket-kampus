@@ -47,10 +47,13 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   const [notice, setNotice] = useState<string | null>(null);
   // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
   const [draftLines, setDraftLines] = useState<CartLine[]>([]);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(0);
 
   const handleLoggedIn = useCallback((nextUser: SessionUser) => {
-    sessionEpochRef.current += 1;
+    const nextEpoch = sessionEpochRef.current + 1;
+    sessionEpochRef.current = nextEpoch;
+    setSessionEpoch(nextEpoch);
     setDraftLines([]);
     setNotice(null);
     setUser(nextUser);
@@ -58,18 +61,24 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   }, []);
 
   const handleSessionExpired = useCallback(() => {
-    sessionEpochRef.current += 1;
+    if (sessionEpochRef.current !== sessionEpoch) {
+      return;
+    }
+    const nextEpoch = sessionEpochRef.current + 1;
+    sessionEpochRef.current = nextEpoch;
+    setSessionEpoch(nextEpoch);
     setDraftLines([]);
     setUser(null);
     setPage("cashier");
     setNotice("Sesi berakhir atau tidak lagi valid. Silakan masuk kembali.");
     // Bersihkan token di memori klien; kegagalan revoke server ditangani TTL backend.
     void dataSource.logout();
-  }, [dataSource]);
+  }, [dataSource, sessionEpoch]);
 
   async function handleLogout() {
-    sessionEpochRef.current += 1;
-    const logoutEpoch = sessionEpochRef.current;
+    const logoutEpoch = sessionEpochRef.current + 1;
+    sessionEpochRef.current = logoutEpoch;
+    setSessionEpoch(logoutEpoch);
     // Sembunyikan halaman terlindungi dan bersihkan state klien seketika
     // tanpa menunggu respons backend.
     setDraftLines([]);
@@ -124,30 +133,20 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       );
     }
     if (activePage === "products") {
-      const expectedEpoch = sessionEpochRef.current;
       return (
         <ProductsPage
           dataSource={dataSource}
           currentUser={currentUser}
-          onSessionExpired={() => {
-            if (sessionEpochRef.current === expectedEpoch) {
-              handleSessionExpired();
-            }
-          }}
+          onSessionExpired={handleSessionExpired}
         />
       );
     }
     if (activePage === "accounts") {
-      const expectedEpoch = sessionEpochRef.current;
       return (
         <AccountsPage
           dataSource={dataSource}
           currentUser={currentUser}
-          onSessionExpired={() => {
-            if (sessionEpochRef.current === expectedEpoch) {
-              handleSessionExpired();
-            }
-          }}
+          onSessionExpired={handleSessionExpired}
         />
       );
     }

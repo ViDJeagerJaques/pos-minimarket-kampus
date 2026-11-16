@@ -245,4 +245,45 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
   });
+
+  it("BUG-010: mutasi 401 dari sesi lama yang selesai setelah sesi baru login tidak memanggil logout atau menghapus sesi baru", async () => {
+    const staleCreate = createDeferred<never>();
+    const logout = vi.fn().mockResolvedValue(undefined);
+    const { user } = renderApp(
+      makeSource({
+        listAccounts: vi.fn().mockResolvedValue([]),
+        createAccount: vi.fn(() => staleCreate.promise),
+        logout,
+      }),
+    );
+
+    // Sesi 1 masuk, buka halaman Akun, lalu kirim createAccount yang tertunda
+    await loginAs(user, "admin.demo");
+    await screen.findByRole("navigation", { name: "Menu utama" });
+    await user.click(screen.getByRole("button", { name: "Akun" }));
+    await screen.findByRole("heading", { name: /Akun/ });
+
+    await user.type(screen.getByLabelText("Nama pengguna"), "kasir.baru");
+    await user.type(screen.getByLabelText("Kata sandi awal"), "sandi-uji-123");
+    await user.click(screen.getByRole("button", { name: "Buat akun kasir" }));
+    await user.click(screen.getByRole("button", { name: "Ya, buat akun" }));
+
+    // Logout sebelum createAccount selesai (logout dipanggil 1x), lalu Sesi 2 login
+    await user.click(screen.getByRole("button", { name: "Keluar" }));
+    expect(logout).toHaveBeenCalledTimes(1);
+    await loginAs(user, "kasir.demo");
+    await screen.findByRole("navigation", { name: "Menu utama" });
+    expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
+
+    // Mutasi dari Sesi 1 ditolak 401 -> handleSessionExpired lama harus diabaikan
+    await act(async () => {
+      staleCreate.reject(new ApiError(401, "AUTH_REQUIRED", "Sesi berakhir. Silakan masuk lagi."));
+      await Promise.resolve();
+    });
+
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("navigation", { name: "Menu utama" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+  });
 });
