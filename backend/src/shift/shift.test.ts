@@ -162,13 +162,23 @@ test("Audit SHIFT_OPENED tercatat; kegagalan audit membatalkan pembukaan", () =>
 
     // Kosongkan shift agar kegagalan audit diuji pada pembukaan baru.
     db.prepare("DELETE FROM shifts").run();
-    const failing = createShiftService(db, { now: () => -1 });
-    assert.throws(
-      () => failing.openShift(cashier, {}),
-      /CHECK constraint failed|NOT NULL constraint failed/,
-    );
-    assert.equal(activeShifts(db).length, 0, "pembukaan gagal tidak menambah shift");
-    assert.equal(auditRows(db).length, 1);
+    db.exec(`
+      CREATE TRIGGER test_fail_audit_insert
+      BEFORE INSERT ON audit_log
+      BEGIN
+        SELECT RAISE(ABORT, 'audit write failed');
+      END;
+    `);
+    try {
+      assert.throws(
+        () => service.openShift(cashier, {}),
+        /audit write failed/,
+      );
+      assert.equal(activeShifts(db).length, 0, "pembukaan gagal tidak menambah shift");
+      assert.equal(auditRows(db).length, 1);
+    } finally {
+      db.exec("DROP TRIGGER IF EXISTS test_fail_audit_insert;");
+    }
   } finally {
     db.close();
     database.cleanup();
