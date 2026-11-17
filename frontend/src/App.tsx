@@ -9,6 +9,7 @@ import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ProductsPage } from "./pages/ProductsPage";
+import { ShiftDemoPage } from "./pages/ShiftDemoPage";
 
 interface AppProps {
   dataSource: PosDataSource;
@@ -31,9 +32,8 @@ const PAGE_LABEL: Record<PageId, string> = {
 
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
 
-const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts">, { title: string; reason: string }> = {
+const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift">, { title: string; reason: string }> = {
   history: { title: "Riwayat/Struk", reason: "Menunggu penjualan tersimpan dan cetak (TASK-016, TASK-021)." },
-  shift: { title: "Shift", reason: "Shift aktif ditampilkan di halaman Kasir; penutupan dan rekap menunggu TASK-022/TASK-023." },
   dashboard: { title: "Dashboard", reason: "Menunggu query laporan (TASK-026, TASK-040). Tidak ada angka palsu." },
   receiving: { title: "Penerimaan", reason: "Menunggu TASK-025/TASK-027." },
   "stock-adjustment": { title: "Koreksi Stok", reason: "Menunggu TASK-039 dan kunci idempotensi (TASK-001 K-11)." },
@@ -158,6 +158,9 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           onSessionExpired={handleSessionExpired}
         />
       );
+    }
+    if (activePage === "shift") {
+      return <ShiftDemoPage />;
     }
     if (activePage === "products") {
       return (
