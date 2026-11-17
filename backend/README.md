@@ -274,6 +274,22 @@ endpoint HTTP untuk ledger (TASK-026/025 akan memakainya).
 - `catalog/service.ts` memakai agregasi ledger yang sama untuk `stockOnHand`;
   tes membuktikan keduanya sama.
 
+## 13. Penutupan shift (TASK-022)
+
+Status: **DEMO**; angka setoran memakai simulasi TASK-002 §7, bukan SOP sah.
+
+- `POST /api/v1/shifts/:id/close` hanya CASHIER pemilik; ADMIN ditolak 403.
+- `closeKey` idempoten: payload sama → hasil lama; payload beda → 409.
+- Rekap `shift_closing_totals` berasal dari `payments` pada `sales` COMMITTED
+  di shift itu. QRIS dilaporkan terpisah, tidak masuk laci.
+- `expectedCashRp = openingCashRp + total CASH`; `varianceRp =
+  declaredCashRp - expectedCashRp` bila uang fisik diisi.
+- Tutup dan checkout memakai `BEGIN IMMEDIATE`: yang commit lebih dulu
+  menentukan apakah penjualan masuk rekap; checkout setelah tutup ditolak.
+- Audit `SHIFT_CLOSED` dalam transaksi yang sama; gagal sebelum commit
+  mempertahankan shift aktif.
+
+
 ## 11. Pembukaan shift (TASK-014)
 
 Status: **DEMO**, lulus tes service + HTTP pada database sementara.
