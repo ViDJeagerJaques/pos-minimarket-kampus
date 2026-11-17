@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/errors";
 import { createMockDataSource } from "../api/mockDataSource";
 import type {
@@ -121,6 +121,7 @@ function Harness({
       lines={lines}
       onLinesChange={setLines}
       sessionEpoch={1}
+      cashierId={2}
       onSessionExpired={onSessionExpired}
     />
   );
@@ -140,6 +141,8 @@ async function openPayment(user: ReturnType<typeof userEvent.setup>) {
   await user.click(pay);
   return screen.findByRole("dialog", { name: "Konfirmasi pembayaran tunai" });
 }
+
+beforeEach(() => localStorage.clear());
 
 describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
   it("menampilkan shift pemilik dan quote harga backend sebelum pembayaran", async () => {
@@ -289,6 +292,37 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     expect(callLog.some((entry) => entry.isMutation)).toBe(false);
   });
 
+  it("pemilik menemukan commit setelah reload tanpa checkout baru", async () => {
+    const commit = vi.fn(async () => { throw new ApiError(0, "NETWORK_ERROR", "timeout"); });
+    const { source } = buildSource({ commit });
+    const user = userEvent.setup();
+    const view = render(<Harness source={source} />);
+    await openPayment(user);
+    await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
+    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
+    view.unmount();
+    render(<Harness source={source} initialLines={[]} />);
+    await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    expect((await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).textContent).toContain("E2E-001");
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(source.prepareCheckout).toHaveBeenCalledTimes(1);
+  });
+
+  it("status tidak diketahui tetap terkunci dan meminta pemeriksaan", async () => {
+    const commit = vi.fn(async () => { throw new ApiError(0, "NETWORK_ERROR", "timeout"); });
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => { throw new ApiError(404, "NOT_FOUND", "Tidak ditemukan"); });
+    const { user } = renderPage({ commit, status });
+    await openPayment(user);
+    await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
+    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(await screen.findByRole("button", { name: "Cek status upaya" }));
+    expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("Jangan bayar ulang");
+    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
   it("tanpa shift aktif tombol bayar mati dan pembukaan shift memperbarui UI", async () => {
     const openShift = vi.fn(async () => SHIFT);
     const { source, user } = renderPage({ shift: null });
@@ -367,6 +401,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
             lines={lines}
             onLinesChange={setLines}
             sessionEpoch={1}
+            cashierId={2}
             onSessionExpired={vi.fn()}
           />
         </div>
@@ -432,13 +467,10 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const pending = createDeferred<CheckoutStatusResult>();
     vi.mocked(source.getCheckoutStatus).mockImplementationOnce(() => pending.promise);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    const continueButton = screen.getByRole("button", {
-      name: "Lanjutkan commit upaya ini",
-    }) as HTMLButtonElement;
-    expect(continueButton.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
 
     pending.resolve({ ...PREPARED, status: "PREPARED", quote: PREPARED.quote });
-    await waitFor(() => expect(continueButton.disabled).toBe(false));
+    const continueButton = await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" });
     await user.click(continueButton);
 
     expect(await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).toBeTruthy();
@@ -478,6 +510,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
           lines={lines}
           onLinesChange={setLines}
           sessionEpoch={epoch}
+          cashierId={2}
           onSessionExpired={vi.fn()}
         />
       );

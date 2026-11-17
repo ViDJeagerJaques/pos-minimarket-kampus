@@ -129,6 +129,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           lines={draftLines}
           onLinesChange={setDraftLines}
           sessionEpoch={sessionEpochRef.current}
+          cashierId={currentUser.userId}
           onSessionExpired={handleSessionExpired}
         />
       );

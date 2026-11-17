@@ -39,6 +39,7 @@ interface CashierPageProps {
   lines: CartLine[];
   onLinesChange: Dispatch<SetStateAction<CartLine[]>>;
   sessionEpoch: number;
+  cashierId: number;
   /** 401 dari shift/checkout: App wajib membersihkan sesi dan kembali ke login. */
   onSessionExpired: () => void;
 }
@@ -55,6 +56,7 @@ interface Status {
 type CheckoutPhase =
   | { kind: "idle" }
   | { kind: "preparing" }
+  | { kind: "recoveryError" }
   | { kind: "payment"; attempt: PrepareCheckoutResult }
   | { kind: "committing"; attempt: PrepareCheckoutResult }
   | {
@@ -69,7 +71,7 @@ type CheckoutPhase =
 const MSG_NOT_FOUND = "Barang tidak ditemukan. Periksa barcode atau cari nama barang.";
 const MSG_NO_STOCK = "Stok tidak cukup untuk jumlah ini.";
 const MSG_TIMEOUT =
-  "Status pembayaran belum diketahui. Jangan bayar ulang atau scan ulang barang — cek status upaya terlebih dahulu.";
+  "Status pembayaran belum diketahui. Jangan bayar ulang atau scan ulang barang — cek status upaya dan bukti pembayaran fisik terlebih dahulu.";
 const MSG_DEMO =
   "Mode DEMO: shift dan checkout memerlukan backend lokal. Tombol bayar sengaja dinonaktifkan.";
 
@@ -105,6 +107,7 @@ export function CashierPage({
   lines,
   onLinesChange,
   sessionEpoch,
+  cashierId,
   onSessionExpired,
 }: CashierPageProps) {
   const isDemo = dataSource.authMode === "DEMO";
@@ -113,7 +116,24 @@ export function CashierPage({
   const [shift, setShift] = useState<ShiftSummary | null | undefined>(isDemo ? null : undefined);
   const [shiftError, setShiftError] = useState<string | null>(null);
   const [isOpeningShift, setIsOpeningShift] = useState(false);
-  const [phase, setPhase] = useState<CheckoutPhase>({ kind: "idle" });
+  const storageKey = `pos.checkout.recovery.${cashierId}`;
+  const [phase, setPhase] = useState<CheckoutPhase>(() => {
+    if (isDemo) return { kind: "idle" };
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return { kind: "idle" };
+      const saved = JSON.parse(raw);
+      if (saved?.attempt?.status === "PREPARED" && typeof saved.attempt.attemptKey === "string" &&
+          typeof saved.attempt.requestHash === "string" && Number.isSafeInteger(saved.cashReceivedRp) &&
+          Number.isSafeInteger(saved.attempt.quote?.totalRp)) {
+        return { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp };
+      }
+      // Data rusak tetap mengunci checkout sampai rekonsiliasi manual.
+      return { kind: "recoveryError" };
+    } catch {
+      return { kind: "recoveryError" };
+    }
+  });
   const [cashInput, setCashInput] = useState("");
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
@@ -403,7 +423,7 @@ export function CashierPage({
     onLinesChange((current) =>
       soldProductIds.size > 0
         ? current.filter((line) => !soldProductIds.has(line.productId))
-        : [],
+        : current,
     );
     snapshotLinesRef.current = [];
     barcodeSeqRef.current += 1;
@@ -417,14 +437,22 @@ export function CashierPage({
         return;
       }
       if (error.code === "PRICE_CHANGED") {
+        localStorage.removeItem(storageKey);
         await prepareRevisedQuote(attempt.quote.totalRp);
         return;
       }
       if (error.code === "SHIFT_NOT_ACTIVE") {
+        localStorage.removeItem(storageKey);
         setPhase({ kind: "idle" });
         setShift(null);
         setStatus({ tone: "warning", text: error.message });
         void reloadShift();
+        return;
+      }
+      if (error.code === "INSUFFICIENT_STOCK") {
+        localStorage.removeItem(storageKey);
+        setPhase({ kind: "idle" });
+        handleActionError(error, "Stok tidak cukup.");
         return;
       }
       if (error.code === "NETWORK_ERROR" || error.code === "INVALID_RESPONSE") {
@@ -435,8 +463,9 @@ export function CashierPage({
         return;
       }
     }
-    setPhase({ kind: "idle" });
-    handleActionError(error, "Checkout gagal. Coba periksa keranjang Anda.");
+    // Kesalahan lain tidak membuktikan commit gagal; tetap kunci dan cek status.
+    setPhase({ kind: "timeout", attempt, cashReceivedRp });
+    setStatus({ tone: "danger", text: MSG_TIMEOUT });
   }
 
   async function confirmCommit(): Promise<void> {
@@ -448,6 +477,13 @@ export function CashierPage({
     }
     const attempt = phase.attempt;
     const epoch = sessionEpochRef.current;
+    // Catat sebelum mengirim commit; bila penyimpanan gagal, jangan kirim.
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ attempt, cashReceivedRp }));
+    } catch {
+      setStatus({ tone: "danger", text: "Identitas upaya tidak dapat disimpan lokal. Checkout tidak dikirim." });
+      return;
+    }
     checkoutLockRef.current = true;
     setPhase({ kind: "committing", attempt });
     try {
@@ -489,6 +525,7 @@ export function CashierPage({
     const { attempt } = phase;
     const epoch = sessionEpochRef.current;
     setIsCheckingStatus(true);
+    setPhase({ ...phase, known: undefined });
     try {
       const result = await dataSource.getCheckoutStatus(attempt.attemptKey);
       if (result.status === "COMMITTED") {
@@ -512,6 +549,7 @@ export function CashierPage({
 
   function startNewDraft(): void {
     // Tidak ada API dipanggil; ini hanya membersihkan UI setelah status ABANDONED.
+    localStorage.removeItem(storageKey);
     snapshotLinesRef.current = [];
     onLinesChange([]);
     setPhase({ kind: "idle" });
@@ -737,6 +775,12 @@ export function CashierPage({
         </div>
       )}
 
+      {phase.kind === "recoveryError" && (
+        <div className="dialog-backdrop"><div className="dialog" role="alertdialog" aria-label="Pemulihan memerlukan rekonsiliasi">
+          <h2>Pemulihan memerlukan rekonsiliasi</h2>
+          <p>Data upaya lokal tidak dapat dibaca. Jangan bayar ulang; periksa transaksi tersimpan dan bukti pembayaran fisik bersama penanggung jawab.</p>
+        </div></div>
+      )}
       {phase.kind === "timeout" && (
         <div className="dialog-backdrop">
           <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="timeout-title">
@@ -797,8 +841,9 @@ export function CashierPage({
               <MoneyText amountRp={phase.result.payment.cashReceivedRp} /> · kembalian{" "}
               <MoneyText amountRp={phase.result.payment.changeRp} />.
             </p>
+            <p className="muted">Cetak ulang belum tersedia (TASK-021).</p>
             <div className="dialog__actions">
-              <Button variant="primary" onClick={() => setPhase({ kind: "idle" })}>
+              <Button variant="primary" onClick={() => { localStorage.removeItem(storageKey); setPhase({ kind: "idle" }); }}>
                 Transaksi baru
               </Button>
             </div>
