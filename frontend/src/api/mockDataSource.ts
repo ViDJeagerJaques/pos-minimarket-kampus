@@ -25,12 +25,18 @@ import type {
   CatalogProduct,
   CatalogQuery,
   CategorySummary,
+  CheckoutStatusResult,
+  CommitCheckoutInput,
+  CommitCheckoutResult,
   CreateAccountInput,
   CreateProductInput,
   LoginResult,
   PosDataSource,
+  PrepareCheckoutInput,
+  PrepareCheckoutResult,
   ProductSummary,
   SessionUser,
+  ShiftSummary,
   SupplierSummary,
   UpdateProductInput,
 } from "./types";
@@ -289,6 +295,56 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       callLog.push({ operation: "listProducts", isMutation: false });
       await delay();
       return DEMO_PRODUCTS.map(toSummary);
+    },
+
+    async getCurrentShift(): Promise<ShiftSummary | null> {
+      callLog.push({ operation: "getCurrentShift", isMutation: false });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak memiliki shift tersimpan. Jalankan backend lokal untuk membuka shift.",
+      );
+    },
+
+    async openShift(_input?: { openingCashRp?: number }): Promise<ShiftSummary> {
+      callLog.push({ operation: "openShift", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan shift. Jalankan backend lokal untuk membuka shift.",
+      );
+    },
+
+    async prepareCheckout(_input: PrepareCheckoutInput): Promise<PrepareCheckoutResult> {
+      callLog.push({ operation: "prepareCheckout", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak membuat quote checkout. Jalankan backend lokal untuk checkout.",
+      );
+    },
+
+    async commitCheckout(_input: CommitCheckoutInput): Promise<CommitCheckoutResult> {
+      callLog.push({ operation: "commitCheckout", isMutation: true });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan penjualan. Jalankan backend lokal untuk checkout.",
+      );
+    },
+
+    async getCheckoutStatus(_attemptKey: string): Promise<CheckoutStatusResult> {
+      callLog.push({ operation: "getCheckoutStatus", isMutation: false });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan status upaya. Jalankan backend lokal untuk checkout.",
+      );
     },
   };
 }

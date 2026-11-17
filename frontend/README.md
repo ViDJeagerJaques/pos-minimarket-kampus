@@ -41,9 +41,12 @@ perlu CORS.
 | `VITE_API_BASE_URL` | `/api/v1` | Base URL API; untuk build desktop dapat diarahkan ke `http://127.0.0.1:8787/api/v1` |
 
 `VITE_AUTH_MODE=demo` memakai mock katalog sintetis di memori dan menolak operasi
-tulis katalog dengan `DEMO_UNSUPPORTED` (tidak ada sukses palsu). Default tanpa
-variabel memakai katalog backend lokal nyata; halaman **Barang/Stok** memerlukan
-role ADMIN di backend.
+tulis katalog/shift/checkout dengan `DEMO_UNSUPPORTED` (tidak ada sukses palsu).
+Default tanpa variabel memakai backend lokal nyata: halaman **Barang/Stok**
+memerlukan role ADMIN, sedangkan **Kasir** memakai shift dan checkout
+`prepare`/`commit` TASK-016. Hanya respons `COMMITTED` dari backend yang
+menampilkan "Transaksi tersimpan"; saat respons commit tidak jelas, UI menyuruh
+kasir mengecek status upaya dan tidak membuat transaksi baru.
 
 ## 4. Keamanan yang sudah diterapkan di klien
 

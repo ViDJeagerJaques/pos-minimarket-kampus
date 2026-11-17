@@ -467,3 +467,163 @@ describe("TASK-012 klien katalog lokal", () => {
     ).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
   });
 });
+
+const SHIFT_DTO = { id: 7, cashierId: 2, openedAtMs: 1_700_000_000_000, openingCashRp: 50_000 };
+const HASH = "a".repeat(64);
+const QUOTE = {
+  shiftId: 7,
+  cashierId: 2,
+  items: [
+    {
+      productId: 1,
+      sku: "SKU-001",
+      name: "Produk Uji",
+      quantity: 1,
+      unitPriceRp: 5000,
+      lineTotalRp: 5000,
+    },
+  ],
+  totalRp: 5000,
+  payment: { method: "CASH" },
+};
+const PREPARED_DTO = { attemptKey: "co_test", requestHash: HASH, status: "PREPARED", quote: QUOTE };
+const COMMITTED_DTO = {
+  saleId: 11,
+  saleNo: "E2E-001",
+  attemptKey: "co_test",
+  requestHash: HASH,
+  status: "COMMITTED",
+  totalRp: 5000,
+  committedAtMs: 1_700_000_001_000,
+  payment: {
+    method: "CASH",
+    amountRp: 5000,
+    cashReceivedRp: 10_000,
+    changeRp: 5000,
+    verifiedBy: 2,
+    verifiedAtMs: 1_700_000_001_000,
+  },
+};
+
+async function loginCashier(fetchImpl: typeof fetch) {
+  const dataSource = createHttpDataSource({ baseUrl: "/api/v1", fetchImpl });
+  // Stub fetch tidak menegakkan RBAC; penolakan 403 diuji di backend/app.test.ts.
+  await dataSource.login("kasir.lokal", makeTestPassword("ksr"));
+  return dataSource;
+}
+
+describe("TASK-017 klien shift & checkout lokal", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("GET /shifts/current memetakan null dan DTO shift", async () => {
+    const empty = stubFetch([loginEnvelope(), meEnvelope(), { status: 200, body: { data: null } }]);
+    const noShift = await loginCashier(empty.fetchImpl);
+    await expect(noShift.getCurrentShift()).resolves.toBeNull();
+
+    const active = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: SHIFT_DTO } },
+    ]);
+    const withShift = await loginCashier(active.fetchImpl);
+    await expect(withShift.getCurrentShift()).resolves.toEqual({
+      id: 7,
+      cashierId: 2,
+      openedAtMs: 1_700_000_000_000,
+      openingCashRp: 50_000,
+    });
+    expect(active.calls[2]?.url).toBe("/api/v1/shifts/current");
+  });
+
+  it("POST /shifts/open mengirim modal awal opsional", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: SHIFT_DTO } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    await dataSource.openShift({ openingCashRp: 50_000 });
+    expect(calls[2]?.url).toBe("/api/v1/shifts/open");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ openingCashRp: 50_000 });
+  });
+
+  it("prepare mengirim niat tanpa harga, commit mengirim attemptKey/hash/konfirmasi tunai", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: PREPARED_DTO } },
+      { status: 200, body: { data: COMMITTED_DTO } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+
+    const prepared = await dataSource.prepareCheckout({
+      attemptKey: "co_test",
+      shiftId: 7,
+      items: [{ productId: 1, quantity: 1 }],
+      paymentMethod: "CASH",
+    });
+    expect(prepared.quote.totalRp).toBe(5000);
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({
+      attemptKey: "co_test",
+      shiftId: 7,
+      items: [{ productId: 1, quantity: 1 }],
+      payment: { method: "CASH" },
+    });
+
+    const committed = await dataSource.commitCheckout({
+      attemptKey: "co_test",
+      requestHash: HASH,
+      paymentConfirmation: { method: "CASH", cashReceivedRp: 10_000 },
+    });
+    expect(committed).toMatchObject({ saleNo: "E2E-001", status: "COMMITTED" });
+    expect(committed.payment.changeRp).toBe(5000);
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
+      attemptKey: "co_test",
+      requestHash: HASH,
+      paymentConfirmation: { method: "CASH", cashReceivedRp: 10_000 },
+    });
+  });
+
+  it("lookup status memakai attemptKey terenkode dan memetakan COMMITTED", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: COMMITTED_DTO } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const result = await dataSource.getCheckoutStatus("co_test");
+    expect(result.status).toBe("COMMITTED");
+    expect(calls[2]?.url).toBe("/api/v1/checkouts/co_test");
+  });
+
+  it("pesan PRICE_CHANGED dari server diteruskan apa adanya ke UI", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      {
+        status: 409,
+        body: {
+          error: {
+            code: "PRICE_CHANGED",
+            message: 'Harga "SKU-001" berubah dari Rp5.000 menjadi Rp6.000.',
+            retryable: false,
+          },
+        },
+      },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    await expect(
+      dataSource.commitCheckout({
+        attemptKey: "co_test",
+        requestHash: HASH,
+        paymentConfirmation: { method: "CASH", cashReceivedRp: 10_000 },
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "PRICE_CHANGED",
+      message: 'Harga "SKU-001" berubah dari Rp5.000 menjadi Rp6.000.',
+    });
+  });
+});

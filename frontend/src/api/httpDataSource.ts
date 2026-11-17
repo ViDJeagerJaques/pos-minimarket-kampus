@@ -16,13 +16,21 @@ import type {
   CatalogProduct,
   CatalogQuery,
   CategorySummary,
+  CheckoutQuote,
+  CheckoutQuoteItem,
+  CheckoutStatusResult,
+  CommitCheckoutInput,
+  CommitCheckoutResult,
   CreateAccountInput,
   CreateProductInput,
   LoginResult,
   PosDataSource,
+  PrepareCheckoutInput,
+  PrepareCheckoutResult,
   ProductSummary,
   Role,
   SessionUser,
+  ShiftSummary,
   SupplierSummary,
   UpdateProductInput,
 } from "./types";
@@ -42,6 +50,12 @@ const KNOWN_CODES = new Set<ApiErrorCode>([
   "DUPLICATE_BARCODE",
   "DUPLICATE_CATEGORY",
   "PRODUCT_INACTIVE",
+  "SHIFT_ALREADY_OPEN",
+  "SHIFT_NOT_ACTIVE",
+  "PRICE_CHANGED",
+  "INSUFFICIENT_STOCK",
+  "IDEMPOTENCY_CONFLICT",
+  "PAYMENT_RECONCILIATION_REQUIRED",
   "INTERNAL_ERROR",
   "DEMO_UNSUPPORTED",
 ]);
@@ -87,6 +101,12 @@ function safeMessage(status: number, code: ApiErrorCode, serverMessage: unknown)
     case "DUPLICATE_BARCODE":
     case "DUPLICATE_CATEGORY":
     case "PRODUCT_INACTIVE":
+    case "SHIFT_ALREADY_OPEN":
+    case "SHIFT_NOT_ACTIVE":
+    case "PRICE_CHANGED":
+    case "INSUFFICIENT_STOCK":
+    case "IDEMPOTENCY_CONFLICT":
+    case "PAYMENT_RECONCILIATION_REQUIRED":
       return typeof serverMessage === "string" && serverMessage.length > 0
         ? serverMessage
         : "Data tidak valid atau bertentangan dengan data yang tersimpan.";
@@ -227,6 +247,159 @@ function toSummary(product: CatalogProduct): ProductSummary {
     stock: product.stockOnHand,
     active: product.active,
   };
+}
+
+function toShiftSummary(value: unknown): ShiftSummary {
+  if (
+    !isRecord(value) ||
+    !isPositiveInt(value.id) ||
+    !isPositiveInt(value.cashierId) ||
+    !isNonNegativeInt(value.openedAtMs) ||
+    (value.openingCashRp !== null &&
+      value.openingCashRp !== undefined &&
+      !isNonNegativeInt(value.openingCashRp))
+  ) {
+    throw invalidResponse("Data shift dari backend tidak valid.");
+  }
+  return {
+    id: value.id,
+    cashierId: value.cashierId,
+    openedAtMs: value.openedAtMs,
+    openingCashRp: value.openingCashRp === null || value.openingCashRp === undefined
+      ? null
+      : value.openingCashRp,
+  };
+}
+
+function toCheckoutQuote(value: unknown): CheckoutQuote {
+  if (!isRecord(value)) {
+    throw invalidResponse("Quote checkout dari backend tidak valid.");
+  }
+  const rawItems = value.items;
+  if (
+    !isPositiveInt(value.shiftId) ||
+    !isPositiveInt(value.cashierId) ||
+    !Array.isArray(rawItems) ||
+    rawItems.length === 0 ||
+    !isNonNegativeInt(value.totalRp) ||
+    !isRecord(value.payment) ||
+    value.payment.method !== "CASH"
+  ) {
+    throw invalidResponse("Quote checkout dari backend tidak valid.");
+  }
+  const items: CheckoutQuoteItem[] = rawItems.map((raw) => {
+    if (
+      !isRecord(raw) ||
+      !isPositiveInt(raw.productId) ||
+      typeof raw.sku !== "string" ||
+      typeof raw.name !== "string" ||
+      !isPositiveInt(raw.quantity) ||
+      !isNonNegativeInt(raw.unitPriceRp) ||
+      !isNonNegativeInt(raw.lineTotalRp)
+    ) {
+      throw invalidResponse("Item quote checkout dari backend tidak valid.");
+    }
+    return {
+      productId: raw.productId,
+      sku: raw.sku,
+      name: raw.name,
+      quantity: raw.quantity,
+      unitPriceRp: raw.unitPriceRp,
+      lineTotalRp: raw.lineTotalRp,
+    };
+  });
+  return {
+    shiftId: value.shiftId,
+    cashierId: value.cashierId,
+    items,
+    totalRp: value.totalRp,
+    payment: { method: "CASH" },
+  };
+}
+
+function assertAttemptFields(value: Record<string, unknown>): { attemptKey: string; requestHash: string } {
+  if (
+    typeof value.attemptKey !== "string" ||
+    value.attemptKey.length === 0 ||
+    typeof value.requestHash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.requestHash)
+  ) {
+    throw invalidResponse("Identitas upaya checkout dari backend tidak valid.");
+  }
+  return { attemptKey: value.attemptKey, requestHash: value.requestHash };
+}
+
+function toPrepareResult(value: unknown): PrepareCheckoutResult {
+  if (!isRecord(value) || value.status !== "PREPARED") {
+    throw invalidResponse("Hasil prepare checkout dari backend tidak valid.");
+  }
+  const ids = assertAttemptFields(value);
+  return { ...ids, status: "PREPARED", quote: toCheckoutQuote(value.quote) };
+}
+
+function toCommitResult(value: unknown): CommitCheckoutResult {
+  if (!isRecord(value) || value.status !== "COMMITTED") {
+    throw invalidResponse("Hasil commit checkout dari backend tidak valid.");
+  }
+  const ids = assertAttemptFields(value);
+  const payment = value.payment;
+  if (
+    !isPositiveInt(value.saleId) ||
+    typeof value.saleNo !== "string" ||
+    value.saleNo.length === 0 ||
+    !isNonNegativeInt(value.totalRp) ||
+    !isNonNegativeInt(value.committedAtMs) ||
+    !isRecord(payment) ||
+    payment.method !== "CASH" ||
+    !isNonNegativeInt(payment.amountRp) ||
+    (payment.cashReceivedRp !== null && !isNonNegativeInt(payment.cashReceivedRp)) ||
+    (payment.changeRp !== null && !isNonNegativeInt(payment.changeRp))
+  ) {
+    throw invalidResponse("Hasil commit checkout dari backend tidak valid.");
+  }
+  return {
+    saleId: value.saleId,
+    saleNo: value.saleNo,
+    ...ids,
+    status: "COMMITTED",
+    totalRp: value.totalRp,
+    committedAtMs: value.committedAtMs,
+    payment: {
+      method: "CASH",
+      amountRp: payment.amountRp,
+      cashReceivedRp: payment.cashReceivedRp as number | null,
+      changeRp: payment.changeRp as number | null,
+      verifiedBy:
+        typeof payment.verifiedBy === "number" && Number.isSafeInteger(payment.verifiedBy)
+          ? payment.verifiedBy
+          : null,
+      verifiedAtMs:
+        typeof payment.verifiedAtMs === "number" && Number.isSafeInteger(payment.verifiedAtMs)
+          ? payment.verifiedAtMs
+          : null,
+    },
+  };
+}
+
+function toCheckoutStatus(value: unknown): CheckoutStatusResult {
+  if (!isRecord(value)) {
+    throw invalidResponse("Status checkout dari backend tidak valid.");
+  }
+  if (value.status === "COMMITTED") {
+    return toCommitResult(value);
+  }
+  const ids = assertAttemptFields(value);
+  if (value.status === "PREPARED") {
+    return {
+      ...ids,
+      status: "PREPARED",
+      quote: value.quote === null || value.quote === undefined ? null : toCheckoutQuote(value.quote),
+    };
+  }
+  if (value.status === "ABANDONED" && isNonNegativeInt(value.abandonedAtMs)) {
+    return { ...ids, status: "ABANDONED", abandonedAtMs: value.abandonedAtMs };
+  }
+  throw invalidResponse("Status checkout dari backend tidak dikenal.");
 }
 
 export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDataSource {
@@ -554,6 +727,75 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     return (await listCatalogProducts({ limit: 100 })).map(toSummary);
   }
 
+  async function getCurrentShift(): Promise<ShiftSummary | null> {
+    const activeToken = requireToken();
+    const data = await request("GET", "/shifts/current", undefined, activeToken);
+    return data === null ? null : toShiftSummary(data);
+  }
+
+  async function openShift(input: { openingCashRp?: number } = {}): Promise<ShiftSummary> {
+    const activeToken = requireToken();
+    const body: Record<string, unknown> = {};
+    if (input.openingCashRp !== undefined) {
+      body.openingCashRp = input.openingCashRp;
+    }
+    return toShiftSummary(await request("POST", "/shifts/open", body, activeToken));
+  }
+
+  async function prepareCheckout(input: PrepareCheckoutInput): Promise<PrepareCheckoutResult> {
+    const activeToken = requireToken();
+    if (
+      typeof input.attemptKey !== "string" ||
+      input.attemptKey.trim().length === 0 ||
+      !isPositiveInt(input.shiftId) ||
+      input.paymentMethod !== "CASH" ||
+      !Array.isArray(input.items) ||
+      input.items.length === 0
+    ) {
+      throw new ApiError(422, "VALIDATION_ERROR", "Data prepare checkout tidak valid dari UI.");
+    }
+    return toPrepareResult(
+      await request(
+        "POST",
+        "/checkouts/prepare",
+        {
+          attemptKey: input.attemptKey,
+          shiftId: input.shiftId,
+          items: input.items,
+          payment: { method: input.paymentMethod },
+        },
+        activeToken,
+      ),
+    );
+  }
+
+  async function commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult> {
+    const activeToken = requireToken();
+    if (
+      typeof input.attemptKey !== "string" ||
+      input.attemptKey.trim().length === 0 ||
+      typeof input.requestHash !== "string" ||
+      !/^[0-9a-f]{64}$/.test(input.requestHash) ||
+      input.paymentConfirmation?.method !== "CASH" ||
+      !isNonNegativeInt(input.paymentConfirmation?.cashReceivedRp)
+    ) {
+      throw new ApiError(422, "VALIDATION_ERROR", "Data commit checkout tidak valid dari UI.");
+    }
+    return toCommitResult(
+      await request("POST", "/checkouts/commit", input, activeToken),
+    );
+  }
+
+  async function getCheckoutStatus(attemptKey: string): Promise<CheckoutStatusResult> {
+    const activeToken = requireToken();
+    if (typeof attemptKey !== "string" || attemptKey.trim().length === 0) {
+      throw new ApiError(422, "VALIDATION_ERROR", "attemptKey tidak valid.");
+    }
+    return toCheckoutStatus(
+      await request("GET", `/checkouts/${encodeURIComponent(attemptKey)}`, undefined, activeToken),
+    );
+  }
+
   return {
     authMode: "LOCAL_API",
     catalogMode: "LOCAL_API",
@@ -575,5 +817,10 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     findActiveProductByBarcode,
     searchActiveProducts,
     listProducts,
+    getCurrentShift,
+    openShift,
+    prepareCheckout,
+    commitCheckout,
+    getCheckoutStatus,
   };
 }
