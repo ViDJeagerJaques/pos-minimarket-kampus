@@ -75,3 +75,13 @@ node scripts/task-011_auth_e2e.mjs
 - Build Electron dan mode API langsung tanpa proxy belum diuji; backend belum
   memiliki CORS. Lihat laporan `docs/laporan/TASK-011_login_akun_ui.md`.
 - Belum ada uji perangkat fisik, printer, scanner, atau pengelola.
+
+## Penutupan shift (TASK-023, DEMO)
+
+Halaman Shift memakai pratinjau dari backend lokal dan meminta konfirmasi kasir
+pemilik. Angka harapan memakai fixture TASK-022; SOP setoran belum disahkan.
+Sebelum POST, identitas upaya dan uang dihitung disimpan di penyimpanan lokal
+browser berdasarkan akun. Setelah timeout atau login ulang, cek hasil tersimpan;
+404 belum membuktikan POST gagal. Retry memakai `closeKey` dan nominal yang sama.
+Jika hasil milik upaya lain atau penyimpanan lokal tidak dapat dibaca, hentikan
+dan lakukan rekonsiliasi. Mode mock berlabel DEMO tidak menutup shift.

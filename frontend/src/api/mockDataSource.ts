@@ -317,6 +317,10 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       );
     },
 
+    async getShiftClosePreview() { throw new ApiError(0, "DEMO_UNSUPPORTED", "Mode DEMO tidak memiliki rekap shift."); },
+    async getShiftClosing() { throw new ApiError(0, "DEMO_UNSUPPORTED", "Mode DEMO tidak memiliki hasil penutupan."); },
+    async closeShift() { throw new ApiError(0, "DEMO_UNSUPPORTED", "Mode DEMO tidak menutup shift."); },
+
     async prepareCheckout(_input: PrepareCheckoutInput): Promise<PrepareCheckoutResult> {
       callLog.push({ operation: "prepareCheckout", isMutation: true });
       await delay();

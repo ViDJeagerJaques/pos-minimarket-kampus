@@ -627,3 +627,19 @@ describe("TASK-017 klien shift & checkout lokal", () => {
     });
   });
 });
+
+describe("TASK-023 kontrak HTTP tutup shift", () => {
+  it("memetakan pratinjau, POST dan status dengan payload yang sama", async () => {
+    const preview = { shiftId: 7, openingCashRp: 100000, cashTotalRp: 500000, qrisTotalRp: 300000, expectedCashRp: 600000, saleCount: 2 };
+    const closed = { shiftId: 7, closeKey: "close_test", requestHash: "a".repeat(64), closedAtMs: 123, closedBy: 2, openingCashRp: 100000, expectedCashRp: 600000, declaredCashRp: 590000, varianceRp: -10000, totals: { cashRp: 500000, qrisManualRp: 300000, totalSalesRp: 800000, saleCount: 2 } };
+    const { fetchImpl, calls } = stubFetch([loginEnvelope(), meEnvelope(), { status: 200, body: { data: preview } }, { status: 200, body: { data: closed } }, { status: 200, body: { data: closed } }]);
+    const dataSource = await loginCashier(fetchImpl);
+    expect(await dataSource.getShiftClosePreview(7)).toEqual(preview);
+    expect(await dataSource.closeShift(7, { closeKey: "close_test", declaredCashRp: 590000 })).toEqual(closed);
+    expect(await dataSource.getShiftClosing(7)).toEqual(closed);
+    expect(calls[2]?.url).toBe("/api/v1/shifts/7/close/preview");
+    expect(calls[3]?.url).toBe("/api/v1/shifts/7/close");
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({ closeKey: "close_test", declaredCashRp: 590000 });
+    expect(calls[4]?.init?.method).toBe("GET");
+  });
+});
