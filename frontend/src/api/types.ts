@@ -78,6 +78,87 @@ export interface CatalogQuery {
   limit?: number;
 }
 
+/** `GET /shifts/current` / `POST /shifts/open` TASK-014. ID dipertahankan setelah restart. */
+export interface ShiftSummary {
+  id: number;
+  cashierId: number;
+  openedAtMs: number;
+  openingCashRp: number | null;
+}
+
+/** Metode bayar yang sudah disahkan untuk TASK-017. QRIS manual menunggu TASK-002/DEC. */
+export type CheckoutPaymentMethod = "CASH";
+
+export interface CheckoutQuoteItem {
+  productId: number;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitPriceRp: number;
+  lineTotalRp: number;
+}
+
+/** Snapshot harga dari backend; UI tidak boleh mengirim harga sendiri (API_CONTRACT §2A). */
+export interface CheckoutQuote {
+  shiftId: number;
+  cashierId: number;
+  items: CheckoutQuoteItem[];
+  totalRp: number;
+  payment: { method: CheckoutPaymentMethod };
+}
+
+export interface PrepareCheckoutInput {
+  attemptKey: string;
+  shiftId: number;
+  items: Array<{ productId: number; quantity: number }>;
+  paymentMethod: CheckoutPaymentMethod;
+}
+
+/** `requestHash` berasal dari backend dan dikirim balik apa adanya saat commit. */
+export interface PrepareCheckoutResult {
+  attemptKey: string;
+  requestHash: string;
+  status: "PREPARED";
+  quote: CheckoutQuote;
+}
+
+export interface CommitCheckoutInput {
+  attemptKey: string;
+  requestHash: string;
+  paymentConfirmation: {
+    method: CheckoutPaymentMethod;
+    cashReceivedRp: number;
+  };
+}
+
+export interface CommitCheckoutResult {
+  saleId: number;
+  saleNo: string;
+  attemptKey: string;
+  requestHash: string;
+  status: "COMMITTED";
+  totalRp: number;
+  committedAtMs: number;
+  payment: {
+    method: CheckoutPaymentMethod;
+    amountRp: number;
+    cashReceivedRp: number | null;
+    changeRp: number | null;
+    verifiedBy: number | null;
+    verifiedAtMs: number | null;
+  };
+}
+
+export type CheckoutStatusResult =
+  | {
+      attemptKey: string;
+      requestHash: string;
+      status: "PREPARED";
+      quote: CheckoutQuote | null;
+    }
+  | { attemptKey: string; requestHash: string; status: "ABANDONED"; abandonedAtMs: number }
+  | CommitCheckoutResult;
+
 /** `GET /users` TASK-009. Tidak pernah memuat hash/kata sandi. */
 export interface AccountSummary {
   id: number;
@@ -127,4 +208,11 @@ export interface PosDataSource {
   findActiveProductByBarcode(barcode: string): Promise<ProductSummary | null>;
   searchActiveProducts(query: string): Promise<ProductSummary[]>;
   listProducts(): Promise<ProductSummary[]>;
+  /** Shift milik kasir dari sesi backend (TASK-014). */
+  getCurrentShift(): Promise<ShiftSummary | null>;
+  openShift(input?: { openingCashRp?: number }): Promise<ShiftSummary>;
+  /** Checkout dua fase TASK-016. Hanya CASH di TASK-017. */
+  prepareCheckout(input: PrepareCheckoutInput): Promise<PrepareCheckoutResult>;
+  commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult>;
+  getCheckoutStatus(attemptKey: string): Promise<CheckoutStatusResult>;
 }

@@ -8,10 +8,12 @@ interface CartListProps {
   onIncrease: (productId: number) => void;
   onDecrease: (productId: number) => void;
   onRemove: (productId: number) => void;
+  /** Dinonaktifkan saat checkout berjalan agar draft tidak berubah setelah quote. */
+  disabled?: boolean;
 }
 
 /** Tabel keranjang draft: nama, harga satuan, qty, subtotal, hapus. */
-export function CartList({ lines, onIncrease, onDecrease, onRemove }: CartListProps) {
+export function CartList({ lines, onIncrease, onDecrease, onRemove, disabled = false }: CartListProps) {
   if (lines.length === 0) {
     return <p className="cart__empty muted">Keranjang kosong. Scan barcode atau cari barang untuk mulai.</p>;
   }
@@ -50,7 +52,7 @@ export function CartList({ lines, onIncrease, onDecrease, onRemove }: CartListPr
                   <Button
                     className="btn--icon"
                     onClick={() => onDecrease(line.productId)}
-                    disabled={line.quantity <= 1}
+                    disabled={disabled || line.quantity <= 1}
                     aria-label={`Kurangi ${line.name}`}
                   >
                     −
@@ -61,6 +63,7 @@ export function CartList({ lines, onIncrease, onDecrease, onRemove }: CartListPr
                   <Button
                     className="btn--icon"
                     onClick={() => onIncrease(line.productId)}
+                    disabled={disabled}
                     aria-label={`Tambah satu ${line.name}`}
                   >
                     +
@@ -71,7 +74,7 @@ export function CartList({ lines, onIncrease, onDecrease, onRemove }: CartListPr
                 <MoneyText amountRp={lineTotalRp(line)} />
               </td>
               <td>
-                <Button variant="secondary" onClick={() => onRemove(line.productId)} aria-label={`Hapus ${line.name}`}>
+                <Button variant="secondary" onClick={() => onRemove(line.productId)} disabled={disabled} aria-label={`Hapus ${line.name}`}>
                   Hapus
                 </Button>
               </td>
