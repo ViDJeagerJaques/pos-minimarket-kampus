@@ -1,0 +1,2465 @@
+{
+  "task": "TASK-018",
+  "status": "PASS",
+  "generatedAtIso": "2026-11-17T07:21:24.910Z",
+  "environment": {
+    "os": "win32 10.0.26200 (x64)",
+    "node": "v24.22.3",
+    "commit": "6b5d11a8f8012420f38926a56e87cfaad72e16ff",
+    "branch": "task/p15-018",
+    "dataMode": "DEMO/QA synthetic — offline LOGICAL simulation, SQLite temp",
+    "offline": {
+      "clientFetchGuard": "hanya 127.0.0.1/localhost",
+      "proxyEnvForChildren": {
+        "HTTP_PROXY": "http://127.0.0.1:9",
+        "HTTPS_PROXY": "http://127.0.0.1:9",
+        "ALL_PROXY": "http://127.0.0.1:9",
+        "NO_PROXY": "127.0.0.1,localhost",
+        "POS_DB_PROFILE": "test"
+      },
+      "blockedExternalCalls": [],
+      "physicalNetworkDisconnect": "NOT RUN"
+    },
+    "dbPath": "C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-task018-e2e-0nO50E\\task018.sqlite",
+    "kept": false
+  },
+  "passes": 16,
+  "tests": [
+    {
+      "no": 1,
+      "ac": "SETUP",
+      "label": "Offline guard aktif: fetch non-loopback ditolak; proxy dummy 127.0.0.1:9 untuk child process",
+      "status": "PASS",
+      "offline": {
+        "blockedExternalCalls": [],
+        "proxyEnv": {
+          "HTTP_PROXY": "http://127.0.0.1:9",
+          "HTTPS_PROXY": "http://127.0.0.1:9",
+          "ALL_PROXY": "http://127.0.0.1:9",
+          "NO_PROXY": "127.0.0.1,localhost",
+          "POS_DB_PROFILE": "test"
+        }
+      }
+    },
+    {
+      "no": 2,
+      "ac": "SETUP",
+      "label": "SQLite sementara + server loopback http://127.0.0.1:50730; baseline {\"sales\":0,\"saleItems\":0,\"payments\":0,\"movements\":1,\"stock\":5}",
+      "status": "PASS",
+      "baseline": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 0,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "dbPath": "C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-task018-e2e-0nO50E\\task018.sqlite"
+    },
+    {
+      "no": 3,
+      "ac": "AC-05.01",
+      "label": "Dua buka shift paralel → tepat satu aktif; kasir lain null; ADMIN 403",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 0,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "saleItems": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "48cc349c-013f-4629-b095-9d6bdaa5d51e",
+        "74c55d54-5b19-4383-91b2-1cc39be132e6",
+        "055b008b-90e2-4259-89e1-d4f07aaaf5fd",
+        "30b8301d-1127-4bf3-b1f9-e584e0b3a53f",
+        "a81d8a8d-6a75-418a-ba70-06d4971175ac"
+      ],
+      "attemptKeys": [],
+      "calls": [
+        {
+          "label": "buka shift A",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 200,
+          "requestId": "48cc349c-013f-4629-b095-9d6bdaa5d51e",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "buka shift B paralel",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 409,
+          "requestId": "74c55d54-5b19-4383-91b2-1cc39be132e6",
+          "errorCode": "SHIFT_ALREADY_OPEN",
+          "attemptKey": null
+        },
+        {
+          "label": "shift milik pemilik",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "055b008b-90e2-4259-89e1-d4f07aaaf5fd",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "shift kasir lain",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "30b8301d-1127-4bf3-b1f9-e584e0b3a53f",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "ADMIN coba buka shift",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 403,
+          "requestId": "a81d8a8d-6a75-418a-ba70-06d4971175ac",
+          "errorCode": "FORBIDDEN",
+          "attemptKey": null
+        }
+      ],
+      "shiftId": 1,
+      "openedAtMs": 1794900082344
+    },
+    {
+      "no": 4,
+      "ac": "AC-03.01",
+      "label": "Scan barcode 000123 ketemu harga/stok dari backend; barcode asing kosong",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "saleItems": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "5b948505-a4ed-4529-9491-5a2b9037ff7d",
+        "93568b94-9a40-4321-8503-02adb07fa773"
+      ],
+      "attemptKeys": [],
+      "calls": [
+        {
+          "label": "scan 000123",
+          "method": "GET",
+          "path": "/products?barcode=000123",
+          "status": 200,
+          "requestId": "5b948505-a4ed-4529-9491-5a2b9037ff7d",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "scan barcode asing",
+          "method": "GET",
+          "path": "/products?barcode=9999999999999",
+          "status": 200,
+          "requestId": "93568b94-9a40-4321-8503-02adb07fa773",
+          "errorCode": null,
+          "attemptKey": null
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "ac": "AC-03.02",
+      "label": "Keranjang kosong/qty 0/negatif/produk nonaktif/shift asing/metode asing ditolak; ADMIN 403; tanpa mutasi",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "saleItems": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "54d1acf1-6ed4-4d08-8cd6-6fe89e23526d",
+        "0ebfda4b-51b7-44e8-9ff8-5d9d1bc92d43",
+        "b61a6b7f-0aaa-4b9e-b5e9-aada1ad210f6",
+        "df3247f7-dc65-4c48-a11f-b6cb70059567",
+        "cb177172-f0e5-47b5-baa6-790a7a2874ac",
+        "c9dd37f4-839a-46e2-b6e0-49edc46bc446",
+        "d7ff554d-d9b4-44c0-bba6-1e589d4c0be0",
+        "ac34cf32-6077-4f8c-b9b8-84a2ea85b4de"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_empty_1",
+        "t18_d9fd82fe27_qty-nol_2",
+        "t18_d9fd82fe27_qty-negatif_3",
+        "t18_d9fd82fe27_nonaktif_4",
+        "t18_d9fd82fe27_tanpa-shift_5",
+        "t18_d9fd82fe27_bukan-owner_6",
+        "t18_d9fd82fe27_admin-checkout_7",
+        "t18_d9fd82fe27_metode-asing_8"
+      ],
+      "calls": [
+        {
+          "label": "prepare keranjang kosong",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 422,
+          "requestId": "54d1acf1-6ed4-4d08-8cd6-6fe89e23526d",
+          "errorCode": "VALIDATION_ERROR",
+          "attemptKey": "t18_d9fd82fe27_empty_1"
+        },
+        {
+          "label": "prepare:qty-nol",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 422,
+          "requestId": "0ebfda4b-51b7-44e8-9ff8-5d9d1bc92d43",
+          "errorCode": "VALIDATION_ERROR",
+          "attemptKey": "t18_d9fd82fe27_qty-nol_2"
+        },
+        {
+          "label": "prepare:qty-negatif",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 422,
+          "requestId": "b61a6b7f-0aaa-4b9e-b5e9-aada1ad210f6",
+          "errorCode": "VALIDATION_ERROR",
+          "attemptKey": "t18_d9fd82fe27_qty-negatif_3"
+        },
+        {
+          "label": "prepare produk nonaktif",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 422,
+          "requestId": "df3247f7-dc65-4c48-a11f-b6cb70059567",
+          "errorCode": "VALIDATION_ERROR",
+          "attemptKey": "t18_d9fd82fe27_nonaktif_4"
+        },
+        {
+          "label": "prepare tanpa shift sendiri",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 409,
+          "requestId": "cb177172-f0e5-47b5-baa6-790a7a2874ac",
+          "errorCode": "SHIFT_NOT_ACTIVE",
+          "attemptKey": "t18_d9fd82fe27_tanpa-shift_5"
+        },
+        {
+          "label": "kasir lain pakai shift pemilik",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 409,
+          "requestId": "c9dd37f4-839a-46e2-b6e0-49edc46bc446",
+          "errorCode": "SHIFT_NOT_ACTIVE",
+          "attemptKey": "t18_d9fd82fe27_bukan-owner_6"
+        },
+        {
+          "label": "ADMIN coba checkout",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 403,
+          "requestId": "d7ff554d-d9b4-44c0-bba6-1e589d4c0be0",
+          "errorCode": "FORBIDDEN",
+          "attemptKey": "t18_d9fd82fe27_admin-checkout_7"
+        },
+        {
+          "label": "prepare metode belum disahkan",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 422,
+          "requestId": "ac34cf32-6077-4f8c-b9b8-84a2ea85b4de",
+          "errorCode": "VALIDATION_ERROR",
+          "attemptKey": "t18_d9fd82fe27_metode-asing_8"
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "ac": "AC-03.04",
+      "label": "Commit tanpa uang diterima / tunai kurang ditolak 422; tidak ada sale/payment/mutasi",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 1,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "saleItems": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "3d458278-d4b3-4c43-826e-32f5089f6106",
+        "a83e3f39-4669-43a9-9c37-ea4834311872",
+        "88802173-52c1-4304-85d2-c5e35dd1d3c4"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_bayar-invalid_9",
+        "t18_d9fd82fe27_bayar-invalid_9",
+        "t18_d9fd82fe27_bayar-invalid_9"
+      ],
+      "calls": [
+        {
+          "label": "prepare:bayar-invalid",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "3d458278-d4b3-4c43-826e-32f5089f6106",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_bayar-invalid_9"
+        },
+        {
+          "label": "commit tanpa nominal tunai",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 422,
+          "requestId": "a83e3f39-4669-43a9-9c37-ea4834311872",
+          "errorCode": "VALIDATION_ERROR",
+          "attemptKey": "t18_d9fd82fe27_bayar-invalid_9"
+        },
+        {
+          "label": "commit tunai kurang",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 422,
+          "requestId": "88802173-52c1-4304-85d2-c5e35dd1d3c4",
+          "errorCode": "VALIDATION_ERROR",
+          "attemptKey": "t18_d9fd82fe27_bayar-invalid_9"
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "ac": "AC-03.05",
+      "label": "Prepare tanpa sale; commit 2×Rp5.000 → 1 sale + 1 payment + 1 mutasi; stok 5→3; kembalian Rp10.000",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 1,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 0,
+          "itemTotalRp": 0,
+          "paymentAmountRp": 0,
+          "openingDelta": 5,
+          "saleDelta": 0,
+          "adjustmentDelta": 0
+        },
+        "stock": 5,
+        "movementByKind": {
+          "OPENING": 5
+        },
+        "saleNos": [],
+        "paymentMethods": [],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 1,
+          "saleItems": 1,
+          "payments": 1,
+          "movements": 2,
+          "attempts": 2,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 10000,
+          "itemTotalRp": 10000,
+          "paymentAmountRp": 10000,
+          "openingDelta": 5,
+          "saleDelta": -2,
+          "adjustmentDelta": 0
+        },
+        "stock": 3,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -2
+        },
+        "saleNos": [
+          "S-000001"
+        ],
+        "paymentMethods": [
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "saleItems": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -2
+      },
+      "requestIds": [
+        "60e8aded-ae14-495c-bab8-8f79b579c264",
+        "bafa64d5-ade8-43e3-a8f9-8c14ebdf63b0"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_tunai-sukses_10",
+        "t18_d9fd82fe27_tunai-sukses_10"
+      ],
+      "calls": [
+        {
+          "label": "prepare:tunai-sukses",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "60e8aded-ae14-495c-bab8-8f79b579c264",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_tunai-sukses_10"
+        },
+        {
+          "label": "commit:tunai-sukses",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "bafa64d5-ade8-43e3-a8f9-8c14ebdf63b0",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_tunai-sukses_10"
+        }
+      ],
+      "saleNo": "S-000001",
+      "saleId": 1,
+      "receipt": {
+        "totalRp": 10000,
+        "cashReceivedRp": 20000,
+        "changeRp": 10000,
+        "saleTotalRp": 10000,
+        "itemTotalRp": 10000,
+        "paymentAmountRp": 10000
+      }
+    },
+    {
+      "no": 8,
+      "ac": "AC-04.01",
+      "label": "Retry identik & dua commit paralel → satu sale; attemptKey sama isi beda → 409 tanpa mutasi",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 1,
+          "saleItems": 1,
+          "payments": 1,
+          "movements": 2,
+          "attempts": 2,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 10000,
+          "itemTotalRp": 10000,
+          "paymentAmountRp": 10000,
+          "openingDelta": 5,
+          "saleDelta": -2,
+          "adjustmentDelta": 0
+        },
+        "stock": 3,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -2
+        },
+        "saleNos": [
+          "S-000001"
+        ],
+        "paymentMethods": [
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 3,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 15000,
+          "itemTotalRp": 15000,
+          "paymentAmountRp": 15000,
+          "openingDelta": 5,
+          "saleDelta": -3,
+          "adjustmentDelta": 0
+        },
+        "stock": 2,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -3
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "saleItems": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "requestIds": [
+        "db986083-f720-4c75-a7b1-500deeb1ee80",
+        "5b8c26a8-edc7-4706-b7e7-baf63ca7c263",
+        "f21131b2-6572-42ac-a2fc-83659bca18b1",
+        "9784f350-ca70-4cab-961f-fd36a90e2a2a",
+        "ddf0612b-ce48-4549-be12-4f305fe8d374"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_tunai-sukses_10",
+        "t18_d9fd82fe27_klik-ganda_11",
+        "t18_d9fd82fe27_klik-ganda_11",
+        "t18_d9fd82fe27_klik-ganda_11",
+        "t18_d9fd82fe27_klik-ganda_11"
+      ],
+      "calls": [
+        {
+          "label": "commit:retry-identik",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "db986083-f720-4c75-a7b1-500deeb1ee80",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_tunai-sukses_10"
+        },
+        {
+          "label": "prepare:klik-ganda",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "5b8c26a8-edc7-4706-b7e7-baf63ca7c263",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+        },
+        {
+          "label": "commit:klik-ganda-A",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "f21131b2-6572-42ac-a2fc-83659bca18b1",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+        },
+        {
+          "label": "commit:klik-ganda-B",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "9784f350-ca70-4cab-961f-fd36a90e2a2a",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+        },
+        {
+          "label": "prepare:isi-berbeda",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 409,
+          "requestId": "ddf0612b-ce48-4549-be12-4f305fe8d374",
+          "errorCode": "IDEMPOTENCY_CONFLICT",
+          "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+        }
+      ],
+      "doubleClickSaleId": 2,
+      "conflictingAttemptKey": "t18_d9fd82fe27_klik-ganda_11"
+    },
+    {
+      "no": 9,
+      "ac": "AC-03.03",
+      "label": "PRICE_CHANGED 409 tanpa commit; quote baru Rp6.000 disetujui lalu sukses; snapshot lama tetap Rp5.000",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 3,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 15000,
+          "itemTotalRp": 15000,
+          "paymentAmountRp": 15000,
+          "openingDelta": 5,
+          "saleDelta": -3,
+          "adjustmentDelta": 0
+        },
+        "stock": 2,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -3
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 3,
+          "saleItems": 3,
+          "payments": 3,
+          "movements": 4,
+          "attempts": 5,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 21000,
+          "itemTotalRp": 21000,
+          "paymentAmountRp": 21000,
+          "openingDelta": 5,
+          "saleDelta": -4,
+          "adjustmentDelta": 0
+        },
+        "stock": 1,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -4
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "saleItems": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "requestIds": [
+        "d07b3b73-c865-4afa-a48b-299a98a8c659",
+        "870c9749-ce73-4571-9b3b-09a5328e68ab",
+        "d407bf8e-52e2-4fe2-b059-b709b6b97842",
+        "8c2376da-15b8-428e-9810-b1e0b34daa8f",
+        "5f487752-729a-431b-922f-1073d3c8756e"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_harga-lama_12",
+        "t18_d9fd82fe27_harga-lama_12",
+        "t18_d9fd82fe27_harga-baru_13",
+        "t18_d9fd82fe27_harga-baru_13"
+      ],
+      "calls": [
+        {
+          "label": "prepare:harga-lama",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "d07b3b73-c865-4afa-a48b-299a98a8c659",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_harga-lama_12"
+        },
+        {
+          "label": "ubah harga jadi 6000",
+          "method": "PATCH",
+          "path": "/products/1",
+          "status": 200,
+          "requestId": "870c9749-ce73-4571-9b3b-09a5328e68ab",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "commit:commit-harga-lama",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 409,
+          "requestId": "d407bf8e-52e2-4fe2-b059-b709b6b97842",
+          "errorCode": "PRICE_CHANGED",
+          "attemptKey": "t18_d9fd82fe27_harga-lama_12"
+        },
+        {
+          "label": "prepare:harga-baru",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "8c2376da-15b8-428e-9810-b1e0b34daa8f",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_harga-baru_13"
+        },
+        {
+          "label": "commit:commit-harga-baru",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "5f487752-729a-431b-922f-1073d3c8756e",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_harga-baru_13"
+        }
+      ],
+      "staleAttemptKey": "t18_d9fd82fe27_harga-lama_12",
+      "revisedAttemptKey": "t18_d9fd82fe27_harga-baru_13"
+    },
+    {
+      "no": 10,
+      "ac": "AC-03.06",
+      "label": "Stok 1 menolak qty 5 tanpa mutasi; koreksi qty 1 sukses, stok 0",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 3,
+          "saleItems": 3,
+          "payments": 3,
+          "movements": 4,
+          "attempts": 5,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 21000,
+          "itemTotalRp": 21000,
+          "paymentAmountRp": 21000,
+          "openingDelta": 5,
+          "saleDelta": -4,
+          "adjustmentDelta": 0
+        },
+        "stock": 1,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -4
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 4,
+          "saleItems": 4,
+          "payments": 4,
+          "movements": 5,
+          "attempts": 6,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 27000,
+          "itemTotalRp": 27000,
+          "paymentAmountRp": 27000,
+          "openingDelta": 5,
+          "saleDelta": -5,
+          "adjustmentDelta": 0
+        },
+        "stock": 0,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -5
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "saleItems": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "requestIds": [
+        "35e8b35a-d88d-4c54-9ae4-cc2f094ba271",
+        "0aa0c88f-2109-4215-a3b8-5560bda49835",
+        "cb310b4a-5dc4-4997-a896-dee1d83ce09d"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_stok-kurang_14",
+        "t18_d9fd82fe27_stok-dikoreksi_15",
+        "t18_d9fd82fe27_stok-dikoreksi_15"
+      ],
+      "calls": [
+        {
+          "label": "prepare:stok-kurang",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 409,
+          "requestId": "35e8b35a-d88d-4c54-9ae4-cc2f094ba271",
+          "errorCode": "INSUFFICIENT_STOCK",
+          "attemptKey": "t18_d9fd82fe27_stok-kurang_14"
+        },
+        {
+          "label": "prepare:stok-dikoreksi",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "0aa0c88f-2109-4215-a3b8-5560bda49835",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_stok-dikoreksi_15"
+        },
+        {
+          "label": "commit:commit-stok-dikoreksi",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "cb310b4a-5dc4-4997-a896-dee1d83ce09d",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_stok-dikoreksi_15"
+        }
+      ]
+    },
+    {
+      "no": 11,
+      "ac": "SETUP",
+      "label": "Penyesuaian stok sintetis +5 (T18-SINTETIS-REPLENISH-2) untuk uji interupsi",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 4,
+          "saleItems": 4,
+          "payments": 4,
+          "movements": 5,
+          "attempts": 6,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 27000,
+          "itemTotalRp": 27000,
+          "paymentAmountRp": 27000,
+          "openingDelta": 5,
+          "saleDelta": -5,
+          "adjustmentDelta": 0
+        },
+        "stock": 0,
+        "movementByKind": {
+          "OPENING": 5,
+          "SALE": -5
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 4,
+          "saleItems": 4,
+          "payments": 4,
+          "movements": 6,
+          "attempts": 6,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 27000,
+          "itemTotalRp": 27000,
+          "paymentAmountRp": 27000,
+          "openingDelta": 5,
+          "saleDelta": -5,
+          "adjustmentDelta": 5
+        },
+        "stock": 5,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -5
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "saleItems": 0,
+        "payments": 0,
+        "movements": 1,
+        "stock": 5
+      }
+    },
+    {
+      "no": 12,
+      "ac": "AC-03.05",
+      "label": "SIGKILL sebelum commit: nol data parsial; upaya PREPARED tetap ada; commit ulang niat sama → 1 sale",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 4,
+          "saleItems": 4,
+          "payments": 4,
+          "movements": 6,
+          "attempts": 6,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 27000,
+          "itemTotalRp": 27000,
+          "paymentAmountRp": 27000,
+          "openingDelta": 5,
+          "saleDelta": -5,
+          "adjustmentDelta": 5
+        },
+        "stock": 5,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -5
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 5,
+          "saleItems": 5,
+          "payments": 5,
+          "movements": 7,
+          "attempts": 7,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 33000,
+          "itemTotalRp": 33000,
+          "paymentAmountRp": 33000,
+          "openingDelta": 5,
+          "saleDelta": -6,
+          "adjustmentDelta": 5
+        },
+        "stock": 4,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -6
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "saleItems": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "requestIds": [
+        "cc3f7c3b-1a0c-4798-9237-079d55085a83",
+        "0ddef9d1-2453-40e3-824c-121227c389d7",
+        "e0573c38-78d5-4c4b-a723-b3caa6c91f0c",
+        "5e5bd1df-a89a-41d5-9bce-676ae2870f3d"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_mati-sebelum-commit_16",
+        "t18_d9fd82fe27_mati-sebelum-commit_16"
+      ],
+      "calls": [
+        {
+          "label": "prepare:mati-sebelum-commit",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "cc3f7c3b-1a0c-4798-9237-079d55085a83",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_mati-sebelum-commit_16"
+        },
+        {
+          "label": "login ulang setelah mati A",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "0ddef9d1-2453-40e3-824c-121227c389d7",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "cek status upaya PREPARED",
+          "method": "GET",
+          "path": "/checkouts/t18_d9fd82fe27_mati-sebelum-commit_16",
+          "status": 200,
+          "requestId": "e0573c38-78d5-4c4b-a723-b3caa6c91f0c",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "commit:lanjut-setelah-mati",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "5e5bd1df-a89a-41d5-9bce-676ae2870f3d",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_mati-sebelum-commit_16"
+        }
+      ],
+      "attemptKey": "t18_d9fd82fe27_mati-sebelum-commit_16",
+      "statusAfterRestart": "PREPARED"
+    },
+    {
+      "no": 13,
+      "ac": "AC-04.01",
+      "label": "SIGKILL setelah commit: hasil COMMITTED ditemukan dengan saleId sama; tanpa penagihan/penjualan ulang",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 5,
+          "saleItems": 5,
+          "payments": 5,
+          "movements": 7,
+          "attempts": 7,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 33000,
+          "itemTotalRp": 33000,
+          "paymentAmountRp": 33000,
+          "openingDelta": 5,
+          "saleDelta": -6,
+          "adjustmentDelta": 5
+        },
+        "stock": 4,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -6
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 6,
+          "saleItems": 6,
+          "payments": 6,
+          "movements": 8,
+          "attempts": 8,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 39000,
+          "itemTotalRp": 39000,
+          "paymentAmountRp": 39000,
+          "openingDelta": 5,
+          "saleDelta": -7,
+          "adjustmentDelta": 5
+        },
+        "stock": 3,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -7
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005",
+          "S-000006"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "saleItems": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "requestIds": [
+        "da7ec4a4-da29-4759-b6fa-3c5f74767762",
+        "121b8049-2563-43f5-b58f-fde4e3a0e67c",
+        "6cf0ad5a-e955-4b7d-9568-9a3941fa1aed",
+        "a529bfee-9337-4eda-a9f1-dd1aeb7dc983"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_mati-sesudah-commit_17",
+        "t18_d9fd82fe27_mati-sesudah-commit_17"
+      ],
+      "calls": [
+        {
+          "label": "prepare:mati-sesudah-commit",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "da7ec4a4-da29-4759-b6fa-3c5f74767762",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_mati-sesudah-commit_17"
+        },
+        {
+          "label": "commit:commit-lalu-mati",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "121b8049-2563-43f5-b58f-fde4e3a0e67c",
+          "errorCode": null,
+          "attemptKey": "t18_d9fd82fe27_mati-sesudah-commit_17"
+        },
+        {
+          "label": "login ulang setelah mati B",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "6cf0ad5a-e955-4b7d-9568-9a3941fa1aed",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "cek status COMMITTED setelah restart",
+          "method": "GET",
+          "path": "/checkouts/t18_d9fd82fe27_mati-sesudah-commit_17",
+          "status": 200,
+          "requestId": "a529bfee-9337-4eda-a9f1-dd1aeb7dc983",
+          "errorCode": null,
+          "attemptKey": null
+        }
+      ],
+      "attemptKey": "t18_d9fd82fe27_mati-sesudah-commit_17",
+      "saleId": 6,
+      "saleNo": "S-000006"
+    },
+    {
+      "no": 14,
+      "ac": "AC-05.02",
+      "label": "Restart mempertahankan ID/waktu shift; pemilik lanjut, kasir lain null/409 dan tidak bisa checkout",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 6,
+          "saleItems": 6,
+          "payments": 6,
+          "movements": 8,
+          "attempts": 8,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 39000,
+          "itemTotalRp": 39000,
+          "paymentAmountRp": 39000,
+          "openingDelta": 5,
+          "saleDelta": -7,
+          "adjustmentDelta": 5
+        },
+        "stock": 3,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -7
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005",
+          "S-000006"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 6,
+          "saleItems": 6,
+          "payments": 6,
+          "movements": 8,
+          "attempts": 8,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 39000,
+          "itemTotalRp": 39000,
+          "paymentAmountRp": 39000,
+          "openingDelta": 5,
+          "saleDelta": -7,
+          "adjustmentDelta": 5
+        },
+        "stock": 3,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -7
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005",
+          "S-000006"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "saleItems": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "5c8ec1e6-308f-4b47-bc6f-ca46bb4a9db2",
+        "719263b0-d715-4268-a0fb-cc55fddc6427",
+        "2ece7ee7-7dc0-4927-9ce2-ee697aec4839",
+        "a921c68b-d0ef-417c-a951-75c20ff0fa49",
+        "f3088a04-512b-4dcd-b21e-19a159627599"
+      ],
+      "attemptKeys": [
+        "t18_d9fd82fe27_owner-setelah-restart_18"
+      ],
+      "calls": [
+        {
+          "label": "login ulang kasir lain setelah restart",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "5c8ec1e6-308f-4b47-bc6f-ca46bb4a9db2",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "shift setelah restart",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "719263b0-d715-4268-a0fb-cc55fddc6427",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "shift kasir lain setelah restart",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "2ece7ee7-7dc0-4927-9ce2-ee697aec4839",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "kasir lain buka shift kedua",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 409,
+          "requestId": "a921c68b-d0ef-417c-a951-75c20ff0fa49",
+          "errorCode": "SHIFT_ALREADY_OPEN",
+          "attemptKey": null
+        },
+        {
+          "label": "kasir lain checkout shift pemilik",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 409,
+          "requestId": "f3088a04-512b-4dcd-b21e-19a159627599",
+          "errorCode": "SHIFT_NOT_ACTIVE",
+          "attemptKey": "t18_d9fd82fe27_owner-setelah-restart_18"
+        }
+      ],
+      "shiftId": 1,
+      "openedAtMs": 1794900082344
+    },
+    {
+      "no": 15,
+      "ac": "AC-03.08",
+      "label": "Tidak ada endpoint edit/hapus sale (404); snapshot sale/payment/stok utuh",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 6,
+          "saleItems": 6,
+          "payments": 6,
+          "movements": 8,
+          "attempts": 8,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 39000,
+          "itemTotalRp": 39000,
+          "paymentAmountRp": 39000,
+          "openingDelta": 5,
+          "saleDelta": -7,
+          "adjustmentDelta": 5
+        },
+        "stock": 3,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -7
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005",
+          "S-000006"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 6,
+          "saleItems": 6,
+          "payments": 6,
+          "movements": 8,
+          "attempts": 8,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 39000,
+          "itemTotalRp": 39000,
+          "paymentAmountRp": 39000,
+          "openingDelta": 5,
+          "saleDelta": -7,
+          "adjustmentDelta": 5
+        },
+        "stock": 3,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -7
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005",
+          "S-000006"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "saleItems": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "55252890-9b76-4ed7-bedb-3acdc786ef10",
+        "40869fa7-b43d-47cf-86ff-237176f27d1e",
+        "668f3c5a-5203-4080-bce6-f4a6e3fe28c0"
+      ],
+      "attemptKeys": [],
+      "calls": [
+        {
+          "label": "login ulang ADMIN setelah restart",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "55252890-9b76-4ed7-bedb-3acdc786ef10",
+          "errorCode": null,
+          "attemptKey": null
+        },
+        {
+          "label": "hapus sale lewat API",
+          "method": "DELETE",
+          "path": "/sales/1",
+          "status": 404,
+          "requestId": "40869fa7-b43d-47cf-86ff-237176f27d1e",
+          "errorCode": "NOT_FOUND",
+          "attemptKey": null
+        },
+        {
+          "label": "ubah sale lewat API",
+          "method": "PATCH",
+          "path": "/sales/1",
+          "status": 404,
+          "requestId": "668f3c5a-5203-4080-bce6-f4a6e3fe28c0",
+          "errorCode": "NOT_FOUND",
+          "attemptKey": null
+        }
+      ],
+      "deleteStatus": 404,
+      "patchStatus": 404,
+      "dbTriggersOnSalePayment": 0,
+      "note": "Imutabilitas bergantung pada tidak adanya endpoint/akses DB, bukan trigger DB"
+    },
+    {
+      "no": 16,
+      "ac": "REKONSILIASI",
+      "label": "Integritas ok, FK 0, 6 sale = 6 payment = 6 item, saldo 3, semua CASH",
+      "status": "PASS",
+      "final": {
+        "counts": {
+          "sales": 6,
+          "saleItems": 6,
+          "payments": 6,
+          "movements": 8,
+          "attempts": 8,
+          "activeShifts": 1,
+          "saleWithoutPayment": 0,
+          "orphanSaleItems": 0
+        },
+        "money": {
+          "saleTotalRp": 39000,
+          "itemTotalRp": 39000,
+          "paymentAmountRp": 39000,
+          "openingDelta": 5,
+          "saleDelta": -7,
+          "adjustmentDelta": 5
+        },
+        "stock": 3,
+        "movementByKind": {
+          "ADJUSTMENT": 5,
+          "OPENING": 5,
+          "SALE": -7
+        },
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004",
+          "S-000005",
+          "S-000006"
+        ],
+        "paymentMethods": [
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH",
+          "CASH"
+        ],
+        "integrity": "ok",
+        "fkViolations": 0,
+        "reconciled": true
+      }
+    }
+  ],
+  "attemptKeyLabels": [
+    {
+      "attemptKey": "t18_d9fd82fe27_empty_1",
+      "label": "empty"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_qty-nol_2",
+      "label": "qty-nol"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_qty-negatif_3",
+      "label": "qty-negatif"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_nonaktif_4",
+      "label": "nonaktif"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_tanpa-shift_5",
+      "label": "tanpa-shift"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_bukan-owner_6",
+      "label": "bukan-owner"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_admin-checkout_7",
+      "label": "admin-checkout"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_metode-asing_8",
+      "label": "metode-asing"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_bayar-invalid_9",
+      "label": "bayar-invalid"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_tunai-sukses_10",
+      "label": "tunai-sukses"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_klik-ganda_11",
+      "label": "klik-ganda"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_harga-lama_12",
+      "label": "harga-lama"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_harga-baru_13",
+      "label": "harga-baru"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_stok-kurang_14",
+      "label": "stok-kurang"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_stok-dikoreksi_15",
+      "label": "stok-dikoreksi"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_mati-sebelum-commit_16",
+      "label": "mati-sebelum-commit"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_mati-sesudah-commit_17",
+      "label": "mati-sesudah-commit"
+    },
+    {
+      "attemptKey": "t18_d9fd82fe27_owner-setelah-restart_18",
+      "label": "owner-setelah-restart"
+    }
+  ],
+  "calls": [
+    {
+      "label": "login ADMIN",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "67a3e143-ebdb-4c2a-92ef-3b3c707fe18c",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "buat akun kasir.t18.pemilik",
+      "method": "POST",
+      "path": "/users",
+      "status": 201,
+      "requestId": "6c0e96d6-f75c-4a58-bb61-24fa6e04de4e",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "buat akun kasir.t18.bukanpemilik",
+      "method": "POST",
+      "path": "/users",
+      "status": 201,
+      "requestId": "2d6d34c4-c32c-43e7-ad40-719eaafc0539",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "login kasir pemilik",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "cc063b02-ebfa-4cf7-a76c-1cd8c537d200",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "login kasir lain",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "17151793-ff88-4115-8653-95d0c6d1bbe3",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "buat kategori",
+      "method": "POST",
+      "path": "/categories",
+      "status": 201,
+      "requestId": "603b2664-1178-461f-92e0-66ec5bec9d0e",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "buat produk",
+      "method": "POST",
+      "path": "/products",
+      "status": 201,
+      "requestId": "007f8c2b-400d-47ac-987e-ab1f3063a294",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "buat produk nonaktif",
+      "method": "POST",
+      "path": "/products",
+      "status": 201,
+      "requestId": "f72de749-1748-4814-b59f-d20f1deabba9",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "nonaktifkan produk uji",
+      "method": "PATCH",
+      "path": "/products/2",
+      "status": 200,
+      "requestId": "09c29103-d1a4-4e47-9a67-3b1619736925",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "buka shift A",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "48cc349c-013f-4629-b095-9d6bdaa5d51e",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "buka shift B paralel",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 409,
+      "requestId": "74c55d54-5b19-4383-91b2-1cc39be132e6",
+      "errorCode": "SHIFT_ALREADY_OPEN",
+      "attemptKey": null
+    },
+    {
+      "label": "shift milik pemilik",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "055b008b-90e2-4259-89e1-d4f07aaaf5fd",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "shift kasir lain",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "30b8301d-1127-4bf3-b1f9-e584e0b3a53f",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "ADMIN coba buka shift",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 403,
+      "requestId": "a81d8a8d-6a75-418a-ba70-06d4971175ac",
+      "errorCode": "FORBIDDEN",
+      "attemptKey": null
+    },
+    {
+      "label": "scan 000123",
+      "method": "GET",
+      "path": "/products?barcode=000123",
+      "status": 200,
+      "requestId": "5b948505-a4ed-4529-9491-5a2b9037ff7d",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "scan barcode asing",
+      "method": "GET",
+      "path": "/products?barcode=9999999999999",
+      "status": 200,
+      "requestId": "93568b94-9a40-4321-8503-02adb07fa773",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "prepare keranjang kosong",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 422,
+      "requestId": "54d1acf1-6ed4-4d08-8cd6-6fe89e23526d",
+      "errorCode": "VALIDATION_ERROR",
+      "attemptKey": "t18_d9fd82fe27_empty_1"
+    },
+    {
+      "label": "prepare:qty-nol",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 422,
+      "requestId": "0ebfda4b-51b7-44e8-9ff8-5d9d1bc92d43",
+      "errorCode": "VALIDATION_ERROR",
+      "attemptKey": "t18_d9fd82fe27_qty-nol_2"
+    },
+    {
+      "label": "prepare:qty-negatif",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 422,
+      "requestId": "b61a6b7f-0aaa-4b9e-b5e9-aada1ad210f6",
+      "errorCode": "VALIDATION_ERROR",
+      "attemptKey": "t18_d9fd82fe27_qty-negatif_3"
+    },
+    {
+      "label": "prepare produk nonaktif",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 422,
+      "requestId": "df3247f7-dc65-4c48-a11f-b6cb70059567",
+      "errorCode": "VALIDATION_ERROR",
+      "attemptKey": "t18_d9fd82fe27_nonaktif_4"
+    },
+    {
+      "label": "prepare tanpa shift sendiri",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 409,
+      "requestId": "cb177172-f0e5-47b5-baa6-790a7a2874ac",
+      "errorCode": "SHIFT_NOT_ACTIVE",
+      "attemptKey": "t18_d9fd82fe27_tanpa-shift_5"
+    },
+    {
+      "label": "kasir lain pakai shift pemilik",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 409,
+      "requestId": "c9dd37f4-839a-46e2-b6e0-49edc46bc446",
+      "errorCode": "SHIFT_NOT_ACTIVE",
+      "attemptKey": "t18_d9fd82fe27_bukan-owner_6"
+    },
+    {
+      "label": "ADMIN coba checkout",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 403,
+      "requestId": "d7ff554d-d9b4-44c0-bba6-1e589d4c0be0",
+      "errorCode": "FORBIDDEN",
+      "attemptKey": "t18_d9fd82fe27_admin-checkout_7"
+    },
+    {
+      "label": "prepare metode belum disahkan",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 422,
+      "requestId": "ac34cf32-6077-4f8c-b9b8-84a2ea85b4de",
+      "errorCode": "VALIDATION_ERROR",
+      "attemptKey": "t18_d9fd82fe27_metode-asing_8"
+    },
+    {
+      "label": "prepare:bayar-invalid",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "3d458278-d4b3-4c43-826e-32f5089f6106",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_bayar-invalid_9"
+    },
+    {
+      "label": "commit tanpa nominal tunai",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 422,
+      "requestId": "a83e3f39-4669-43a9-9c37-ea4834311872",
+      "errorCode": "VALIDATION_ERROR",
+      "attemptKey": "t18_d9fd82fe27_bayar-invalid_9"
+    },
+    {
+      "label": "commit tunai kurang",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 422,
+      "requestId": "88802173-52c1-4304-85d2-c5e35dd1d3c4",
+      "errorCode": "VALIDATION_ERROR",
+      "attemptKey": "t18_d9fd82fe27_bayar-invalid_9"
+    },
+    {
+      "label": "prepare:tunai-sukses",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "60e8aded-ae14-495c-bab8-8f79b579c264",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_tunai-sukses_10"
+    },
+    {
+      "label": "commit:tunai-sukses",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "bafa64d5-ade8-43e3-a8f9-8c14ebdf63b0",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_tunai-sukses_10"
+    },
+    {
+      "label": "commit:retry-identik",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "db986083-f720-4c75-a7b1-500deeb1ee80",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_tunai-sukses_10"
+    },
+    {
+      "label": "prepare:klik-ganda",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "5b8c26a8-edc7-4706-b7e7-baf63ca7c263",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+    },
+    {
+      "label": "commit:klik-ganda-A",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "f21131b2-6572-42ac-a2fc-83659bca18b1",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+    },
+    {
+      "label": "commit:klik-ganda-B",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "9784f350-ca70-4cab-961f-fd36a90e2a2a",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+    },
+    {
+      "label": "prepare:isi-berbeda",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 409,
+      "requestId": "ddf0612b-ce48-4549-be12-4f305fe8d374",
+      "errorCode": "IDEMPOTENCY_CONFLICT",
+      "attemptKey": "t18_d9fd82fe27_klik-ganda_11"
+    },
+    {
+      "label": "prepare:harga-lama",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "d07b3b73-c865-4afa-a48b-299a98a8c659",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_harga-lama_12"
+    },
+    {
+      "label": "ubah harga jadi 6000",
+      "method": "PATCH",
+      "path": "/products/1",
+      "status": 200,
+      "requestId": "870c9749-ce73-4571-9b3b-09a5328e68ab",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "commit:commit-harga-lama",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 409,
+      "requestId": "d407bf8e-52e2-4fe2-b059-b709b6b97842",
+      "errorCode": "PRICE_CHANGED",
+      "attemptKey": "t18_d9fd82fe27_harga-lama_12"
+    },
+    {
+      "label": "prepare:harga-baru",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "8c2376da-15b8-428e-9810-b1e0b34daa8f",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_harga-baru_13"
+    },
+    {
+      "label": "commit:commit-harga-baru",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "5f487752-729a-431b-922f-1073d3c8756e",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_harga-baru_13"
+    },
+    {
+      "label": "prepare:stok-kurang",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 409,
+      "requestId": "35e8b35a-d88d-4c54-9ae4-cc2f094ba271",
+      "errorCode": "INSUFFICIENT_STOCK",
+      "attemptKey": "t18_d9fd82fe27_stok-kurang_14"
+    },
+    {
+      "label": "prepare:stok-dikoreksi",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "0aa0c88f-2109-4215-a3b8-5560bda49835",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_stok-dikoreksi_15"
+    },
+    {
+      "label": "commit:commit-stok-dikoreksi",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "cb310b4a-5dc4-4997-a896-dee1d83ce09d",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_stok-dikoreksi_15"
+    },
+    {
+      "label": "prepare:mati-sebelum-commit",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "cc3f7c3b-1a0c-4798-9237-079d55085a83",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_mati-sebelum-commit_16"
+    },
+    {
+      "label": "login ulang setelah mati A",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "0ddef9d1-2453-40e3-824c-121227c389d7",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "cek status upaya PREPARED",
+      "method": "GET",
+      "path": "/checkouts/t18_d9fd82fe27_mati-sebelum-commit_16",
+      "status": 200,
+      "requestId": "e0573c38-78d5-4c4b-a723-b3caa6c91f0c",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "commit:lanjut-setelah-mati",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "5e5bd1df-a89a-41d5-9bce-676ae2870f3d",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_mati-sebelum-commit_16"
+    },
+    {
+      "label": "prepare:mati-sesudah-commit",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "da7ec4a4-da29-4759-b6fa-3c5f74767762",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_mati-sesudah-commit_17"
+    },
+    {
+      "label": "commit:commit-lalu-mati",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "121b8049-2563-43f5-b58f-fde4e3a0e67c",
+      "errorCode": null,
+      "attemptKey": "t18_d9fd82fe27_mati-sesudah-commit_17"
+    },
+    {
+      "label": "login ulang setelah mati B",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "6cf0ad5a-e955-4b7d-9568-9a3941fa1aed",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "cek status COMMITTED setelah restart",
+      "method": "GET",
+      "path": "/checkouts/t18_d9fd82fe27_mati-sesudah-commit_17",
+      "status": 200,
+      "requestId": "a529bfee-9337-4eda-a9f1-dd1aeb7dc983",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "login ulang kasir lain setelah restart",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "5c8ec1e6-308f-4b47-bc6f-ca46bb4a9db2",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "shift setelah restart",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "719263b0-d715-4268-a0fb-cc55fddc6427",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "shift kasir lain setelah restart",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "2ece7ee7-7dc0-4927-9ce2-ee697aec4839",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "kasir lain buka shift kedua",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 409,
+      "requestId": "a921c68b-d0ef-417c-a951-75c20ff0fa49",
+      "errorCode": "SHIFT_ALREADY_OPEN",
+      "attemptKey": null
+    },
+    {
+      "label": "kasir lain checkout shift pemilik",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 409,
+      "requestId": "f3088a04-512b-4dcd-b21e-19a159627599",
+      "errorCode": "SHIFT_NOT_ACTIVE",
+      "attemptKey": "t18_d9fd82fe27_owner-setelah-restart_18"
+    },
+    {
+      "label": "login ulang ADMIN setelah restart",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "55252890-9b76-4ed7-bedb-3acdc786ef10",
+      "errorCode": null,
+      "attemptKey": null
+    },
+    {
+      "label": "hapus sale lewat API",
+      "method": "DELETE",
+      "path": "/sales/1",
+      "status": 404,
+      "requestId": "40869fa7-b43d-47cf-86ff-237176f27d1e",
+      "errorCode": "NOT_FOUND",
+      "attemptKey": null
+    },
+    {
+      "label": "ubah sale lewat API",
+      "method": "PATCH",
+      "path": "/sales/1",
+      "status": 404,
+      "requestId": "668f3c5a-5203-4080-bce6-f4a6e3fe28c0",
+      "errorCode": "NOT_FOUND",
+      "attemptKey": null
+    }
+  ]
+}
