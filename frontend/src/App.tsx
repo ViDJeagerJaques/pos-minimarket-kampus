@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PosDataSource, SessionUser } from "./api/types";
 import { defaultPage, isPageAllowed, NAV_BY_ROLE, type PageId } from "./app/navigation";
 import { AppShell } from "./components/AppShell";
@@ -41,12 +41,34 @@ const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accou
   backup: { title: "Backup", reason: "Menunggu TASK-028." },
 };
 
+function newDraftId(): string {
+  return globalThis.crypto.randomUUID();
+}
+
 export function App({ dataSource, onAfterLogout = () => window.location.reload() }: AppProps) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [page, setPage] = useState<PageId>("cashier");
   const [notice, setNotice] = useState<string | null>(null);
   // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
-  const [draftLines, setDraftLines] = useState<CartLine[]>([]);
+  const [draft, setDraft] = useState(() => ({ id: newDraftId(), lines: [] as CartLine[] }));
+  const setDraftLines: Dispatch<SetStateAction<CartLine[]>> = (update) => {
+    setDraft((current) => ({
+      ...current,
+      lines: typeof update === "function" ? update(current.lines) : update,
+    }));
+  };
+  function restoreDraft(expectedId: string, lines: CartLine[]) {
+    setDraft((current) => current.id === expectedId && current.lines.length === 0
+      ? { ...current, lines }
+      : current);
+  }
+  function consumeDraft(expectedId: string, soldProductIds: number[] | null) {
+    setDraft((current) => {
+      if (current.id !== expectedId) return current;
+      const sold = soldProductIds === null ? null : new Set(soldProductIds);
+      return { id: newDraftId(), lines: sold ? current.lines.filter((line) => !sold.has(line.productId)) : [] };
+    });
+  }
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(0);
 
@@ -54,7 +76,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     const nextEpoch = sessionEpochRef.current + 1;
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
-    setDraftLines([]);
+    setDraft({ id: newDraftId(), lines: [] });
     setNotice(null);
     setUser(nextUser);
     setPage(defaultPage(nextUser.role));
@@ -67,7 +89,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     const nextEpoch = sessionEpochRef.current + 1;
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
-    setDraftLines([]);
+    setDraft({ id: newDraftId(), lines: [] });
     setUser(null);
     setPage("cashier");
     setNotice("Sesi berakhir atau tidak lagi valid. Silakan masuk kembali.");
@@ -81,7 +103,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     setSessionEpoch(logoutEpoch);
     // Sembunyikan halaman terlindungi dan bersihkan state klien seketika
     // tanpa menunggu respons backend.
-    setDraftLines([]);
+    setDraft({ id: newDraftId(), lines: [] });
     setUser(null);
     setPage("cashier");
     setNotice(null);
@@ -126,9 +148,13 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       return (
         <CashierPage
           dataSource={dataSource}
-          lines={draftLines}
+          lines={draft.lines}
+          draftId={draft.id}
+          onDraftConsumed={consumeDraft}
+          onDraftRestore={restoreDraft}
           onLinesChange={setDraftLines}
           sessionEpoch={sessionEpochRef.current}
+          cashierId={currentUser.userId}
           onSessionExpired={handleSessionExpired}
         />
       );
