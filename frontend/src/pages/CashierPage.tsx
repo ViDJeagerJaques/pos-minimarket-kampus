@@ -38,7 +38,7 @@ interface CashierPageProps {
   dataSource: PosDataSource;
   lines: CartLine[];
   draftId: string;
-  onDraftConsumed: () => void;
+  onDraftConsumed: (draftId: string, soldProductIds: number[] | null) => void;
   onLinesChange: Dispatch<SetStateAction<CartLine[]>>;
   sessionEpoch: number;
   cashierId: number;
@@ -343,8 +343,7 @@ export function CashierPage({
     // Hanya membuang draft di memori UI; tidak memanggil API apa pun (AC-03.07).
     barcodeSeqRef.current += 1;
     isConfirmingCancelRef.current = false;
-    onLinesChange([]);
-    onDraftConsumed();
+    onDraftConsumed(draftId, null);
     setIsConfirmingCancel(false);
     setStatus({ tone: "info", text: "Draft dibatalkan. Tidak ada transaksi yang disimpan." });
     barcodeRef.current?.focus();
@@ -466,10 +465,8 @@ export function CashierPage({
     setPhase({ kind: "success", result });
     // Draft dibersihkan HANYA setelah backend mengonfirmasi COMMITTED, dan hanya
     // garis yang masuk snapshot prepare. Baris lain tidak ikut terhapus.
-    const soldProductIds = new Set(snapshotLinesRef.current.map((line) => line.productId));
-    if (snapshotDraftIdRef.current !== null && snapshotDraftIdRef.current === draftId) {
-      onLinesChange((current) => current.filter((line) => !soldProductIds.has(line.productId)));
-      onDraftConsumed();
+    if (snapshotDraftIdRef.current !== null) {
+      onDraftConsumed(snapshotDraftIdRef.current, snapshotLinesRef.current.map((line) => line.productId));
     }
     snapshotLinesRef.current = [];
     barcodeSeqRef.current += 1;
@@ -601,9 +598,8 @@ export function CashierPage({
   function startNewDraft(): void {
     // Tidak ada API dipanggil; ini hanya membersihkan UI setelah status ABANDONED.
     const failedKey = removeRecovery();
-    if (snapshotDraftIdRef.current !== null && snapshotDraftIdRef.current === draftId) {
-      onLinesChange([]);
-      onDraftConsumed();
+    if (snapshotDraftIdRef.current !== null) {
+      onDraftConsumed(snapshotDraftIdRef.current, null);
     }
     openNextRecovery(failedKey ?? undefined);
     setCashInput("");
@@ -611,10 +607,18 @@ export function CashierPage({
     focusBarcode();
   }
 
+  function rejectRevisedQuote(): void {
+    const failedKey = removeRecovery();
+    openNextRecovery(failedKey ?? undefined);
+    setCashInput("");
+    focusBarcode();
+  }
+
   function closePayment(): void {
     // PREPARED tidak membuat penjualan; menutup dialog hanya membuang referensi UI.
     if (recoveryKeyRef.current) {
-      openNextRecovery();
+      const failedKey = removeRecovery();
+      openNextRecovery(failedKey ?? undefined);
     } else {
       snapshotLinesRef.current = [];
       setPhase({ kind: "idle" });
@@ -818,7 +822,7 @@ export function CashierPage({
               ))}
             </ul>
             <div className="dialog__actions">
-              <Button variant="secondary" onClick={closePayment}>Tolak dan kembali</Button>
+              <Button variant="secondary" onClick={rejectRevisedQuote}>Tolak dan kembali</Button>
               <Button
                 variant="primary"
                 onClick={() => {

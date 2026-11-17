@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { App } from "../App";
 import { ApiError } from "../api/errors";
 import { createMockDataSource } from "../api/mockDataSource";
 import type {
@@ -119,7 +120,7 @@ function Harness({
     <CashierPage
       dataSource={source}
       draftId="draft-test"
-      onDraftConsumed={vi.fn()}
+      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }}
       lines={lines}
       onLinesChange={setLines}
       sessionEpoch={1}
@@ -322,7 +323,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
       const [visible, setVisible] = useState(true);
       return <><button onClick={() => { setLines(current => [...current, extra]); setVisible(false); }}>Pindah</button>
         <button onClick={() => setVisible(true)}>Kembali</button>
-        {visible && <CashierPage dataSource={source} draftId="draft-test" onDraftConsumed={vi.fn()} lines={lines} onLinesChange={setLines} sessionEpoch={1} cashierId={2} onSessionExpired={vi.fn()} />}</>;
+        {visible && <CashierPage dataSource={source} draftId="draft-test" onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }} lines={lines} onLinesChange={setLines} sessionEpoch={1} cashierId={2} onSessionExpired={vi.fn()} />}</>;
     }
     render(<NavigationHarness />);
     await openPayment(user);
@@ -446,6 +447,51 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     expect(localStorage.getItem("pos.checkout.recovery.2.co_test_1")).toBeNull();
   });
 
+  it("hasil commit lama setelah navigasi tidak mengubah draft baru di App", async () => {
+    const deferred = createDeferred<CommitCheckoutResult>();
+    const source = buildSource({ commit: vi.fn(() => deferred.promise), findActiveProductByBarcode: vi.fn(async () => ({
+      id: 1, sku: "SKU-001", name: "Produk Uji", priceRp: 5000, stock: 5, active: true,
+    })) }).source;
+    source.login = vi.fn(async () => ({ ok: true as const, user: { userId: 2, username: "uji", displayName: "Kasir", role: "CASHIER" as const } }));
+    render(<App dataSource={source} onAfterLogout={vi.fn()} />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Nama pengguna"), "uji");
+    await user.type(screen.getByLabelText("Kata sandi"), "sintetis");
+    await user.click(screen.getByRole("button", { name: "Masuk" }));
+    await user.type(await screen.findByLabelText("Scan barcode", { selector: "input" }), "123{Enter}");
+    await screen.findByText("Produk Uji");
+    await openPayment(user);
+    await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
+    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Riwayat/Struk" }));
+    await user.click(screen.getByRole("button", { name: "Kasir" }));
+    await user.click(await screen.findByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Transaksi baru" }));
+    expect(screen.getByText("0 barang")).toBeTruthy();
+    await user.type(screen.getByLabelText("Scan barcode", { selector: "input" }), "123{Enter}");
+    await screen.findByText("Produk Uji");
+    await act(async () => { deferred.resolve(COMMITTED); await deferred.promise; });
+    expect(screen.getByText("Produk Uji")).toBeTruthy();
+    expect(screen.getByText("1 barang")).toBeTruthy();
+  });
+
+  it.each([false, true])("menolak quote revisi membuka antrean lain bila ada: %s", async (other) => {
+    const key = "pos.checkout.recovery.2.co_test_1";
+    localStorage.setItem(key, JSON.stringify({ attempt: PREPARED, cashReceivedRp: 10000, snapshot: [LINE], draftId: "draft-test" }));
+    if (other) localStorage.setItem("pos.checkout.recovery.2.co_test_2", JSON.stringify({ attempt: { ...PREPARED, attemptKey: "co_test_2" }, cashReceivedRp: 10000, snapshot: [LINE], draftId: "draft-lain" }));
+    const prepare = vi.fn(async () => ({ ...PREPARED, attemptKey: "revised" }));
+    const commit = vi.fn(async () => { throw new ApiError(409, "PRICE_CHANGED", "Harga berubah"); });
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+    const { user } = renderPage({ prepare, commit, status });
+    await screen.findByText(/#7/);
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Tolak dan kembali" }));
+    expect(localStorage.getItem(key)).toBeNull();
+    if (other) expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2");
+    else expect(screen.queryByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeNull();
+  });
+
   it("status tidak diketahui tetap terkunci dan meminta pemeriksaan", async () => {
     const commit = vi.fn(async () => { throw new ApiError(0, "NETWORK_ERROR", "timeout"); });
     const status = vi.fn(async (): Promise<CheckoutStatusResult> => { throw new ApiError(404, "NOT_FOUND", "Tidak ditemukan"); });
@@ -535,7 +581,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
           <CashierPage
             dataSource={source}
       draftId="draft-test"
-      onDraftConsumed={vi.fn()}
+      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }}
             lines={lines}
             onLinesChange={setLines}
             sessionEpoch={1}
@@ -646,7 +692,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
         <CashierPage
           dataSource={source}
       draftId="draft-test"
-      onDraftConsumed={vi.fn()}
+      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }}
           lines={lines}
           onLinesChange={setLines}
           sessionEpoch={epoch}

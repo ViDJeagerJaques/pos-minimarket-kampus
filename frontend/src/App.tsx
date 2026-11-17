@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PosDataSource, SessionUser } from "./api/types";
 import { defaultPage, isPageAllowed, NAV_BY_ROLE, type PageId } from "./app/navigation";
 import { AppShell } from "./components/AppShell";
@@ -50,8 +50,20 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   const [page, setPage] = useState<PageId>("cashier");
   const [notice, setNotice] = useState<string | null>(null);
   // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
-  const [draftLines, setDraftLines] = useState<CartLine[]>([]);
-  const [draftId, setDraftId] = useState(newDraftId);
+  const [draft, setDraft] = useState(() => ({ id: newDraftId(), lines: [] as CartLine[] }));
+  const setDraftLines: Dispatch<SetStateAction<CartLine[]>> = (update) => {
+    setDraft((current) => ({
+      ...current,
+      lines: typeof update === "function" ? update(current.lines) : update,
+    }));
+  };
+  function consumeDraft(expectedId: string, soldProductIds: number[] | null) {
+    setDraft((current) => {
+      if (current.id !== expectedId) return current;
+      const sold = soldProductIds === null ? null : new Set(soldProductIds);
+      return { id: newDraftId(), lines: sold ? current.lines.filter((line) => !sold.has(line.productId)) : [] };
+    });
+  }
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(0);
 
@@ -59,8 +71,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     const nextEpoch = sessionEpochRef.current + 1;
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
-    setDraftLines([]);
-    setDraftId(newDraftId());
+    setDraft({ id: newDraftId(), lines: [] });
     setNotice(null);
     setUser(nextUser);
     setPage(defaultPage(nextUser.role));
@@ -73,7 +84,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     const nextEpoch = sessionEpochRef.current + 1;
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
-    setDraftLines([]);
+    setDraft({ id: newDraftId(), lines: [] });
     setUser(null);
     setPage("cashier");
     setNotice("Sesi berakhir atau tidak lagi valid. Silakan masuk kembali.");
@@ -87,7 +98,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     setSessionEpoch(logoutEpoch);
     // Sembunyikan halaman terlindungi dan bersihkan state klien seketika
     // tanpa menunggu respons backend.
-    setDraftLines([]);
+    setDraft({ id: newDraftId(), lines: [] });
     setUser(null);
     setPage("cashier");
     setNotice(null);
@@ -132,9 +143,9 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       return (
         <CashierPage
           dataSource={dataSource}
-          lines={draftLines}
-          draftId={draftId}
-          onDraftConsumed={() => setDraftId(newDraftId())}
+          lines={draft.lines}
+          draftId={draft.id}
+          onDraftConsumed={consumeDraft}
           onLinesChange={setDraftLines}
           sessionEpoch={sessionEpochRef.current}
           cashierId={currentUser.userId}
