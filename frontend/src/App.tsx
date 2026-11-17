@@ -41,12 +41,17 @@ const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accou
   backup: { title: "Backup", reason: "Menunggu TASK-028." },
 };
 
+function newDraftId(): string {
+  return globalThis.crypto.randomUUID();
+}
+
 export function App({ dataSource, onAfterLogout = () => window.location.reload() }: AppProps) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [page, setPage] = useState<PageId>("cashier");
   const [notice, setNotice] = useState<string | null>(null);
   // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
   const [draftLines, setDraftLines] = useState<CartLine[]>([]);
+  const [draftId, setDraftId] = useState(newDraftId);
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(0);
 
@@ -55,6 +60,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraftLines([]);
+    setDraftId(newDraftId());
     setNotice(null);
     setUser(nextUser);
     setPage(defaultPage(nextUser.role));
@@ -127,6 +133,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
         <CashierPage
           dataSource={dataSource}
           lines={draftLines}
+          draftId={draftId}
+          onDraftConsumed={() => setDraftId(newDraftId())}
           onLinesChange={setDraftLines}
           sessionEpoch={sessionEpochRef.current}
           cashierId={currentUser.userId}

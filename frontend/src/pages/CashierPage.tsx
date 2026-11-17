@@ -37,6 +37,8 @@ import {
 interface CashierPageProps {
   dataSource: PosDataSource;
   lines: CartLine[];
+  draftId: string;
+  onDraftConsumed: () => void;
   onLinesChange: Dispatch<SetStateAction<CartLine[]>>;
   sessionEpoch: number;
   cashierId: number;
@@ -105,6 +107,8 @@ function formatShiftTime(openedAtMs: number): string {
 export function CashierPage({
   dataSource,
   lines,
+  draftId,
+  onDraftConsumed,
   onLinesChange,
   sessionEpoch,
   cashierId,
@@ -119,7 +123,7 @@ export function CashierPage({
   const storagePrefix = `pos.checkout.recovery.${cashierId}`;
   // Rekaman lama (satu key per kasir) tetap dibaca saat upgrade.
   function readRecovery(excludeKey?: string): {
-    phase: CheckoutPhase; key: string | null; snapshot: CartLine[];
+    phase: CheckoutPhase; key: string | null; snapshot: CartLine[]; draftId: string | null;
   } {
     try {
       const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
@@ -127,7 +131,7 @@ export function CashierPage({
           (key === storagePrefix || key.startsWith(`${storagePrefix}.`)))
         .sort();
       const key = keys[0];
-      if (!key) return { phase: { kind: "idle" }, key: null, snapshot: [] };
+      if (!key) return { phase: { kind: "idle" }, key: null, snapshot: [], draftId: null };
       const saved = JSON.parse(localStorage.getItem(key) ?? "null");
       if (saved?.attempt?.status === "PREPARED" && typeof saved.attempt.attemptKey === "string" &&
           typeof saved.attempt.requestHash === "string" && Number.isSafeInteger(saved.cashReceivedRp) &&
@@ -135,17 +139,17 @@ export function CashierPage({
         // Rekaman lama memiliki item quote, tetapi belum memiliki snapshot draft.
         const snapshot = Array.isArray(saved.snapshot) ? saved.snapshot : saved.attempt.quote.items;
         if (!snapshot.every((line: CartLine) => Number.isSafeInteger(line.productId))) {
-          return { phase: { kind: "recoveryError" }, key, snapshot: [] };
+          return { phase: { kind: "recoveryError" }, key, snapshot: [], draftId: null };
         }
-        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp }, key, snapshot };
+        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
       }
-      return { phase: { kind: "recoveryError" }, key, snapshot: [] };
+      return { phase: { kind: "recoveryError" }, key, snapshot: [], draftId: null };
     } catch {
-      return { phase: { kind: "recoveryError" }, key: null, snapshot: [] };
+      return { phase: { kind: "recoveryError" }, key: null, snapshot: [], draftId: null };
     }
   }
   const [initialRecovery] = useState(() => isDemo
-    ? { phase: { kind: "idle" } as CheckoutPhase, key: null, snapshot: [] as CartLine[] }
+    ? { phase: { kind: "idle" } as CheckoutPhase, key: null, snapshot: [] as CartLine[], draftId: null }
     : readRecovery());
   const [phase, setPhase] = useState<CheckoutPhase>(initialRecovery.phase);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
@@ -161,6 +165,7 @@ export function CashierPage({
   const checkoutLockRef = useRef(false);
   /** Garis draft yang benar-benar dikirim pada prepare; dipakai saat membersihkan draft. */
   const snapshotLinesRef = useRef<CartLine[]>(initialRecovery.snapshot);
+  const snapshotDraftIdRef = useRef<string | null>(initialRecovery.draftId);
   const cashInputId = useId();
   const openingCashId = useId();
   sessionEpochRef.current = sessionEpoch;
@@ -195,6 +200,7 @@ export function CashierPage({
     const next = readRecovery(excludeKey);
     recoveryKeyRef.current = next.key;
     snapshotLinesRef.current = next.snapshot;
+    snapshotDraftIdRef.current = next.draftId;
     setPhase(next.phase);
   }
 
@@ -338,6 +344,7 @@ export function CashierPage({
     barcodeSeqRef.current += 1;
     isConfirmingCancelRef.current = false;
     onLinesChange([]);
+    onDraftConsumed();
     setIsConfirmingCancel(false);
     setStatus({ tone: "info", text: "Draft dibatalkan. Tidak ada transaksi yang disimpan." });
     barcodeRef.current?.focus();
@@ -388,18 +395,18 @@ export function CashierPage({
     }
   }
 
-  function cartItems(): Array<{ productId: number; quantity: number }> {
-    return lines.map((line) => ({ productId: line.productId, quantity: line.quantity }));
+  function cartItems(source: CartLine[]): Array<{ productId: number; quantity: number }> {
+    return source.map((line) => ({ productId: line.productId, quantity: line.quantity }));
   }
 
-  async function runPrepare(attemptKey: string): Promise<PrepareCheckoutResult> {
+  async function runPrepare(attemptKey: string, source: CartLine[]): Promise<PrepareCheckoutResult> {
     if (shift === null || shift === undefined) {
       throw new ApiError(409, "SHIFT_NOT_ACTIVE", "Shift aktif tidak ditemukan.");
     }
     return dataSource.prepareCheckout({
       attemptKey,
       shiftId: shift.id,
-      items: cartItems(),
+      items: cartItems(source),
       paymentMethod: "CASH",
     });
   }
@@ -420,10 +427,11 @@ export function CashierPage({
     barcodeSeqRef.current += 1;
     // Snapshot garis yang dikirim ke backend; commit hanya boleh menghapus ini.
     snapshotLinesRef.current = lines;
+    snapshotDraftIdRef.current = draftId;
     setPhase({ kind: "preparing" });
     try {
       // attemptKey baru dibuat sekali per niat; retry memakai kunci yang sama.
-      const attempt = await runPrepare(createAttemptKey());
+      const attempt = await runPrepare(createAttemptKey(), snapshotLinesRef.current);
       setCashInput("");
       setPhase({ kind: "payment", attempt });
       setStatus({ tone: "info", text: "Quote pricing tersimpan. Periksa total sebelum membayar." });
@@ -437,15 +445,18 @@ export function CashierPage({
   }
 
   /** Setelah PRICE_CHANGED: upaya lama tidak bisa dipakai, tapi user yang menyetujui harga baru. */
-  async function prepareRevisedQuote(previousTotalRp: number): Promise<void> {
+  async function prepareRevisedQuote(previous: PrepareCheckoutResult, cashReceivedRp: number): Promise<void> {
+    const previousTotalRp = previous.quote.totalRp;
     try {
-      const attempt = await runPrepare(createAttemptKey());
+      if (snapshotLinesRef.current.length === 0) throw new Error("Snapshot kosong");
+      const attempt = await runPrepare(createAttemptKey(), snapshotLinesRef.current);
       setCashInput("");
       setPhase({ kind: "priceChanged", attempt, previousTotalRp });
       setStatus({ tone: "warning", text: "Harga berubah. Setujui ringkasan baru sebelum melanjutkan." });
     } catch (error) {
-      setPhase({ kind: "idle" });
-      handleActionError(error, "Quote harga baru gagal disiapkan.");
+      // Simpan rekaman dan snapshot lama agar pembelian dapat diperiksa lagi.
+      setPhase({ kind: "timeout", attempt: previous, cashReceivedRp });
+      handleActionError(error, "Quote harga baru gagal disiapkan. Periksa kembali upaya ini.");
     }
   }
 
@@ -456,11 +467,10 @@ export function CashierPage({
     // Draft dibersihkan HANYA setelah backend mengonfirmasi COMMITTED, dan hanya
     // garis yang masuk snapshot prepare. Baris lain tidak ikut terhapus.
     const soldProductIds = new Set(snapshotLinesRef.current.map((line) => line.productId));
-    onLinesChange((current) =>
-      soldProductIds.size > 0
-        ? current.filter((line) => !soldProductIds.has(line.productId))
-        : current,
-    );
+    if (snapshotDraftIdRef.current !== null && snapshotDraftIdRef.current === draftId) {
+      onLinesChange((current) => current.filter((line) => !soldProductIds.has(line.productId)));
+      onDraftConsumed();
+    }
     snapshotLinesRef.current = [];
     barcodeSeqRef.current += 1;
     setStatus({ tone: "success", text: `Transaksi ${result.saleNo} tersimpan di backend.` });
@@ -473,21 +483,20 @@ export function CashierPage({
         return;
       }
       if (error.code === "PRICE_CHANGED") {
-        removeRecovery();
-        await prepareRevisedQuote(attempt.quote.totalRp);
+        await prepareRevisedQuote(attempt, cashReceivedRp);
         return;
       }
       if (error.code === "SHIFT_NOT_ACTIVE") {
-        removeRecovery();
-        setPhase({ kind: "idle" });
+        const failedKey = removeRecovery();
+        openNextRecovery(failedKey ?? undefined);
         setShift(null);
         setStatus({ tone: "warning", text: error.message });
         void reloadShift();
         return;
       }
       if (error.code === "INSUFFICIENT_STOCK") {
-        removeRecovery();
-        setPhase({ kind: "idle" });
+        const failedKey = removeRecovery();
+        openNextRecovery(failedKey ?? undefined);
         handleActionError(error, "Stok tidak cukup.");
         return;
       }
@@ -518,7 +527,9 @@ export function CashierPage({
       const key = `${storagePrefix}.${encodeURIComponent(attempt.attemptKey)}`;
       // Jangan menimpa rekaman lain, termasuk identitas yang bertabrakan.
       if (localStorage.getItem(key) !== null) throw new Error("Attempt already recorded");
-      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, snapshot: snapshotLinesRef.current }));
+      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current }));
+      // Quote baru sudah terlindungi sebelum rekaman lama dihapus.
+      if (recoveryKeyRef.current && recoveryKeyRef.current !== key) removeRecovery();
       recoveryKeyRef.current = key;
     } catch {
       setStatus({ tone: "danger", text: "Identitas upaya tidak dapat disimpan lokal. Checkout tidak dikirim." });
@@ -590,7 +601,10 @@ export function CashierPage({
   function startNewDraft(): void {
     // Tidak ada API dipanggil; ini hanya membersihkan UI setelah status ABANDONED.
     const failedKey = removeRecovery();
-    onLinesChange([]);
+    if (snapshotDraftIdRef.current !== null && snapshotDraftIdRef.current === draftId) {
+      onLinesChange([]);
+      onDraftConsumed();
+    }
     openNextRecovery(failedKey ?? undefined);
     setCashInput("");
     setStatus({ tone: "info", text: "Draft baru siap. Tidak ada transaksi yang disimpan." });
@@ -599,8 +613,12 @@ export function CashierPage({
 
   function closePayment(): void {
     // PREPARED tidak membuat penjualan; menutup dialog hanya membuang referensi UI.
-    snapshotLinesRef.current = [];
-    setPhase({ kind: "idle" });
+    if (recoveryKeyRef.current) {
+      openNextRecovery();
+    } else {
+      snapshotLinesRef.current = [];
+      setPhase({ kind: "idle" });
+    }
     setCashInput("");
     focusBarcode();
   }

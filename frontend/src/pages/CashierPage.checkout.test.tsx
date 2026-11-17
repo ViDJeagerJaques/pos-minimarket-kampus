@@ -118,6 +118,8 @@ function Harness({
   return (
     <CashierPage
       dataSource={source}
+      draftId="draft-test"
+      onDraftConsumed={vi.fn()}
       lines={lines}
       onLinesChange={setLines}
       sessionEpoch={1}
@@ -320,7 +322,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
       const [visible, setVisible] = useState(true);
       return <><button onClick={() => { setLines(current => [...current, extra]); setVisible(false); }}>Pindah</button>
         <button onClick={() => setVisible(true)}>Kembali</button>
-        {visible && <CashierPage dataSource={source} lines={lines} onLinesChange={setLines} sessionEpoch={1} cashierId={2} onSessionExpired={vi.fn()} />}</>;
+        {visible && <CashierPage dataSource={source} draftId="draft-test" onDraftConsumed={vi.fn()} lines={lines} onLinesChange={setLines} sessionEpoch={1} cashierId={2} onSessionExpired={vi.fn()} />}</>;
     }
     render(<NavigationHarness />);
     await openPayment(user);
@@ -376,6 +378,72 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2");
     expect(localStorage.length).toBe(1);
     expect(commit).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovery tab lain tidak menghapus produk sama dari draft berbeda", async () => {
+    localStorage.setItem("pos.checkout.recovery.2.co_test_1", JSON.stringify({
+      attempt: PREPARED, cashReceivedRp: 10000, snapshot: [LINE], draftId: "draft-tab-a",
+    }));
+    const { user } = renderPage();
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Transaksi baru" }));
+    expect(screen.getByText("Produk Uji")).toBeTruthy();
+    expect(screen.getByText("1 barang")).toBeTruthy();
+  });
+
+  it("recovery lama tanpa identitas tidak menghapus draft yang tidak terbukti", async () => {
+    localStorage.setItem("pos.checkout.recovery.2", JSON.stringify({ attempt: PREPARED, cashReceivedRp: 10000 }));
+    const { user } = renderPage();
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Transaksi baru" }));
+    expect(screen.getByText("Produk Uji")).toBeTruthy();
+  });
+
+  it("harga berubah setelah reload memakai snapshot, bukan draft kosong atau tab lain", async () => {
+    localStorage.setItem("pos.checkout.recovery.2.co_test_1", JSON.stringify({
+      attempt: PREPARED, cashReceivedRp: 10000, snapshot: [LINE], draftId: "draft-tab-a",
+    }));
+    const prepare = vi.fn(async () => ({ ...PREPARED, attemptKey: "revised" }));
+    const commit = vi.fn(async () => { throw new ApiError(409, "PRICE_CHANGED", "Harga berubah"); });
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+    const other = { ...LINE, productId: 2, name: "Produk lain" };
+    const { user } = renderPage({ prepare, commit, status }, [other]);
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await screen.findByRole("dialog", { name: "Harga berubah — setujui ulang" });
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ items: [{ productId: 1, quantity: 1 }] }));
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_test_1")).not.toBeNull();
+  });
+
+  it("quote baru gagal tetap menyimpan pembelian yang dipulihkan", async () => {
+    const key = "pos.checkout.recovery.2.co_test_1";
+    localStorage.setItem(key, JSON.stringify({ attempt: PREPARED, cashReceivedRp: 10000, snapshot: [LINE], draftId: "tab-lama" }));
+    const prepare = vi.fn(async () => { throw new ApiError(0, "NETWORK_ERROR", "Offline"); });
+    const commit = vi.fn(async () => { throw new ApiError(409, "PRICE_CHANGED", "Harga berubah"); });
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+    const { user } = renderPage({ prepare, commit, status }, []);
+    await screen.findByText(/#7/);
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await waitFor(() => expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ items: [{ productId: 1, quantity: 1 }] })));
+    expect(localStorage.getItem(key)).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeTruthy();
+  });
+
+  it.each(["SHIFT_NOT_ACTIVE", "INSUFFICIENT_STOCK"] as const)("penolakan %s menampilkan upaya berikutnya", async (code) => {
+    for (const attemptKey of ["co_test_1", "co_test_2"]) {
+      localStorage.setItem(`pos.checkout.recovery.2.${attemptKey}`, JSON.stringify({
+        attempt: { ...PREPARED, attemptKey }, cashReceivedRp: 10000, snapshot: [LINE], draftId: "draft-test",
+      }));
+    }
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+    const commit = vi.fn(async () => { throw new ApiError(409, code, "Ditolak"); });
+    const { user } = renderPage({ status, commit });
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2"));
+    expect((screen.getByRole("button", { name: "Lanjut pembayaran" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_test_1")).toBeNull();
   });
 
   it("status tidak diketahui tetap terkunci dan meminta pemeriksaan", async () => {
@@ -466,6 +534,8 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
           </button>
           <CashierPage
             dataSource={source}
+      draftId="draft-test"
+      onDraftConsumed={vi.fn()}
             lines={lines}
             onLinesChange={setLines}
             sessionEpoch={1}
@@ -575,6 +645,8 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
       return (
         <CashierPage
           dataSource={source}
+      draftId="draft-test"
+      onDraftConsumed={vi.fn()}
           lines={lines}
           onLinesChange={setLines}
           sessionEpoch={epoch}
