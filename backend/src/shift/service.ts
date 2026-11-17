@@ -2,7 +2,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { AuthRequiredError, ForbiddenError, ValidationError } from "../auth/errors.ts";
 import type { SessionUser } from "../auth/session.ts";
 import { writeShiftAudit } from "./audit.ts";
-import { ShiftAlreadyOpenError } from "./errors.ts";
+import { computeShiftCloseHash } from "./closeHash.ts";
+import {
+  CloseIdempotencyConflictError,
+  ShiftAlreadyOpenError,
+  ShiftClosedError,
+  ShiftNotFoundError,
+} from "./errors.ts";
 
 /**
  * Pembukaan shift eksplisit (TASK-014).
@@ -20,12 +26,41 @@ export type ShiftDto = {
   openingCashRp: number | null;
 };
 
+export type ShiftClosingTotals = {
+  cashRp: number;
+  qrisManualRp: number;
+  totalSalesRp: number;
+  saleCount: number;
+};
+
+export type ShiftClosingDto = {
+  shiftId: number;
+  closeKey: string;
+  requestHash: string;
+  closedAtMs: number;
+  closedBy: number;
+  openingCashRp: number | null;
+  /** DEMO: modal (atau 0 bila tidak tercatat) + total CASH. QRIS tidak masuk laci. */
+  expectedCashRp: number;
+  declaredCashRp: number | null;
+  varianceRp: number | null;
+  totals: ShiftClosingTotals;
+};
+
+export type CloseShiftInput = {
+  closeKey?: unknown;
+  declaredCashRp?: unknown;
+};
+
 export type ShiftService = {
   openShift(actor: SessionUser, input: { openingCashRp?: unknown }): ShiftDto;
   getCurrentShift(actor: SessionUser): ShiftDto | null;
+  closeShift(actor: SessionUser, shiftId: unknown, input: CloseShiftInput): ShiftClosingDto;
 };
 
 const MAX_OPENING_CASH_RP = 1_000_000_000;
+const MAX_CLOSE_KEY_LENGTH = 80;
+const MAX_DECLARED_CASH_RP = 1_000_000_000;
 
 function normalizeOpeningCash(value: unknown): number | null {
   if (value === undefined || value === null) {
@@ -40,6 +75,41 @@ function normalizeOpeningCash(value: unknown): number | null {
     throw new ValidationError(
       `openingCashRp harus bilangan bulat 0-${MAX_OPENING_CASH_RP}.`,
       "openingCashRp",
+    );
+  }
+  return value;
+}
+
+function normalizeCloseKey(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new ValidationError("closeKey harus berupa teks.", "closeKey");
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_CLOSE_KEY_LENGTH) {
+    throw new ValidationError(
+      `closeKey harus 1-${MAX_CLOSE_KEY_LENGTH} karakter.`,
+      "closeKey",
+    );
+  }
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new ValidationError("closeKey memuat karakter kontrol.", "closeKey");
+  }
+  return trimmed;
+}
+
+function normalizeDeclaredCash(value: unknown): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > MAX_DECLARED_CASH_RP
+  ) {
+    throw new ValidationError(
+      `declaredCashRp harus bilangan bulat 0-${MAX_DECLARED_CASH_RP} atau null.`,
+      "declaredCashRp",
     );
   }
   return value;
@@ -77,6 +147,75 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
     if (String(row.role) !== "CASHIER") {
       throw new ForbiddenError("Hanya CASHIER yang boleh membuka shift.");
     }
+  }
+
+  function loadClosing(shiftId: number, closeKey: string, requestHash: string): ShiftClosingDto {
+    const closing = db
+      .prepare(
+        `SELECT shift_id, close_key, closed_by, declared_cash_rp, variance_rp
+         FROM shift_closings WHERE close_key = ?`,
+      )
+      .get(closeKey) as
+      | {
+          shift_id: number;
+          close_key: string;
+          closed_by: number;
+          declared_cash_rp: number | null;
+          variance_rp: number | null;
+        }
+      | undefined;
+    if (!closing || Number(closing.shift_id) !== shiftId) {
+      throw new CloseIdempotencyConflictError();
+    }
+    const shift = db
+      .prepare("SELECT closed_at_ms, opening_cash_rp FROM shifts WHERE id = ?")
+      .get(shiftId) as { closed_at_ms: number; opening_cash_rp: number | null } | undefined;
+    if (!shift) {
+      throw new ShiftNotFoundError();
+    }
+    const totalRows = db
+      .prepare("SELECT method_code, amount_rp FROM shift_closing_totals WHERE shift_id = ?")
+      .all(shiftId) as Array<{ method_code: string; amount_rp: number }>;
+    let cashRp = 0;
+    let qrisManualRp = 0;
+    for (const row of totalRows) {
+      if (row.method_code === "CASH") {
+        cashRp = Number(row.amount_rp);
+      } else if (row.method_code === "QRIS_MANUAL") {
+        qrisManualRp = Number(row.amount_rp);
+      }
+    }
+    const saleCount = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS total FROM sales s
+             JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
+             WHERE ca.shift_id = ?`,
+          )
+          .get(shiftId) as { total: number }
+      ).total,
+    );
+    const openingCashRp =
+      shift.opening_cash_rp === null ? null : Number(shift.opening_cash_rp);
+    return {
+      shiftId,
+      closeKey,
+      requestHash,
+      closedAtMs: Number(shift.closed_at_ms),
+      closedBy: Number(closing.closed_by),
+      openingCashRp,
+      expectedCashRp: (openingCashRp ?? 0) + cashRp,
+      declaredCashRp:
+        closing.declared_cash_rp === null ? null : Number(closing.declared_cash_rp),
+      varianceRp: closing.variance_rp === null ? null : Number(closing.variance_rp),
+      totals: {
+        cashRp,
+        qrisManualRp,
+        totalSalesRp: cashRp + qrisManualRp,
+        saleCount,
+      },
+    };
   }
 
   return {
@@ -127,6 +266,159 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
           cashierId: actor.userId,
           openedAtMs,
           openingCashRp,
+        };
+      } catch (error) {
+        try {
+          db.exec("ROLLBACK");
+        } catch {
+          // Error asli tetap dilempar.
+        }
+        throw error;
+      }
+    },
+
+    closeShift(actor, shiftIdInput, input) {
+      if (actor.role !== "CASHIER") {
+        throw new ForbiddenError("Hanya CASHIER pemilik shift yang boleh menutup shift.");
+      }
+      if (
+        typeof shiftIdInput !== "number" ||
+        !Number.isSafeInteger(shiftIdInput) ||
+        shiftIdInput <= 0
+      ) {
+        throw new ValidationError("shiftId harus ID positif.", "shiftId");
+      }
+      const shiftId = shiftIdInput;
+      const closeKey = normalizeCloseKey(input?.closeKey);
+      const declaredCashRp = normalizeDeclaredCash(input?.declaredCashRp);
+      const hash = computeShiftCloseHash({
+        shiftId,
+        cashierId: actor.userId,
+        closeKey,
+        declaredCashRp,
+      });
+
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        assertActiveCashier(actor);
+        const existing = db
+          .prepare("SELECT shift_id, request_hash FROM shift_closings WHERE close_key = ?")
+          .get(closeKey) as { shift_id: number; request_hash: Uint8Array } | undefined;
+        if (existing) {
+          if (
+            Number(existing.shift_id) !== shiftId ||
+            Buffer.compare(Buffer.from(existing.request_hash), hash.bytes) !== 0
+          ) {
+            throw new CloseIdempotencyConflictError();
+          }
+          const result = loadClosing(shiftId, closeKey, hash.hex);
+          db.exec("COMMIT");
+          return result;
+        }
+
+        const shift = db
+          .prepare(
+            "SELECT id, cashier_id, opening_cash_rp, closed_at_ms FROM shifts WHERE id = ?",
+          )
+          .get(shiftId) as
+          | {
+              id: number;
+              cashier_id: number;
+              opening_cash_rp: number | null;
+              closed_at_ms: number | null;
+            }
+          | undefined;
+        if (!shift) {
+          throw new ShiftNotFoundError();
+        }
+        if (Number(shift.cashier_id) !== actor.userId) {
+          throw new ForbiddenError("Akses ditolak: shift bukan milik kasir ini.");
+        }
+        if (shift.closed_at_ms !== null) {
+          throw new ShiftClosedError();
+        }
+
+        // Rekap hanya dari sale yang sudah COMMITTED (tabel sales). QRIS
+        // tidak masuk laci kas (DEC-016, rumus usulan/DEMO).
+        const paymentRows = db
+          .prepare(
+            `SELECT p.method_code AS method_code, COALESCE(SUM(p.amount_rp), 0) AS total_rp
+             FROM payments p
+             JOIN sales s ON s.id = p.sale_id
+             JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
+             WHERE ca.shift_id = ?
+             GROUP BY p.method_code`,
+          )
+          .all(shiftId) as Array<{ method_code: string; total_rp: number }>;
+        let cashRp = 0;
+        let qrisManualRp = 0;
+        for (const row of paymentRows) {
+          if (row.method_code === "CASH") {
+            cashRp = Number(row.total_rp);
+          } else if (row.method_code === "QRIS_MANUAL") {
+            qrisManualRp = Number(row.total_rp);
+          }
+        }
+        const saleCount = Number(
+          (
+            db
+              .prepare(
+                `SELECT COUNT(*) AS total FROM sales s
+                 JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
+                 WHERE ca.shift_id = ?`,
+              )
+              .get(shiftId) as { total: number }
+          ).total,
+        );
+        const openingCashRp =
+          shift.opening_cash_rp === null ? null : Number(shift.opening_cash_rp);
+        const expectedCashRp = (openingCashRp ?? 0) + cashRp;
+        const varianceRp = declaredCashRp === null ? null : declaredCashRp - expectedCashRp;
+        const closedAtMs = now();
+
+        try {
+          db.prepare(
+            `INSERT INTO shift_closings
+               (shift_id, close_key, request_hash, closed_by, declared_cash_rp, variance_rp)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          ).run(shiftId, closeKey, hash.bytes, actor.userId, declaredCashRp, varianceRp);
+        } catch (error) {
+          if (errorMessage(error).includes("UNIQUE constraint failed")) {
+            throw new CloseIdempotencyConflictError();
+          }
+          throw error;
+        }
+        const insertTotal = db.prepare(
+          "INSERT INTO shift_closing_totals (shift_id, method_code, amount_rp) VALUES (?, ?, ?)",
+        );
+        insertTotal.run(shiftId, "CASH", cashRp);
+        insertTotal.run(shiftId, "QRIS_MANUAL", qrisManualRp);
+        db.prepare("UPDATE shifts SET closed_at_ms = ? WHERE id = ?").run(closedAtMs, shiftId);
+        writeShiftAudit(db, {
+          actorId: actor.userId,
+          action: "SHIFT_CLOSED",
+          entityType: "shifts",
+          entityId: shiftId,
+          details: { closeKey, saleCount },
+          nowMs: closedAtMs,
+        });
+        db.exec("COMMIT");
+        return {
+          shiftId,
+          closeKey,
+          requestHash: hash.hex,
+          closedAtMs,
+          closedBy: actor.userId,
+          openingCashRp,
+          expectedCashRp,
+          declaredCashRp,
+          varianceRp,
+          totals: {
+            cashRp,
+            qrisManualRp,
+            totalSalesRp: cashRp + qrisManualRp,
+            saleCount,
+          },
         };
       } catch (error) {
         try {

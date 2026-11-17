@@ -41,7 +41,7 @@
 | `PATCH /products/:id` | ADMIN | perubahan katalog | audit harga |
 | `GET /shifts/current` | login | shift aktif atau null | kasir hanya shift milik sendiri; ADMIN ringkasan |
 | `POST /shifts/open` | CASHIER | shiftId, openingCashRp | ADMIN **belum diizinkan** selama DEC-019 `PENDING`; cek tidak ada shift aktif |
-| `POST /shifts/:id/close` | CASHIER pemegang shift saja (atau ADMIN jika dia sendiri pemilik shift) | closing, totals, variance | closeKey idempotent |
+| `POST /shifts/:id/close` | CASHIER pemegang shift | closing, totals, variance | closeKey idempotent; ADMIN belum diizinkan (DEC-019 `PENDING`) |
 | `POST /checkouts/prepare` | CASHIER pada shift | attemptKey, ringkasan harga dan status | **tidak** membuat sale |
 | `POST /checkouts/commit` | CASHIER pada shift | saleId, saleNo, totalRp, payment method | commit atomik |
 | `GET /checkouts/:attemptKey` | owner/ADMIN | status PREPARED / COMMITTED / ABANDONED | pemulihan |

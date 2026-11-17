@@ -368,6 +368,14 @@ function createShiftRoutes(shift: ShiftService): Route[] {
       roles: ["ADMIN", "CASHIER"],
       handler: (ctx) => ({ data: shift.getCurrentShift(actorOf(ctx)) }),
     },
+    {
+      method: "POST",
+      pattern: /^\/shifts\/(?<id>\d+)\/close$/,
+      roles: ["CASHIER"],
+      handler: (ctx) => ({
+        data: shift.closeShift(actorOf(ctx), Number(ctx.params.id), asObject(ctx.body)),
+      }),
+    },
   ];
 }
 
