@@ -279,6 +279,21 @@ function snapshot() {
         .prepare("SELECT method_code FROM payments ORDER BY id")
         .all()
         .map((row) => row.method_code),
+      saleMoney: db
+        .prepare(
+          `SELECT s.id AS saleId, s.sale_no AS saleNo, s.total_rp AS saleTotalRp,
+                  (SELECT COALESCE(SUM(si.line_total_rp), 0) FROM sale_items si WHERE si.sale_id = s.id) AS itemTotalRp,
+                  (SELECT COALESCE(SUM(p.amount_rp), 0) FROM payments p WHERE p.sale_id = s.id) AS paymentAmountRp
+           FROM sales s ORDER BY s.id`,
+        )
+        .all()
+        .map((row) => ({
+          saleId: Number(row.saleId),
+          saleNo: row.saleNo,
+          saleTotalRp: Number(row.saleTotalRp),
+          itemTotalRp: Number(row.itemTotalRp),
+          paymentAmountRp: Number(row.paymentAmountRp),
+        })),
       integrity,
       fkViolations,
       reconciled:
@@ -301,6 +316,9 @@ function core(s) {
     payments: s.counts.payments,
     movements: s.counts.movements,
     stock: s.stock,
+    saleTotalRp: s.money.saleTotalRp,
+    itemTotalRp: s.money.itemTotalRp,
+    paymentAmountRp: s.money.paymentAmountRp,
   };
 }
 
@@ -312,7 +330,16 @@ function deltaOf(before, after) {
   return out;
 }
 
-const NO_MUTATION = { sales: 0, saleItems: 0, payments: 0, movements: 0, stock: 0 };
+const NO_MUTATION = {
+  sales: 0,
+  saleItems: 0,
+  payments: 0,
+  movements: 0,
+  stock: 0,
+  saleTotalRp: 0,
+  itemTotalRp: 0,
+  paymentAmountRp: 0,
+};
 
 function record(ac, label, before, after, expectedDelta, extra = {}) {
   assert.equal(before.reconciled, true, `rekonsiliasi SEBELUM gagal: ${JSON.stringify(before)}`);
@@ -485,6 +512,9 @@ async function main() {
     payments: 0,
     movements: 1,
     stock: 5,
+    saleTotalRp: 0,
+    itemTotalRp: 0,
+    paymentAmountRp: 0,
   });
   lastCallIndex = calls.length;
   pass("SETUP", `SQLite sementara + server loopback ${baseUrl}; baseline ${JSON.stringify(core(s0))}`, {
@@ -668,12 +698,15 @@ async function main() {
   assert.equal(happyCommit.data.payment.changeRp, 10_000);
   assert.equal(happyCommit.data.totalRp, 10_000);
   const afterHappy = snapshot();
-  record("AC-03.05", "Prepare tanpa sale; commit 2×Rp5.000 → 1 sale + 1 payment + 1 mutasi; stok 5→3; kembalian Rp10.000", beforeHappy, afterHappy, {
+  record("AC-03.05", "Prepare tanpa sale; commit 2×Rp5.000 → 1 sale + 1 payment + 1 mutasi; stok 5→3; uang tersimpan +Rp10.000; kembalian Rp10.000", beforeHappy, afterHappy, {
     sales: 1,
     saleItems: 1,
     payments: 1,
     movements: 1,
     stock: -2,
+    saleTotalRp: 10_000,
+    itemTotalRp: 10_000,
+    paymentAmountRp: 10_000,
   }, {
     saleNo: happyCommit.data.saleNo,
     saleId: happyCommit.data.saleId,
@@ -709,12 +742,15 @@ async function main() {
   const conflict = await prepare(baseUrl, cashierToken, 3, "isi-berbeda", doublePrepare.data.attemptKey);
   assertCall(conflict, 409, "kunci sama isi berbeda");
   assert.equal(conflict.errorCode, "IDEMPOTENCY_CONFLICT");
-  record("AC-04.01", "Retry identik & dua commit paralel → satu sale; attemptKey sama isi beda → 409 tanpa mutasi", beforeIdem, snapshot(), {
+  record("AC-04.01", "Retry identik & dua commit paralel → satu sale; uang tersimpan +Rp5.000; attemptKey sama isi beda → 409 tanpa mutasi", beforeIdem, snapshot(), {
     sales: 1,
     saleItems: 1,
     payments: 1,
     movements: 1,
     stock: -1,
+    saleTotalRp: 5_000,
+    itemTotalRp: 5_000,
+    paymentAmountRp: 5_000,
   }, {
     doubleClickSaleId: doubleA.data.saleId,
     conflictingAttemptKey: doublePrepare.data.attemptKey,
@@ -724,6 +760,7 @@ async function main() {
   // 7. AC-03.03 — harga berubah setelah prepare.
   // ---------------------------------------------------------------------------
   const beforePrice = snapshot();
+  const historicalBeforePrice = beforePrice.saleMoney;
   const stalePrepare = await prepare(baseUrl, cashierToken, 1, "harga-lama");
   assertCall(stalePrepare, 200, "prepare harga lama");
   assert.equal(stalePrepare.data.quote.totalRp, 5000);
@@ -738,6 +775,7 @@ async function main() {
   assertCall(staleCommit, 409, "commit harga lama");
   assert.equal(staleCommit.errorCode, "PRICE_CHANGED");
   assert.deepEqual(core(snapshot()), core(beforePrice));
+  assert.deepEqual(snapshot().saleMoney, historicalBeforePrice, "PRICE_CHANGED tidak boleh mengubah baris uang sale/item/payment historis");
   const revisedPrepare = await prepare(baseUrl, cashierToken, 1, "harga-baru");
   assertCall(revisedPrepare, 200, "prepare harga baru");
   assert.equal(revisedPrepare.data.quote.totalRp, 6000);
@@ -745,12 +783,20 @@ async function main() {
   assertCall(revisedCommit, 200, "commit harga baru");
   assert.equal(revisedCommit.data.payment.changeRp, 0);
   const afterPrice = snapshot();
-  record("AC-03.03", "PRICE_CHANGED 409 tanpa commit; quote baru Rp6.000 disetujui lalu sukses; snapshot lama tetap Rp5.000", beforePrice, afterPrice, {
+  assert.deepEqual(
+    afterPrice.saleMoney.slice(0, historicalBeforePrice.length),
+    historicalBeforePrice,
+    "sale/item/payment historis tetap memakai harga lama setelah perubahan harga",
+  );
+  record("AC-03.03", "PRICE_CHANGED 409 tanpa commit; quote baru Rp6.000 disetujui lalu sukses; uang tersimpan +Rp6.000; baris historis tetap Rp5.000", beforePrice, afterPrice, {
     sales: 1,
     saleItems: 1,
     payments: 1,
     movements: 1,
     stock: -1,
+    saleTotalRp: 6_000,
+    itemTotalRp: 6_000,
+    paymentAmountRp: 6_000,
   }, {
     staleAttemptKey: stalePrepare.data.attemptKey,
     revisedAttemptKey: revisedPrepare.data.attemptKey,
@@ -770,12 +816,15 @@ async function main() {
   const correctedCommit = await commit(baseUrl, cashierToken, corrected, 6000, "commit-stok-dikoreksi");
   assertCall(correctedCommit, 200, "commit stok dikoreksi");
   const afterStock = snapshot();
-  record("AC-03.06", "Stok 1 menolak qty 5 tanpa mutasi; koreksi qty 1 sukses, stok 0", beforeStock, afterStock, {
+  record("AC-03.06", "Stok 1 menolak qty 5 tanpa mutasi; koreksi qty 1 sukses, stok 0, uang tersimpan +Rp6.000", beforeStock, afterStock, {
     sales: 1,
     saleItems: 1,
     payments: 1,
     movements: 1,
     stock: -1,
+    saleTotalRp: 6_000,
+    itemTotalRp: 6_000,
+    paymentAmountRp: 6_000,
   });
 
   // Tambah stok sintetis untuk dua uji interupsi (bukan transaksi penjualan).
@@ -823,12 +872,15 @@ async function main() {
   assert.deepEqual(core(snapshot()), core(beforeCrashA));
   const resumed = await commit(baseUrl, cashierToken, pending, 6000, "lanjut-setelah-mati");
   assertCall(resumed, 200, "lanjut commit setelah mati");
-  record("AC-03.05", "SIGKILL sebelum commit: nol data parsial; upaya PREPARED tetap ada; commit ulang niat sama → 1 sale", beforeCrashA, snapshot(), {
+  record("AC-03.05", "SIGKILL sebelum commit: nol data parsial; upaya PREPARED tetap ada; commit ulang niat sama → 1 sale dan uang +Rp6.000", beforeCrashA, snapshot(), {
     sales: 1,
     saleItems: 1,
     payments: 1,
     movements: 1,
     stock: -1,
+    saleTotalRp: 6_000,
+    itemTotalRp: 6_000,
+    paymentAmountRp: 6_000,
   }, {
     attemptKey: pending.data.attemptKey,
     statusAfterRestart: pendingStatus.data.status,
@@ -855,12 +907,15 @@ async function main() {
   assert.equal(storedStatus.data.status, "COMMITTED");
   assert.equal(storedStatus.data.saleId, done.data.saleId);
   assert.deepEqual(core(snapshot()), core(afterDone), "restart tidak boleh menambah sale/mutasi");
-  record("AC-04.01", "SIGKILL setelah commit: hasil COMMITTED ditemukan dengan saleId sama; tanpa penagihan/penjualan ulang", beforeCrashB, snapshot(), {
+  record("AC-04.01", "SIGKILL setelah commit: hasil COMMITTED ditemukan dengan saleId sama; uang +Rp6.000; tanpa penagihan/penjualan ulang", beforeCrashB, snapshot(), {
     sales: 1,
     saleItems: 1,
     payments: 1,
     movements: 1,
     stock: -1,
+    saleTotalRp: 6_000,
+    itemTotalRp: 6_000,
+    paymentAmountRp: 6_000,
   }, {
     attemptKey: afterCommitPrep.data.attemptKey,
     saleId: done.data.saleId,
@@ -951,8 +1006,11 @@ async function main() {
   assert.equal(finalSnap.counts.sales, finalSnap.counts.saleItems);
   assert.equal(finalSnap.counts.sales, 6, "enam commit sukses yang direncanakan");
   assert.equal(finalSnap.stock, 3, "saldo akhir = 5 + 5 - 7 unit terjual");
+  assert.equal(finalSnap.money.saleTotalRp, 39_000, "total sale tersimpan harus Rp39.000");
+  assert.equal(finalSnap.money.itemTotalRp, 39_000, "total item tersimpan harus Rp39.000");
+  assert.equal(finalSnap.money.paymentAmountRp, 39_000, "total payment tersimpan harus Rp39.000");
   assert.ok(finalSnap.paymentMethods.every((method) => method === "CASH"));
-  pass("REKONSILIASI", `Integritas ok, FK 0, 6 sale = 6 payment = 6 item, saldo 3, semua CASH`, {
+  pass("REKONSILIASI", `Integritas ok, FK 0, 6 sale = 6 payment = 6 item, saldo 3, total uang tersimpan Rp39.000, semua CASH`, {
     final: finalSnap,
   });
 }
