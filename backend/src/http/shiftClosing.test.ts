@@ -203,6 +203,9 @@ test("AC-06.01/06.02/06.03 via HTTP: tutup shift, idempotensi, otorisasi, restar
     const reopened = database.open();
     running = await start(reopened, randomBytes(32));
     const relogin = await login(running.url, "kasir.close");
+    const readAfterRestart = await call(running.url, `/shifts/${shiftId}/close`, { token: relogin });
+    assert.equal(readAfterRestart.status, 200);
+    assert.deepEqual(readAfterRestart.json.data, closing.json.data);
     const afterRestart = await call(running.url, `/shifts/${shiftId}/close`, {
       method: "POST",
       token: relogin,
@@ -267,4 +270,44 @@ test("AC-01.03: kasir lain dan ADMIN ditolak 403 pada penutupan shift", async ()
     db.close();
     database.cleanup();
   }
+});
+
+test("GET preview dan hasil penutupan: owner, 403, 404 dan read-only", async () => {
+  const { database, db } = setup();
+  const running = await start(db, randomBytes(32));
+  try {
+    const base = running.url;
+    const token = await login(base, "kasir.close");
+    const other = await login(base, "kasir.lain.close");
+    const admin = await login(base, "admin.close");
+    const opened = await call(base, "/shifts/open", { token, payload: { openingCashRp: OPENING_CASH_RP } });
+    const id = (opened.json.data as { id: number }).id;
+    await prepareAndCommit(base, token, id);
+    const previewPath = `/shifts/${id}/close/preview`;
+    const closePath = `/shifts/${id}/close`;
+    const before = [countRows(db, "audit_log"), countRows(db, "shift_closings"), countRows(db, "shift_closing_totals")];
+    const first = await call(base, previewPath, { token });
+    const second = await call(base, previewPath, { token });
+    assert.equal(first.status, 200);
+    assert.deepEqual(first.json.data, second.json.data);
+    assert.deepEqual(first.json.data, { shiftId: id, openingCashRp: OPENING_CASH_RP, cashTotalRp: SALE_TOTAL_RP, qrisTotalRp: 0, expectedCashRp: OPENING_CASH_RP + SALE_TOTAL_RP, saleCount: 1 });
+    assert.deepEqual([countRows(db, "audit_log"), countRows(db, "shift_closings"), countRows(db, "shift_closing_totals")], before);
+    assert.equal(((await call(base, "/shifts/current", { token })).json.data as { id: number }).id, id);
+    assert.equal((await call(base, closePath, { token })).status, 404);
+    for (const path of [previewPath, closePath]) {
+      assert.equal((await call(base, path, { token: other })).status, 403);
+      assert.equal((await call(base, path, { token: admin })).status, 403);
+      assert.equal((await call(base, path)).status, 401);
+    }
+    assert.equal((await call(base, "/shifts/999999/close/preview", { token })).status, 404);
+    assert.equal((await call(base, "/shifts/999999/close", { token })).status, 404);
+    const closed = await call(base, closePath, { token, payload: { closeKey: "http-read-close", declaredCashRp: OPENING_CASH_RP + SALE_TOTAL_RP } });
+    assert.equal(closed.status, 200);
+    const read = await call(base, closePath, { token });
+    assert.equal(read.status, 200);
+    assert.deepEqual(read.json.data, closed.json.data);
+    assert.equal((await call(base, previewPath, { token })).status, 409);
+    assert.equal((await call(base, closePath, { token: other })).status, 403);
+    assert.equal((await call(base, closePath, { token: admin })).status, 403);
+  } finally { await running.close(); db.close(); database.cleanup(); }
 });

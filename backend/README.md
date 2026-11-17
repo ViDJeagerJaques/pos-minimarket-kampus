@@ -279,6 +279,14 @@ endpoint HTTP untuk ledger (TASK-026/025 akan memakainya).
 Status: **DEMO**; angka setoran memakai simulasi TASK-002 §7, bukan SOP sah.
 
 - `POST /api/v1/shifts/:id/close` hanya CASHIER pemilik; ADMIN ditolak 403.
+- `GET /api/v1/shifts/:id/close/preview` membaca rekap shift aktif tanpa mutasi:
+  `openingCashRp`, `cashTotalRp`, `qrisTotalRp`, `expectedCashRp`, `saleCount`.
+  Hasil adalah snapshot, dapat berubah jika penjualan commit sebelum tutup.
+- `GET /api/v1/shifts/:id/close` membaca DTO hasil tutup yang sama seperti POST;
+  hasil belum tersimpan atau shift tidak ada → 404. Kedua GET hanya CASHIER
+  aktif pemilik; kasir lain dan ADMIN ditolak 403. Preview shift tertutup → 409.
+- Setelah timeout, 404 dari GET tidak membuktikan POST gagal jika masih berjalan;
+  periksa kembali atau retry POST identik dengan `closeKey` dan payload yang sama.
 - `closeKey` idempoten: payload sama → hasil lama; payload beda → 409.
 - Rekap `shift_closing_totals` berasal dari `payments` pada `sales` COMMITTED
   di shift itu. QRIS dilaporkan terpisah, tidak masuk laci.
