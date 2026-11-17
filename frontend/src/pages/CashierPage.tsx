@@ -123,9 +123,13 @@ export function CashierPage({
   const barcodeSeqRef = useRef(0);
   const sessionEpochRef = useRef(sessionEpoch);
   const checkoutLockRef = useRef(false);
+  /** Garis draft yang benar-benar dikirim pada prepare; dipakai saat membersihkan draft. */
+  const snapshotLinesRef = useRef<CartLine[]>([]);
   const cashInputId = useId();
   const openingCashId = useId();
   sessionEpochRef.current = sessionEpoch;
+  /** Draft dikunci sejak prepare sampai checkout selesai atau dibatalkan. */
+  const isCheckoutActive = phase.kind !== "idle";
 
   const handleActionError = useCallback(
     (error: unknown, fallback: string) => {
@@ -173,6 +177,8 @@ export function CashierPage({
           onSessionExpired();
           return;
         }
+        // Tampilkan form + retry, bukan "Memuat shift…" selamanya.
+        setShift(null);
         setShiftError(error instanceof ApiError ? error.message : "Shift gagal dimuat.");
       });
     return () => {
@@ -198,10 +204,12 @@ export function CashierPage({
   }
 
   function addToCart(product: ProductSummary) {
+    if (isCheckoutActive || checkoutLockRef.current) return;
     applyResult(addProduct(lines, product), `${product.name} ditambahkan ke keranjang (draft).`);
   }
 
   async function handleBarcode(code: string) {
+    if (isCheckoutActive || checkoutLockRef.current) return;
     const requestSeq = ++barcodeSeqRef.current;
     const requestEpoch = sessionEpochRef.current;
     try {
@@ -246,6 +254,7 @@ export function CashierPage({
   }
 
   function changeQuantity(productId: number, delta: number) {
+    if (isCheckoutActive || checkoutLockRef.current) return;
     const line = lines.find((item) => item.productId === productId);
     if (!line) {
       return;
@@ -254,6 +263,7 @@ export function CashierPage({
   }
 
   function handleRemove(productId: number) {
+    if (isCheckoutActive || checkoutLockRef.current) return;
     const line = lines.find((item) => item.productId === productId);
     onLinesChange(removeLine(lines, productId));
     if (line) {
@@ -350,6 +360,10 @@ export function CashierPage({
       return;
     }
     checkoutLockRef.current = true;
+    // Batalkan lookup barcode yang masih berjalan agar tidak menambah baris setelah quote.
+    barcodeSeqRef.current += 1;
+    // Snapshot garis yang dikirim ke backend; commit hanya boleh menghapus ini.
+    snapshotLinesRef.current = lines;
     setPhase({ kind: "preparing" });
     try {
       // attemptKey baru dibuat sekali per niat; retry memakai kunci yang sama.
@@ -358,6 +372,7 @@ export function CashierPage({
       setPhase({ kind: "payment", attempt });
       setStatus({ tone: "info", text: "Quote pricing tersimpan. Periksa total sebelum membayar." });
     } catch (error) {
+      snapshotLinesRef.current = [];
       setPhase({ kind: "idle" });
       handleActionError(error, "Quote checkout gagal disiapkan.");
     } finally {
@@ -378,10 +393,19 @@ export function CashierPage({
     }
   }
 
-  function commitSucceeded(result: CommitCheckoutResult): void {
+  function commitSucceeded(result: CommitCheckoutResult, epoch: number): void {
+    // Commit bisa selesai setelah logout/pindah halaman; jangan sentuh draft sesi baru.
+    if (epoch !== sessionEpochRef.current) return;
     setPhase({ kind: "success", result });
-    // Draft dibersihkan HANYA setelah backend mengonfirmasi COMMITTED.
-    onLinesChange([]);
+    // Draft dibersihkan HANYA setelah backend mengonfirmasi COMMITTED, dan hanya
+    // garis yang masuk snapshot prepare. Baris lain tidak ikut terhapus.
+    const soldProductIds = new Set(snapshotLinesRef.current.map((line) => line.productId));
+    onLinesChange((current) =>
+      soldProductIds.size > 0
+        ? current.filter((line) => !soldProductIds.has(line.productId))
+        : [],
+    );
+    snapshotLinesRef.current = [];
     barcodeSeqRef.current += 1;
     setStatus({ tone: "success", text: `Transaksi ${result.saleNo} tersimpan di backend.` });
   }
@@ -403,8 +427,9 @@ export function CashierPage({
         void reloadShift();
         return;
       }
-      if (error.code === "NETWORK_ERROR") {
-        // Jangan buat upaya baru dan jangan minta pembayaran fisik lagi.
+      if (error.code === "NETWORK_ERROR" || error.code === "INVALID_RESPONSE") {
+        // Respons bisa saja berhasil di server tetapi gagal dibaca klien. Jangan
+        // buat upaya baru dan jangan minta pembayaran fisik lagi: arahkan ke lookup.
         setPhase({ kind: "timeout", attempt, cashReceivedRp });
         setStatus({ tone: "danger", text: MSG_TIMEOUT });
         return;
@@ -422,6 +447,7 @@ export function CashierPage({
       return;
     }
     const attempt = phase.attempt;
+    const epoch = sessionEpochRef.current;
     checkoutLockRef.current = true;
     setPhase({ kind: "committing", attempt });
     try {
@@ -430,7 +456,7 @@ export function CashierPage({
         requestHash: attempt.requestHash,
         paymentConfirmation: { method: "CASH", cashReceivedRp },
       });
-      commitSucceeded(result);
+      commitSucceeded(result, epoch);
     } catch (error) {
       await handleCommitError(error, attempt, cashReceivedRp);
     } finally {
@@ -441,6 +467,7 @@ export function CashierPage({
   /** Lanjutkan UPAYA YANG SAMA setelah status PREPARED diketahui (bukan transaksi baru). */
   async function resumeSameAttempt(attempt: PrepareCheckoutResult, cashReceivedRp: number): Promise<void> {
     if (checkoutLockRef.current) return;
+    const epoch = sessionEpochRef.current;
     checkoutLockRef.current = true;
     setPhase({ kind: "committing", attempt });
     try {
@@ -449,7 +476,7 @@ export function CashierPage({
         requestHash: attempt.requestHash,
         paymentConfirmation: { method: "CASH", cashReceivedRp },
       });
-      commitSucceeded(result);
+      commitSucceeded(result, epoch);
     } catch (error) {
       await handleCommitError(error, attempt, cashReceivedRp);
     } finally {
@@ -460,11 +487,12 @@ export function CashierPage({
   async function checkAttemptStatus(): Promise<void> {
     if (isCheckingStatus || phase.kind !== "timeout") return;
     const { attempt } = phase;
+    const epoch = sessionEpochRef.current;
     setIsCheckingStatus(true);
     try {
       const result = await dataSource.getCheckoutStatus(attempt.attemptKey);
       if (result.status === "COMMITTED") {
-        commitSucceeded(result);
+        commitSucceeded(result, epoch);
         return;
       }
       setPhase({ ...phase, known: result.status });
@@ -484,6 +512,7 @@ export function CashierPage({
 
   function startNewDraft(): void {
     // Tidak ada API dipanggil; ini hanya membersihkan UI setelah status ABANDONED.
+    snapshotLinesRef.current = [];
     onLinesChange([]);
     setPhase({ kind: "idle" });
     setCashInput("");
@@ -493,6 +522,7 @@ export function CashierPage({
 
   function closePayment(): void {
     // PREPARED tidak membuat penjualan; menutup dialog hanya membuang referensi UI.
+    snapshotLinesRef.current = [];
     setPhase({ kind: "idle" });
     setCashInput("");
     focusBarcode();
@@ -502,8 +532,6 @@ export function CashierPage({
   const itemCount = cartItemCount(lines);
   const isCartEmpty = lines.length === 0;
   const cashValue = parseRupiahInput(cashInput);
-  const changeRp =
-    cashValue !== null && totalRp !== null && cashValue >= totalRp ? cashValue - totalRp : null;
   const canPay =
     !isDemo && shift !== null && shift !== undefined && !isCartEmpty && totalRp !== null &&
     (phase.kind === "idle" || phase.kind === "success");
@@ -514,6 +542,12 @@ export function CashierPage({
       : isCartEmpty
         ? "Tambahkan barang ke keranjang terlebih dahulu."
         : "";
+  // Kembalian mengikuti total pada quote yang disetujui, bukan draft yang bisa berubah.
+  const quoteTotalRp = phase.kind === "payment" ? phase.attempt.quote.totalRp : null;
+  const quoteChangeRp =
+    quoteTotalRp !== null && cashValue !== null && cashValue >= quoteTotalRp
+      ? cashValue - quoteTotalRp
+      : null;
 
   return (
     <div className="cashier">
@@ -528,6 +562,17 @@ export function CashierPage({
               <p className="field-error" role="alert">
                 {shiftError ?? "Belum ada shift aktif milik kasir ini."}
               </p>
+              {shiftError !== null && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setShiftError(null);
+                    void reloadShift();
+                  }}
+                >
+                  Coba lagi
+                </Button>
+              )}
               <label htmlFor={openingCashId} className="field-label">
                 Modal awal (Rp, opsional)
               </label>
@@ -543,14 +588,23 @@ export function CashierPage({
             </p>
           )}
         </div>
-        <BarcodeInput ref={barcodeRef} onSubmitCode={(code) => void handleBarcode(code)} />
-        <ProductSearch search={(query) => dataSource.searchActiveProducts(query)} onAdd={handleAddFromSearch} />
+        <BarcodeInput
+          ref={barcodeRef}
+          onSubmitCode={(code) => void handleBarcode(code)}
+          disabled={isCheckoutActive}
+        />
+        <ProductSearch
+          search={(query) => dataSource.searchActiveProducts(query)}
+          onAdd={handleAddFromSearch}
+          disabled={isCheckoutActive}
+        />
         <h2 className="section-title">Keranjang</h2>
         <CartList
           lines={lines}
           onIncrease={(id) => changeQuantity(id, 1)}
           onDecrease={(id) => changeQuantity(id, -1)}
           onRemove={handleRemove}
+          disabled={isCheckoutActive}
         />
       </section>
 
@@ -633,7 +687,7 @@ export function CashierPage({
               aria-describedby="change-info"
             />
             <p id="change-info" className="muted">
-              Kembalian: <MoneyText amountRp={changeRp} />
+              Kembalian: <MoneyText amountRp={quoteChangeRp} />
             </p>
             <p className="muted">
               Upaya: <code>{phase.attempt.attemptKey}</code>. Jangan ulangi pembayaran fisik jika respons lambat.
@@ -707,6 +761,7 @@ export function CashierPage({
               {phase.known === "PREPARED" && (
                 <Button
                   variant="primary"
+                  disabled={isCheckingStatus}
                   onClick={() => void resumeSameAttempt(phase.attempt, phase.cashReceivedRp)}
                 >
                   Lanjutkan commit upaya ini

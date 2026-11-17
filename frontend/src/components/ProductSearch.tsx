@@ -13,10 +13,12 @@ type SearchState =
 interface ProductSearchProps {
   search: (query: string) => Promise<ProductSummary[]>;
   onAdd: (product: ProductSummary) => void;
+  /** Dinonaktifkan saat checkout berjalan agar draft tidak berubah setelah quote. */
+  disabled?: boolean;
 }
 
 /** Pencarian manual nama/SKU/barcode dengan state loading, kosong, dan gagal. */
-export function ProductSearch({ search, onAdd }: ProductSearchProps) {
+export function ProductSearch({ search, onAdd, disabled = false }: ProductSearchProps) {
   const [query, setQuery] = useState("");
   const [state, setState] = useState<SearchState>({ kind: "idle" });
   const searchSeqRef = useRef(0);
@@ -71,8 +73,9 @@ export function ProductSearch({ search, onAdd }: ProductSearchProps) {
             placeholder="Nama, SKU, atau barcode"
             value={query}
             onChange={(event) => handleQueryChange(event.target.value)}
+            disabled={disabled}
           />
-          <Button type="submit" variant="secondary">
+          <Button type="submit" variant="secondary" disabled={disabled}>
             Cari
           </Button>
         </div>
@@ -92,7 +95,7 @@ export function ProductSearch({ search, onAdd }: ProductSearchProps) {
               <Button
                 variant="secondary"
                 onClick={() => onAdd(product)}
-                disabled={product.stock <= 0}
+                disabled={disabled || product.stock <= 0}
                 aria-label={`Tambah ${product.name}`}
               >
                 Tambah
