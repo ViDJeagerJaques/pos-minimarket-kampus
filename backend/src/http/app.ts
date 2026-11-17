@@ -369,6 +369,18 @@ function createShiftRoutes(shift: ShiftService): Route[] {
       handler: (ctx) => ({ data: shift.getCurrentShift(actorOf(ctx)) }),
     },
     {
+      method: "GET",
+      pattern: /^\/shifts\/(?<id>\d+)\/close\/preview$/,
+      roles: ["CASHIER"],
+      handler: (ctx) => ({ data: shift.getClosePreview(actorOf(ctx), Number(ctx.params.id)) }),
+    },
+    {
+      method: "GET",
+      pattern: /^\/shifts\/(?<id>\d+)\/close$/,
+      roles: ["CASHIER"],
+      handler: (ctx) => ({ data: shift.getClosing(actorOf(ctx), Number(ctx.params.id)) }),
+    },
+    {
       method: "POST",
       pattern: /^\/shifts\/(?<id>\d+)\/close$/,
       roles: ["CASHIER"],
