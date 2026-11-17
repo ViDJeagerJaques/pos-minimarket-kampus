@@ -292,4 +292,20 @@ Status: **DEMO**, lulus tes service + HTTP pada database sementara.
 - Audit `SHIFT_OPENED` (AUD-05) ditulis dalam transaksi pembukaan; nominal kas
   tidak diduplikasi ke audit.
 
+## 12. Pemulihan hasil checkout (TASK-019)
+
+Status: **DEMO**. Endpoint `GET /api/v1/checkouts/:attemptKey` dan `getStatus`
+sudah disediakan TASK-016; TASK-019 membuktikan skenario pemulihannya tanpa
+mengubah kode yang sudah lulus tes.
+
+- Respons commit dibuang setelah server selesai commit → GET mengembalikan
+  `COMMITTED`, `saleNo`, dan `requestHash` yang sama; tetap tersedia setelah
+  shift ditutup.
+- Restart setelah `PREPARED` → status dan `requestHash` tidak berubah; commit
+  memakai hash lama tetap diterima.
+- GET bersifat read-only (jumlah `sales`/`payments`/mutasi/audit tidak berubah).
+- Kasir lain → 403 tanpa `saleNo`/`quote`/hash; ADMIN → ringkasan; kunci tak
+  dikenal → 404 generik; tanpa sesi → 401.
+
+
 
