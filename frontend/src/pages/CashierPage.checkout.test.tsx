@@ -120,7 +120,7 @@ function Harness({
     <CashierPage
       dataSource={source}
       draftId="draft-test"
-      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }}
+      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }} onDraftRestore={(id, restored) => { if (id === "draft-test") setLines(current => current.length ? current : restored); }}
       lines={lines}
       onLinesChange={setLines}
       sessionEpoch={1}
@@ -323,7 +323,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
       const [visible, setVisible] = useState(true);
       return <><button onClick={() => { setLines(current => [...current, extra]); setVisible(false); }}>Pindah</button>
         <button onClick={() => setVisible(true)}>Kembali</button>
-        {visible && <CashierPage dataSource={source} draftId="draft-test" onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }} lines={lines} onLinesChange={setLines} sessionEpoch={1} cashierId={2} onSessionExpired={vi.fn()} />}</>;
+        {visible && <CashierPage dataSource={source} draftId="draft-test" onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }} onDraftRestore={(id, restored) => { if (id === "draft-test") setLines(current => current.length ? current : restored); }} lines={lines} onLinesChange={setLines} sessionEpoch={1} cashierId={2} onSessionExpired={vi.fn()} />}</>;
     }
     render(<NavigationHarness />);
     await openPayment(user);
@@ -445,6 +445,60 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2"));
     expect((screen.getByRole("button", { name: "Lanjut pembayaran" }) as HTMLButtonElement).disabled).toBe(true);
     expect(localStorage.getItem("pos.checkout.recovery.2.co_test_1")).toBeNull();
+  });
+
+  it.each(["INSUFFICIENT_STOCK", "SHIFT_NOT_ACTIVE"] as const)("%s memulihkan pembelian setelah reload dengan draft kosong", async (code) => {
+    const key = "pos.checkout.recovery.2.co_test_1";
+    localStorage.setItem(key, JSON.stringify({ attempt: PREPARED, cashReceivedRp: 10000, snapshot: [LINE], draftId: "sesi-lama" }));
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+    const commit = vi.fn(async () => { throw new ApiError(409, code, "Ditolak"); });
+    const { user } = renderPage({ status, commit }, []);
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await waitFor(() => expect(screen.getByText("Produk Uji")).toBeTruthy());
+    expect(screen.getByText("1 barang")).toBeTruthy();
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
+  it("rekaman lama tanpa petunjuk stok dipulihkan secara konservatif", async () => {
+    localStorage.setItem("pos.checkout.recovery.2", JSON.stringify({ attempt: PREPARED, cashReceivedRp: 10000 }));
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+    const commit = vi.fn(async () => { throw new ApiError(409, "INSUFFICIENT_STOCK", "Ditolak"); });
+    const { user } = renderPage({ status, commit }, []);
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    expect(await screen.findByText("Produk Uji")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Tambah satu Produk Uji" }));
+    expect(screen.getByLabelText("Jumlah Produk Uji").textContent).toBe("1");
+  });
+
+  it("pemulihan penolakan tidak menimpa draft yang sudah berisi barang", async () => {
+    localStorage.setItem("pos.checkout.recovery.2.co_test_1", JSON.stringify({ attempt: PREPARED, cashReceivedRp: 10000, snapshot: [LINE] }));
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+    const commit = vi.fn(async () => { throw new ApiError(409, "INSUFFICIENT_STOCK", "Ditolak"); });
+    const other = { ...LINE, productId: 2, name: "Barang lain" };
+    const { user } = renderPage({ status, commit }, [other]);
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Menyimpan transaksi…" })).toBeNull());
+    expect(screen.getByText("Barang lain")).toBeTruthy();
+    expect(screen.queryByText("Produk Uji")).toBeNull();
+  });
+
+  it("penghapusan rekaman gagal tidak menyalin snapshot ke draft", async () => {
+    const key = "pos.checkout.recovery.2.co_test_1";
+    localStorage.setItem(key, JSON.stringify({ attempt: PREPARED, cashReceivedRp: 10000, snapshot: [LINE] }));
+    const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("denied"); });
+    try {
+      const status = vi.fn(async (): Promise<CheckoutStatusResult> => PREPARED);
+      const commit = vi.fn(async () => { throw new ApiError(409, "INSUFFICIENT_STOCK", "Ditolak"); });
+      const { user } = renderPage({ status, commit }, []);
+      await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+      await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+      expect(await screen.findByText(/Rekaman pemulihan tidak dapat dihapus/)).toBeTruthy();
+      expect(screen.getByText("0 barang")).toBeTruthy();
+      expect(localStorage.getItem(key)).not.toBeNull();
+    } finally { remove.mockRestore(); }
   });
 
   it("hasil commit lama setelah navigasi tidak mengubah draft baru di App", async () => {
@@ -581,7 +635,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
           <CashierPage
             dataSource={source}
       draftId="draft-test"
-      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }}
+      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }} onDraftRestore={(id, restored) => { if (id === "draft-test") setLines(current => current.length ? current : restored); }}
             lines={lines}
             onLinesChange={setLines}
             sessionEpoch={1}
@@ -692,7 +746,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
         <CashierPage
           dataSource={source}
       draftId="draft-test"
-      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }}
+      onDraftConsumed={(id, ids) => { if (id === "draft-test") setLines(current => ids ? current.filter(line => !ids.includes(line.productId)) : []); }} onDraftRestore={(id, restored) => { if (id === "draft-test") setLines(current => current.length ? current : restored); }}
           lines={lines}
           onLinesChange={setLines}
           sessionEpoch={epoch}

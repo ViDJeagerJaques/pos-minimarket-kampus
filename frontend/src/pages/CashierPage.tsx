@@ -39,6 +39,7 @@ interface CashierPageProps {
   lines: CartLine[];
   draftId: string;
   onDraftConsumed: (draftId: string, soldProductIds: number[] | null) => void;
+  onDraftRestore: (draftId: string, lines: CartLine[]) => void;
   onLinesChange: Dispatch<SetStateAction<CartLine[]>>;
   sessionEpoch: number;
   cashierId: number;
@@ -109,6 +110,7 @@ export function CashierPage({
   lines,
   draftId,
   onDraftConsumed,
+  onDraftRestore,
   onLinesChange,
   sessionEpoch,
   cashierId,
@@ -473,6 +475,24 @@ export function CashierPage({
     setStatus({ tone: "success", text: `Transaksi ${result.saleNo} tersimpan di backend.` });
   }
 
+  function finishRejectedAttempt(): void {
+    // Snapshot rekaman lama dapat berasal dari quote tanpa petunjuk stok.
+    const source = snapshotLinesRef.current;
+    const snapshot = source.map((line) => ({ ...line, stockHint: Number.isSafeInteger(line.stockHint) && line.stockHint >= 0 ? line.stockHint : 0 }));
+    if (snapshot.length === 0 || !snapshot.every((line) =>
+      Number.isSafeInteger(line.productId) && line.productId > 0 &&
+      typeof line.sku === "string" && typeof line.name === "string" &&
+      Number.isSafeInteger(line.unitPriceRp) && line.unitPriceRp >= 0 &&
+      Number.isSafeInteger(line.quantity) && line.quantity > 0)) {
+      setStorageWarning("Barang upaya tidak dapat dipulihkan. Rekaman tetap disimpan untuk pemeriksaan.");
+      openNextRecovery();
+      return;
+    }
+    const failedKey = removeRecovery();
+    if (failedKey === null) onDraftRestore(draftId, snapshot);
+    openNextRecovery(failedKey ?? undefined);
+  }
+
   async function handleCommitError(error: unknown, attempt: PrepareCheckoutResult, cashReceivedRp: number): Promise<void> {
     if (error instanceof ApiError) {
       if (error.isSessionExpired) {
@@ -484,16 +504,14 @@ export function CashierPage({
         return;
       }
       if (error.code === "SHIFT_NOT_ACTIVE") {
-        const failedKey = removeRecovery();
-        openNextRecovery(failedKey ?? undefined);
+        finishRejectedAttempt();
         setShift(null);
         setStatus({ tone: "warning", text: error.message });
         void reloadShift();
         return;
       }
       if (error.code === "INSUFFICIENT_STOCK") {
-        const failedKey = removeRecovery();
-        openNextRecovery(failedKey ?? undefined);
+        finishRejectedAttempt();
         handleActionError(error, "Stok tidak cukup.");
         return;
       }

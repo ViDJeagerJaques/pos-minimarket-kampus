@@ -57,6 +57,11 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       lines: typeof update === "function" ? update(current.lines) : update,
     }));
   };
+  function restoreDraft(expectedId: string, lines: CartLine[]) {
+    setDraft((current) => current.id === expectedId && current.lines.length === 0
+      ? { ...current, lines }
+      : current);
+  }
   function consumeDraft(expectedId: string, soldProductIds: number[] | null) {
     setDraft((current) => {
       if (current.id !== expectedId) return current;
@@ -146,6 +151,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           lines={draft.lines}
           draftId={draft.id}
           onDraftConsumed={consumeDraft}
+          onDraftRestore={restoreDraft}
           onLinesChange={setDraftLines}
           sessionEpoch={sessionEpochRef.current}
           cashierId={currentUser.userId}
