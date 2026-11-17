@@ -203,14 +203,17 @@ test("AC-04.01/04.02: commit berhasil lalu respons dibuang, GET mengembalikan sa
 });
 
 test("AC-04.02: restart setelah prepare sebelum commit mempertahankan status dan requestHash", async () => {
-  const { database, db } = setup();
+  const { database, db: initialDb } = setup();
+  let db = initialDb;
   let server = await start(db, randomBytes(32));
   try {
     const token = await login(server.running.url, "kasir.recover");
     const shiftId = await openShift(server.running.url, token);
     const prepared = await prepare(server.running.url, token, "recover-prepared-1", shiftId);
     await server.running.close();
-
+    // Simulasi restart proses: tutup koneksi lama, buka ulang file DB yang sama.
+    db.close();
+    db = database.open();
     server = await start(db, randomBytes(32));
     const relogin = await login(server.running.url, "kasir.recover");
     const before = counts(db);
