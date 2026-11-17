@@ -47,6 +47,15 @@ export type ShiftClosingDto = {
   totals: ShiftClosingTotals;
 };
 
+export type ShiftClosePreviewDto = {
+  shiftId: number;
+  openingCashRp: number | null;
+  cashTotalRp: number;
+  qrisTotalRp: number;
+  expectedCashRp: number;
+  saleCount: number;
+};
+
 export type CloseShiftInput = {
   closeKey?: unknown;
   declaredCashRp?: unknown;
@@ -56,6 +65,8 @@ export type ShiftService = {
   openShift(actor: SessionUser, input: { openingCashRp?: unknown }): ShiftDto;
   getCurrentShift(actor: SessionUser): ShiftDto | null;
   closeShift(actor: SessionUser, shiftId: unknown, input: CloseShiftInput): ShiftClosingDto;
+  getClosePreview(actor: SessionUser, shiftId: unknown): ShiftClosePreviewDto;
+  getClosing(actor: SessionUser, shiftId: unknown): ShiftClosingDto;
 };
 
 const MAX_OPENING_CASH_RP = 1_000_000_000;
@@ -146,6 +157,52 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
     }
     if (String(row.role) !== "CASHIER") {
       throw new ForbiddenError("Hanya CASHIER yang boleh membuka shift.");
+    }
+  }
+
+  function assertOwnedShift(actor: SessionUser, shiftIdInput: unknown) {
+    if (actor.role !== "CASHIER") throw new ForbiddenError("Hanya CASHIER pemilik shift yang diizinkan.");
+    if (typeof shiftIdInput !== "number" || !Number.isSafeInteger(shiftIdInput) || shiftIdInput <= 0) {
+      throw new ValidationError("shiftId harus ID positif.", "shiftId");
+    }
+    assertActiveCashier(actor);
+    const shift = db.prepare("SELECT id, cashier_id, opening_cash_rp, closed_at_ms FROM shifts WHERE id = ?")
+      .get(shiftIdInput) as { id: number; cashier_id: number; opening_cash_rp: number | null; closed_at_ms: number | null } | undefined;
+    if (!shift) throw new ShiftNotFoundError();
+    if (Number(shift.cashier_id) !== actor.userId) throw new ForbiddenError("Akses ditolak: shift bukan milik kasir ini.");
+    return shift;
+  }
+
+  // Digunakan baik oleh preview maupun close di dalam transaksi masing-masing.
+  function calculateTotals(shiftId: number): ShiftClosingTotals {
+    const paymentRows = db.prepare(
+      `SELECT p.method_code AS method_code, COALESCE(SUM(p.amount_rp), 0) AS total_rp
+       FROM payments p JOIN sales s ON s.id = p.sale_id
+       JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
+       WHERE ca.shift_id = ? GROUP BY p.method_code`,
+    ).all(shiftId) as Array<{ method_code: string; total_rp: number }>;
+    let cashRp = 0;
+    let qrisManualRp = 0;
+    for (const row of paymentRows) {
+      if (row.method_code === "CASH") cashRp = Number(row.total_rp);
+      else if (row.method_code === "QRIS_MANUAL") qrisManualRp = Number(row.total_rp);
+    }
+    const saleCount = Number((db.prepare(
+      `SELECT COUNT(*) AS total FROM sales s
+       JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key WHERE ca.shift_id = ?`,
+    ).get(shiftId) as { total: number }).total);
+    return { cashRp, qrisManualRp, totalSalesRp: cashRp + qrisManualRp, saleCount };
+  }
+
+  function readSnapshot<T>(read: () => T): T {
+    db.exec("BEGIN");
+    try {
+      const result = read();
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
     }
   }
 
@@ -340,36 +397,7 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
 
         // Rekap hanya dari sale yang sudah COMMITTED (tabel sales). QRIS
         // tidak masuk laci kas (DEC-016, rumus usulan/DEMO).
-        const paymentRows = db
-          .prepare(
-            `SELECT p.method_code AS method_code, COALESCE(SUM(p.amount_rp), 0) AS total_rp
-             FROM payments p
-             JOIN sales s ON s.id = p.sale_id
-             JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
-             WHERE ca.shift_id = ?
-             GROUP BY p.method_code`,
-          )
-          .all(shiftId) as Array<{ method_code: string; total_rp: number }>;
-        let cashRp = 0;
-        let qrisManualRp = 0;
-        for (const row of paymentRows) {
-          if (row.method_code === "CASH") {
-            cashRp = Number(row.total_rp);
-          } else if (row.method_code === "QRIS_MANUAL") {
-            qrisManualRp = Number(row.total_rp);
-          }
-        }
-        const saleCount = Number(
-          (
-            db
-              .prepare(
-                `SELECT COUNT(*) AS total FROM sales s
-                 JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
-                 WHERE ca.shift_id = ?`,
-              )
-              .get(shiftId) as { total: number }
-          ).total,
-        );
+        const { cashRp, qrisManualRp, saleCount } = calculateTotals(shiftId);
         const openingCashRp =
           shift.opening_cash_rp === null ? null : Number(shift.opening_cash_rp);
         const expectedCashRp = (openingCashRp ?? 0) + cashRp;
@@ -428,6 +456,31 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
         }
         throw error;
       }
+    },
+
+    getClosePreview(actor, shiftIdInput) {
+      return readSnapshot(() => {
+        const shift = assertOwnedShift(actor, shiftIdInput);
+        if (shift.closed_at_ms !== null) throw new ShiftClosedError("Shift sudah ditutup; pratinjau tidak tersedia.");
+        const totals = calculateTotals(Number(shift.id));
+        const openingCashRp = shift.opening_cash_rp === null ? null : Number(shift.opening_cash_rp);
+        return {
+          shiftId: Number(shift.id), openingCashRp,
+          cashTotalRp: totals.cashRp, qrisTotalRp: totals.qrisManualRp,
+          expectedCashRp: (openingCashRp ?? 0) + totals.cashRp,
+          saleCount: totals.saleCount,
+        };
+      });
+    },
+
+    getClosing(actor, shiftIdInput) {
+      return readSnapshot(() => {
+        const shift = assertOwnedShift(actor, shiftIdInput);
+        const closing = db.prepare("SELECT close_key, request_hash FROM shift_closings WHERE shift_id = ?")
+          .get(shift.id) as { close_key: string; request_hash: Uint8Array } | undefined;
+        if (!closing || shift.closed_at_ms === null) throw new ShiftNotFoundError("Hasil penutupan shift tidak ditemukan.");
+        return loadClosing(Number(shift.id), closing.close_key, Buffer.from(closing.request_hash).toString("hex"));
+      });
     },
 
     getCurrentShift(actor) {

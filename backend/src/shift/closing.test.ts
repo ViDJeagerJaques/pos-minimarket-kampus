@@ -314,3 +314,25 @@ test("Shift tertutup tidak bisa dibuka ulang; penutupan lain ditolak", () => {
     database.cleanup();
   }
 });
+
+test("pratinjau DEMO CASH/QRIS read-only konsisten dengan hasil tutup", () => {
+  const { database, db, cashier, shifts, checkout, shift } = setup();
+  try {
+    commitCash(checkout, cashier, shift.id, "preview-cash", 200);
+    commitQris(checkout, cashier, shift.id, "preview-qris", 120);
+    const before = snapshot(db);
+    const preview = shifts.getClosePreview(cashier, shift.id);
+    assert.deepEqual(preview, { shiftId: shift.id, openingCashRp: OPENING_CASH_RP, cashTotalRp: CASH_SALES_RP, qrisTotalRp: QRIS_SALES_RP, expectedCashRp: OPENING_CASH_RP + CASH_SALES_RP, saleCount: 2 });
+    assert.deepEqual(shifts.getClosePreview(cashier, shift.id), preview);
+    assert.deepEqual(snapshot(db), before);
+    assert.equal(shifts.getCurrentShift(cashier)?.id, shift.id);
+    assert.throws(() => shifts.getClosing(cashier, shift.id), ShiftNotFoundError);
+    const closing = shifts.closeShift(cashier, shift.id, { closeKey: "preview-close", declaredCashRp: OPENING_CASH_RP + CASH_SALES_RP });
+    assert.equal(preview.cashTotalRp, closing.totals.cashRp);
+    assert.equal(preview.qrisTotalRp, closing.totals.qrisManualRp);
+    assert.equal(preview.expectedCashRp, closing.expectedCashRp);
+    assert.equal(preview.saleCount, closing.totals.saleCount);
+    assert.deepEqual(shifts.getClosing(cashier, shift.id), closing);
+    assert.throws(() => shifts.getClosePreview(cashier, shift.id), ShiftClosedError);
+  } finally { db.close(); database.cleanup(); }
+});

@@ -3,6 +3,7 @@ import type { PosDataSource, SessionUser } from "./api/types";
 import { defaultPage, isPageAllowed, NAV_BY_ROLE, type PageId } from "./app/navigation";
 import { AppShell } from "./components/AppShell";
 import type { CartLine } from "./domain/cart";
+import { hasPendingClose } from "./domain/shiftCloseRecovery";
 import { AccountsPage } from "./pages/AccountsPage";
 import { CashierPage } from "./pages/CashierPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
@@ -49,6 +50,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   const [user, setUser] = useState<SessionUser | null>(null);
   const [page, setPage] = useState<PageId>("cashier");
   const [notice, setNotice] = useState<string | null>(null);
+  const [closePending, setClosePending] = useState(false);
   // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
   const [draft, setDraft] = useState(() => ({ id: newDraftId(), lines: [] as CartLine[] }));
   const setDraftLines: Dispatch<SetStateAction<CartLine[]>> = (update) => {
@@ -79,8 +81,10 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     setDraft({ id: newDraftId(), lines: [] });
     setNotice(null);
     setUser(nextUser);
-    setPage(defaultPage(nextUser.role));
-  }, []);
+    const pending = nextUser.role === "CASHIER" && dataSource.authMode !== "DEMO" && hasPendingClose(nextUser.userId);
+    setClosePending(pending);
+    setPage(pending ? "shift" : defaultPage(nextUser.role));
+  }, [dataSource]);
 
   const handleSessionExpired = useCallback(() => {
     if (sessionEpochRef.current !== sessionEpoch) {
@@ -160,7 +164,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       );
     }
     if (activePage === "shift") {
-      return <ShiftDemoPage />;
+      return <ShiftDemoPage dataSource={dataSource} currentUser={currentUser} onSessionExpired={handleSessionExpired} onPendingChange={(pending) => { if (sessionEpochRef.current === sessionEpoch) setClosePending(pending); }} />;
     }
     if (activePage === "products") {
       return (
@@ -190,7 +194,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       authMode={dataSource.authMode}
       navItems={NAV_BY_ROLE[currentUser.role]}
       activePage={activePage}
-      onNavigate={setPage}
+      onNavigate={(next) => { if (!closePending || next === "shift") setPage(next); }}
       onLogout={handleLogout}
     >
       {renderPage()}

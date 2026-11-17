@@ -86,6 +86,16 @@ export interface ShiftSummary {
   openingCashRp: number | null;
 }
 
+export interface ShiftClosePreview {
+  shiftId: number; openingCashRp: number | null; cashTotalRp: number;
+  qrisTotalRp: number; expectedCashRp: number; saleCount: number;
+}
+export interface ShiftClosing {
+  shiftId: number; closeKey: string; requestHash: string; closedAtMs: number;
+  closedBy: number; openingCashRp: number | null; expectedCashRp: number;
+  declaredCashRp: number | null; varianceRp: number | null;
+  totals: { cashRp: number; qrisManualRp: number; totalSalesRp: number; saleCount: number };
+}
 /** Metode bayar yang sudah disahkan untuk TASK-017. QRIS manual menunggu TASK-002/DEC. */
 export type CheckoutPaymentMethod = "CASH";
 
@@ -211,6 +221,9 @@ export interface PosDataSource {
   /** Shift milik kasir dari sesi backend (TASK-014). */
   getCurrentShift(): Promise<ShiftSummary | null>;
   openShift(input?: { openingCashRp?: number }): Promise<ShiftSummary>;
+  getShiftClosePreview(shiftId: number): Promise<ShiftClosePreview>;
+  getShiftClosing(shiftId: number): Promise<ShiftClosing>;
+  closeShift(shiftId: number, input: { closeKey: string; declaredCashRp: number }): Promise<ShiftClosing>;
   /** Checkout dua fase TASK-016. Hanya CASH di TASK-017. */
   prepareCheckout(input: PrepareCheckoutInput): Promise<PrepareCheckoutResult>;
   commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult>;

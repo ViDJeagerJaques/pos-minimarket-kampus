@@ -31,6 +31,8 @@ import type {
   Role,
   SessionUser,
   ShiftSummary,
+  ShiftClosePreview,
+  ShiftClosing,
   SupplierSummary,
   UpdateProductInput,
 } from "./types";
@@ -269,6 +271,36 @@ function toShiftSummary(value: unknown): ShiftSummary {
       ? null
       : value.openingCashRp,
   };
+}
+
+function toShiftClosePreview(value: unknown): ShiftClosePreview {
+  if (!isRecord(value) || !isPositiveInt(value.shiftId) ||
+      !(value.openingCashRp === null || isNonNegativeInt(value.openingCashRp)) ||
+      !isNonNegativeInt(value.cashTotalRp) || !isNonNegativeInt(value.qrisTotalRp) ||
+      !isNonNegativeInt(value.expectedCashRp) || !isNonNegativeInt(value.saleCount)) {
+    throw invalidResponse("Pratinjau shift tidak valid.");
+  }
+  return { shiftId: value.shiftId, openingCashRp: value.openingCashRp, cashTotalRp: value.cashTotalRp,
+    qrisTotalRp: value.qrisTotalRp, expectedCashRp: value.expectedCashRp, saleCount: value.saleCount };
+}
+
+function toShiftClosing(value: unknown): ShiftClosing {
+  if (!isRecord(value) || !isRecord(value.totals) || !isPositiveInt(value.shiftId) ||
+      !isPositiveInt(value.closedBy) || typeof value.closeKey !== "string" || !value.closeKey ||
+      typeof value.requestHash !== "string" || !/^[0-9a-f]{64}$/.test(value.requestHash) ||
+      !isNonNegativeInt(value.closedAtMs) || !isNonNegativeInt(value.expectedCashRp) ||
+      !(value.openingCashRp === null || isNonNegativeInt(value.openingCashRp)) ||
+      !(value.declaredCashRp === null || isNonNegativeInt(value.declaredCashRp)) ||
+      !(value.varianceRp === null || (typeof value.varianceRp === "number" && Number.isSafeInteger(value.varianceRp))) ||
+      !isNonNegativeInt(value.totals.cashRp) || !isNonNegativeInt(value.totals.qrisManualRp) ||
+      !isNonNegativeInt(value.totals.totalSalesRp) || !isNonNegativeInt(value.totals.saleCount)) {
+    throw invalidResponse("Hasil tutup shift tidak valid.");
+  }
+  return { shiftId: value.shiftId, closeKey: value.closeKey, requestHash: value.requestHash,
+    closedAtMs: value.closedAtMs, closedBy: value.closedBy, openingCashRp: value.openingCashRp,
+    expectedCashRp: value.expectedCashRp, declaredCashRp: value.declaredCashRp, varianceRp: value.varianceRp,
+    totals: { cashRp: value.totals.cashRp, qrisManualRp: value.totals.qrisManualRp,
+      totalSalesRp: value.totals.totalSalesRp, saleCount: value.totals.saleCount } };
 }
 
 function toCheckoutQuote(value: unknown): CheckoutQuote {
@@ -742,6 +774,20 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     return toShiftSummary(await request("POST", "/shifts/open", body, activeToken));
   }
 
+  async function getShiftClosePreview(shiftId: number): Promise<ShiftClosePreview> {
+    if (!isPositiveInt(shiftId)) throw new ApiError(422, "VALIDATION_ERROR", "Shift tidak valid.");
+    return toShiftClosePreview(await request("GET", `/shifts/${shiftId}/close/preview`, undefined, requireToken()));
+  }
+  async function getShiftClosing(shiftId: number): Promise<ShiftClosing> {
+    if (!isPositiveInt(shiftId)) throw new ApiError(422, "VALIDATION_ERROR", "Shift tidak valid.");
+    return toShiftClosing(await request("GET", `/shifts/${shiftId}/close`, undefined, requireToken()));
+  }
+  async function closeShift(shiftId: number, input: { closeKey: string; declaredCashRp: number }): Promise<ShiftClosing> {
+    if (!isPositiveInt(shiftId) || !input.closeKey || !isNonNegativeInt(input.declaredCashRp) || input.declaredCashRp > 1_000_000_000)
+      throw new ApiError(422, "VALIDATION_ERROR", "Data penutupan tidak valid.");
+    return toShiftClosing(await request("POST", `/shifts/${shiftId}/close`, input, requireToken()));
+  }
+
   async function prepareCheckout(input: PrepareCheckoutInput): Promise<PrepareCheckoutResult> {
     const activeToken = requireToken();
     if (
@@ -819,6 +865,9 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     listProducts,
     getCurrentShift,
     openShift,
+    getShiftClosePreview,
+    getShiftClosing,
+    closeShift,
     prepareCheckout,
     commitCheckout,
     getCheckoutStatus,

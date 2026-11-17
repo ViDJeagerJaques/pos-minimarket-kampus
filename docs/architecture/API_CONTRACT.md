@@ -41,6 +41,8 @@
 | `PATCH /products/:id` | ADMIN | perubahan katalog | audit harga |
 | `GET /shifts/current` | login | shift aktif atau null | kasir hanya shift milik sendiri; ADMIN ringkasan |
 | `POST /shifts/open` | CASHIER | shiftId, openingCashRp | ADMIN **belum diizinkan** selama DEC-019 `PENDING`; cek tidak ada shift aktif |
+| `GET /shifts/:id/close/preview` | CASHIER pemilik | pratinjau rekap shift aktif | hanya baca; 409 jika sudah tutup |
+| `GET /shifts/:id/close` | CASHIER pemilik | hasil penutupan tersimpan, sama dengan respons POST | 404 jika belum ada hasil; bukan bukti POST yang masih berjalan gagal |
 | `POST /shifts/:id/close` | CASHIER pemegang shift | closing, totals, variance | closeKey idempotent; ADMIN belum diizinkan (DEC-019 `PENDING`) |
 | `POST /checkouts/prepare` | CASHIER pada shift | attemptKey, ringkasan harga dan status | **tidak** membuat sale |
 | `POST /checkouts/commit` | CASHIER pada shift | saleId, saleNo, totalRp, payment method | commit atomik |
@@ -56,6 +58,22 @@
 Pembagian endpoint hanya usulan; perubahan harus diselaraskan dengan UI, backend, dan tests. **Jangan implementasi endpoint sampai skema `DATABASE.md` untuk verifikasi QRIS disetujui**.
 
 **Shift (TASK-014, baseline DEMO).** `POST /shifts/open` hanya untuk `CASHIER`; `ADMIN` **belum diizinkan** membuka shift selama DEC-019 masih `PENDING` (AUTHORIZATION.md §3 dan SECURITY.md §4: ADMIN bukan otomatis kasir). Perubahan ini memerlukan review David dan pembaruan DEC-019. `openingCashRp` bersifat opsional (DEMO); kewajiban modal awal menunggu konfirmasi SOP pengelola. Satu shift aktif per PC ditegakkan constraint `ux_shifts_single_open`; pemilik shift hanya dari sesi.
+
+**Baca penutupan (TASK-022 lanjutan, DEMO; review integrasi diperlukan).**
+`GET /shifts/:id/close/preview` hanya membaca snapshot shift aktif: `shiftId`,
+`openingCashRp` (nullable), `cashTotalRp`, `qrisTotalRp`, `expectedCashRp` dan
+`saleCount`. Fixture menghitung modal null sebagai 0 dan memisahkan QRIS dari
+kas. Tidak menerima uang dihitung atau menghitung selisih. Preview merupakan
+snapshot saat dibaca; transaksi yang commit setelahnya dapat mengubah hasil final.
+Shift tertutup menghasilkan `409 SHIFT_CLOSED`.
+
+`GET /shifts/:id/close` mengembalikan DTO penutupan yang sama dengan POST,
+termasuk `closeKey`, `requestHash`, `closedAtMs`, `totals`, dan `varianceRp`.
+Kedua endpoint hanya untuk CASHIER aktif pemilik: kasir lain dan ADMIN 403,
+shift tidak ada 404; GET hasil juga 404 jika belum tersimpan. Respons 404 ketika
+POST mungkin masih berjalan **bukan bukti gagal**: periksa lagi atau retry POST
+identik dengan `closeKey` dan payload yang sama; jangan membuat kunci baru.
+Rumus merupakan fixture DEMO dan SOP setoran masih PENDING (DEC-016).
 
 ## 4. Kontrak contoh checkout QRIS manual
 
