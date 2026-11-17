@@ -116,24 +116,40 @@ export function CashierPage({
   const [shift, setShift] = useState<ShiftSummary | null | undefined>(isDemo ? null : undefined);
   const [shiftError, setShiftError] = useState<string | null>(null);
   const [isOpeningShift, setIsOpeningShift] = useState(false);
-  const storageKey = `pos.checkout.recovery.${cashierId}`;
-  const [phase, setPhase] = useState<CheckoutPhase>(() => {
-    if (isDemo) return { kind: "idle" };
+  const storagePrefix = `pos.checkout.recovery.${cashierId}`;
+  // Rekaman lama (satu key per kasir) tetap dibaca saat upgrade.
+  function readRecovery(excludeKey?: string): {
+    phase: CheckoutPhase; key: string | null; snapshot: CartLine[];
+  } {
     try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return { kind: "idle" };
-      const saved = JSON.parse(raw);
+      const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+        .filter((key): key is string => key !== null && key !== excludeKey &&
+          (key === storagePrefix || key.startsWith(`${storagePrefix}.`)))
+        .sort();
+      const key = keys[0];
+      if (!key) return { phase: { kind: "idle" }, key: null, snapshot: [] };
+      const saved = JSON.parse(localStorage.getItem(key) ?? "null");
       if (saved?.attempt?.status === "PREPARED" && typeof saved.attempt.attemptKey === "string" &&
           typeof saved.attempt.requestHash === "string" && Number.isSafeInteger(saved.cashReceivedRp) &&
-          Number.isSafeInteger(saved.attempt.quote?.totalRp)) {
-        return { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp };
+          Number.isSafeInteger(saved.attempt.quote?.totalRp) && Array.isArray(saved.attempt.quote?.items)) {
+        // Rekaman lama memiliki item quote, tetapi belum memiliki snapshot draft.
+        const snapshot = Array.isArray(saved.snapshot) ? saved.snapshot : saved.attempt.quote.items;
+        if (!snapshot.every((line: CartLine) => Number.isSafeInteger(line.productId))) {
+          return { phase: { kind: "recoveryError" }, key, snapshot: [] };
+        }
+        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp }, key, snapshot };
       }
-      // Data rusak tetap mengunci checkout sampai rekonsiliasi manual.
-      return { kind: "recoveryError" };
+      return { phase: { kind: "recoveryError" }, key, snapshot: [] };
     } catch {
-      return { kind: "recoveryError" };
+      return { phase: { kind: "recoveryError" }, key: null, snapshot: [] };
     }
-  });
+  }
+  const [initialRecovery] = useState(() => isDemo
+    ? { phase: { kind: "idle" } as CheckoutPhase, key: null, snapshot: [] as CartLine[] }
+    : readRecovery());
+  const [phase, setPhase] = useState<CheckoutPhase>(initialRecovery.phase);
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  const recoveryKeyRef = useRef<string | null>(initialRecovery.key);
   const [cashInput, setCashInput] = useState("");
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
@@ -144,7 +160,7 @@ export function CashierPage({
   const sessionEpochRef = useRef(sessionEpoch);
   const checkoutLockRef = useRef(false);
   /** Garis draft yang benar-benar dikirim pada prepare; dipakai saat membersihkan draft. */
-  const snapshotLinesRef = useRef<CartLine[]>([]);
+  const snapshotLinesRef = useRef<CartLine[]>(initialRecovery.snapshot);
   const cashInputId = useId();
   const openingCashId = useId();
   sessionEpochRef.current = sessionEpoch;
@@ -161,6 +177,26 @@ export function CashierPage({
     },
     [onSessionExpired],
   );
+
+  function removeRecovery(): string | null {
+    const key = recoveryKeyRef.current;
+    if (!key) return null;
+    try {
+      localStorage.removeItem(key);
+      recoveryKeyRef.current = null;
+      return null;
+    } catch {
+      setStorageWarning("Rekaman pemulihan tidak dapat dihapus. Catatan tetap tersimpan dan dapat muncul kembali setelah halaman dibuka ulang.");
+      return key;
+    }
+  }
+
+  function openNextRecovery(excludeKey?: string): void {
+    const next = readRecovery(excludeKey);
+    recoveryKeyRef.current = next.key;
+    snapshotLinesRef.current = next.snapshot;
+    setPhase(next.phase);
+  }
 
   function focusBarcode() {
     // Jangan mencuri fokus selama dialog konfirmasi terbuka.
@@ -437,12 +473,12 @@ export function CashierPage({
         return;
       }
       if (error.code === "PRICE_CHANGED") {
-        localStorage.removeItem(storageKey);
+        removeRecovery();
         await prepareRevisedQuote(attempt.quote.totalRp);
         return;
       }
       if (error.code === "SHIFT_NOT_ACTIVE") {
-        localStorage.removeItem(storageKey);
+        removeRecovery();
         setPhase({ kind: "idle" });
         setShift(null);
         setStatus({ tone: "warning", text: error.message });
@@ -450,7 +486,7 @@ export function CashierPage({
         return;
       }
       if (error.code === "INSUFFICIENT_STOCK") {
-        localStorage.removeItem(storageKey);
+        removeRecovery();
         setPhase({ kind: "idle" });
         handleActionError(error, "Stok tidak cukup.");
         return;
@@ -479,7 +515,11 @@ export function CashierPage({
     const epoch = sessionEpochRef.current;
     // Catat sebelum mengirim commit; bila penyimpanan gagal, jangan kirim.
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ attempt, cashReceivedRp }));
+      const key = `${storagePrefix}.${encodeURIComponent(attempt.attemptKey)}`;
+      // Jangan menimpa rekaman lain, termasuk identitas yang bertabrakan.
+      if (localStorage.getItem(key) !== null) throw new Error("Attempt already recorded");
+      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, snapshot: snapshotLinesRef.current }));
+      recoveryKeyRef.current = key;
     } catch {
       setStatus({ tone: "danger", text: "Identitas upaya tidak dapat disimpan lokal. Checkout tidak dikirim." });
       return;
@@ -549,10 +589,9 @@ export function CashierPage({
 
   function startNewDraft(): void {
     // Tidak ada API dipanggil; ini hanya membersihkan UI setelah status ABANDONED.
-    localStorage.removeItem(storageKey);
-    snapshotLinesRef.current = [];
+    const failedKey = removeRecovery();
     onLinesChange([]);
-    setPhase({ kind: "idle" });
+    openNextRecovery(failedKey ?? undefined);
     setCashInput("");
     setStatus({ tone: "info", text: "Draft baru siap. Tidak ada transaksi yang disimpan." });
     focusBarcode();
@@ -684,6 +723,7 @@ export function CashierPage({
 
       <div className="cashier__status">
         <StatusMessage tone={status.tone} text={status.text} />
+        {storageWarning && <StatusMessage tone="warning" text={storageWarning} />}
       </div>
 
       {isConfirmingCancel && (
@@ -843,7 +883,7 @@ export function CashierPage({
             </p>
             <p className="muted">Cetak ulang belum tersedia (TASK-021).</p>
             <div className="dialog__actions">
-              <Button variant="primary" onClick={() => { localStorage.removeItem(storageKey); setPhase({ kind: "idle" }); }}>
+              <Button variant="primary" onClick={() => { const failedKey = removeRecovery(); openNextRecovery(failedKey ?? undefined); }}>
                 Transaksi baru
               </Button>
             </div>

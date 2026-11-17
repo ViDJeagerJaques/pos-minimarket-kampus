@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -308,6 +308,74 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     expect((await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).textContent).toContain("E2E-001");
     expect(commit).toHaveBeenCalledTimes(1);
     expect(source.prepareCheckout).toHaveBeenCalledTimes(1);
+  });
+
+  it("remount memulihkan snapshot dan hanya menghapus barang yang terjual", async () => {
+    const extra = { ...LINE, productId: 2, sku: "EXTRA", name: "Barang lain" };
+    const commit = vi.fn(async () => { throw new ApiError(0, "NETWORK_ERROR", "timeout"); });
+    const { source } = buildSource({ commit });
+    const user = userEvent.setup();
+    function NavigationHarness() {
+      const [lines, setLines] = useState<CartLine[]>([LINE]);
+      const [visible, setVisible] = useState(true);
+      return <><button onClick={() => { setLines(current => [...current, extra]); setVisible(false); }}>Pindah</button>
+        <button onClick={() => setVisible(true)}>Kembali</button>
+        {visible && <CashierPage dataSource={source} lines={lines} onLinesChange={setLines} sessionEpoch={1} cashierId={2} onSessionExpired={vi.fn()} />}</>;
+    }
+    render(<NavigationHarness />);
+    await openPayment(user);
+    await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
+    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
+    await user.click(screen.getByRole("button", { name: "Pindah" }));
+    await user.click(screen.getByRole("button", { name: "Kembali" }));
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Transaksi baru" }));
+    expect(screen.queryByText("Produk Uji")).toBeNull();
+    expect(screen.getByText("Barang lain")).toBeTruthy();
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("kegagalan menghapus rekaman tidak mengunci fase committing dan memberi peringatan", async () => {
+    const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("denied"); });
+    try {
+      const commit = vi.fn(async () => { throw new ApiError(409, "INSUFFICIENT_STOCK", "Stok kurang"); });
+      const { user } = renderPage({ commit });
+      await openPayment(user);
+      await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
+      await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+      expect(await screen.findByText(/Rekaman pemulihan tidak dapat dihapus/)).toBeTruthy();
+      expect(screen.queryByRole("dialog", { name: "Menyimpan transaksi…" })).toBeNull();
+      expect(localStorage.length).toBe(1);
+    } finally { remove.mockRestore(); }
+  });
+
+  it("dua tab menyimpan dan memulihkan masing-masing upaya", async () => {
+    const commit = vi.fn(async () => { throw new ApiError(0, "NETWORK_ERROR", "timeout"); });
+    const first = buildSource({ commit }).source;
+    const secondAttempt = { ...PREPARED, attemptKey: "co_test_2" };
+    const second = buildSource({ commit, prepare: vi.fn(async () => secondAttempt) }).source;
+    const one = render(<Harness source={first} />);
+    const two = render(<Harness source={second} />);
+    const user = userEvent.setup();
+    for (const view of [one, two]) {
+      const ui = within(view.container);
+      const pay = await ui.findByRole("button", { name: "Lanjut pembayaran" });
+      await waitFor(() => expect((pay as HTMLButtonElement).disabled).toBe(false));
+      await user.click(pay);
+      await user.type(await ui.findByLabelText("Uang diterima (Rp)"), "10000");
+      await user.click(ui.getByRole("button", { name: "Ya, commit pembayaran" }));
+      await ui.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
+    }
+    expect(localStorage.length).toBe(2);
+    one.unmount(); two.unmount();
+    const recovered = render(<Harness source={first} initialLines={[]} />);
+    expect(recovered.container.textContent).toContain("co_test_1");
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Transaksi baru" }));
+    expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2");
+    expect(localStorage.length).toBe(1);
+    expect(commit).toHaveBeenCalledTimes(2);
   });
 
   it("status tidak diketahui tetap terkunci dan meminta pemeriksaan", async () => {
