@@ -195,7 +195,8 @@ export function CashierPage({
             priorQrisReconciled: false,
           };
         }
-        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp, paymentConfirmation }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
+        const noReplay = saved.noReplay === true;
+        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp, paymentConfirmation, noReplay }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
       }
       return { phase: { kind: "recoveryError" }, key, snapshot: [], draftId: null };
     } catch {
@@ -230,6 +231,11 @@ export function CashierPage({
   const barcodeSeqRef = useRef(0);
   const sessionEpochRef = useRef(sessionEpoch);
   const checkoutLockRef = useRef(false);
+  /** Mencegah dua retry pengganti berjalan bersamaan. */
+  const replacementLockRef = useRef(false);
+  const [isRetryingReplacement, setIsRetryingReplacement] = useState(false);
+  /** Invalidasi hasil cek status yang kembali setelah recovery berganti. */
+  const recoveryEpochRef = useRef(0);
   /** Garis draft yang benar-benar dikirim pada prepare; dipakai saat membersihkan draft. */
   const snapshotLinesRef = useRef<CartLine[]>(initialRecovery.snapshot);
   const snapshotDraftIdRef = useRef<string | null>(initialRecovery.draftId);
@@ -264,6 +270,7 @@ export function CashierPage({
   }
 
   function openNextRecovery(excludeKey?: string): void {
+    recoveryEpochRef.current += 1;
     const next = readRecovery(excludeKey);
     recoveryKeyRef.current = next.key;
     snapshotLinesRef.current = next.snapshot;
@@ -271,6 +278,37 @@ export function CashierPage({
     setPriorQrisConfirmation(next.priorQrisConfirmation ?? null);
     setPriorQrisReconciled(next.priorQrisReconciled ?? true);
     setPhase(next.phase);
+  }
+
+  /** Simpan keputusan noReplay pada rekaman attempt agar tetap berlaku setelah reload. */
+  function persistNoReplay(attemptKey: string): void {
+    const key = `${storagePrefix}.${encodeURIComponent(attemptKey)}`;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return;
+      const saved = JSON.parse(raw) as Record<string, unknown>;
+      saved.noReplay = true;
+      localStorage.setItem(key, JSON.stringify(saved));
+    } catch {
+      setStorageWarning("Keputusan blokir replay tidak tersimpan; periksa status upaya secara manual.");
+    }
+  }
+
+  /** Pensiunkan pendahulu yang sudah selesai digantikan oleh commit baru. */
+  function retireReplacedRecords(successAttemptKey: string): void {
+    try {
+      const currentKey = `${storagePrefix}.${encodeURIComponent(successAttemptKey)}`;
+      const raw = localStorage.getItem(currentKey);
+      if (raw === null) return;
+      const saved = JSON.parse(raw) as { replacesAttemptKey?: unknown };
+      const predecessor =
+        typeof saved.replacesAttemptKey === "string" ? saved.replacesAttemptKey : null;
+      if (predecessor !== null) {
+        localStorage.removeItem(`${storagePrefix}.${encodeURIComponent(predecessor)}`);
+      }
+    } catch {
+      // Rekaman usang dapat muncul lagi setelah reload; commit tetap sah.
+    }
   }
 
   function focusBarcode() {
@@ -568,6 +606,15 @@ export function CashierPage({
   function commitSucceeded(result: CommitCheckoutResult, epoch: number): void {
     // Commit bisa selesai setelah logout/pindah halaman; jangan sentuh draft sesi baru.
     if (epoch !== sessionEpochRef.current) return;
+    // Pengganti sukses: pensiunkan pendahulu yang sedang direkonsiliasi.
+    retireReplacedRecords(result.attemptKey);
+    try {
+      localStorage.removeItem(`${storagePrefix}.${encodeURIComponent(result.attemptKey)}`);
+    } catch {
+      // Abaikan kegagalan penyimpanan; status COMMITTED tetap tampil.
+    }
+    recoveryKeyRef.current = null;
+    recoveryEpochRef.current += 1;
     setPhase({ kind: "success", result });
     setPriorQrisConfirmation(null);
     setPriorQrisReconciled(false);
@@ -613,6 +660,9 @@ export function CashierPage({
       paymentConfirmation,
       noReplay: blockReplay,
     });
+    if (blockReplay) {
+      persistNoReplay(attempt.attemptKey);
+    }
     setStatus({
       tone: "danger",
       text: blockReplay
@@ -631,6 +681,9 @@ export function CashierPage({
     paymentConfirmation: PaymentConfirmation,
     reason: string,
   ): Promise<void> {
+    if (replacementLockRef.current) return;
+    replacementLockRef.current = true;
+    setIsRetryingReplacement(true);
     try {
       if (snapshotLinesRef.current.length === 0) throw new Error("Snapshot kosong");
       const fresh = await runPrepare(
@@ -639,7 +692,7 @@ export function CashierPage({
         attempt.quote.payment.method,
       );
       const key = `${storagePrefix}.${encodeURIComponent(fresh.attemptKey)}`;
-      // Rekaman asli (dengan konfirmasi nyata) sengaja tidak dihapus.
+      // Rekaman asli (dengan konfirmasi nyata) sengaja tidak dihapus sampai pengganti sukses.
       localStorage.setItem(
         key,
         JSON.stringify({
@@ -647,6 +700,7 @@ export function CashierPage({
           cashReceivedRp: 0,
           paymentConfirmation: null,
           paymentState: "UNSUBMITTED",
+          replacesAttemptKey: attempt.attemptKey,
           originalQrisConfirmation:
             paymentConfirmation.method === "QRIS_MANUAL" ? paymentConfirmation : null,
           snapshot: snapshotLinesRef.current,
@@ -676,6 +730,7 @@ export function CashierPage({
       setPhase({ kind: "payment", attempt: fresh });
     } catch {
       // Jangan buka payment dengan kunci yang sudah ditolak; arahkan ke recovery.
+      persistNoReplay(attempt.attemptKey);
       setPhase({
         kind: "timeout",
         attempt,
@@ -688,6 +743,9 @@ export function CashierPage({
         tone: "danger",
         text: "Upaya pengganti gagal dibuat. Cek status upaya, lalu coba buat pengganti lagi; jangan bayar ulang.",
       });
+    } finally {
+      replacementLockRef.current = false;
+      setIsRetryingReplacement(false);
     }
   }
 
@@ -785,14 +843,23 @@ export function CashierPage({
       const key = `${storagePrefix}.${encodeURIComponent(attempt.attemptKey)}`;
       // Jangan menimpa rekaman dengan konfirmasi nyata. Placeholder dari
       // retry VALIDATION_ERROR belum memiliki konfirmasi dan boleh ditimpa.
+      let link: { replacesAttemptKey?: string; originalQrisConfirmation?: unknown } = {};
       const stored = localStorage.getItem(key);
       if (stored !== null) {
-        const parsed = JSON.parse(stored) as { paymentConfirmation?: unknown };
+        const parsed = JSON.parse(stored) as {
+          paymentConfirmation?: unknown;
+          replacesAttemptKey?: string;
+          originalQrisConfirmation?: unknown;
+        };
         if (parsed.paymentConfirmation !== null && parsed.paymentConfirmation !== undefined) {
           throw new Error("Attempt already recorded");
         }
+        link = {
+          replacesAttemptKey: parsed.replacesAttemptKey,
+          originalQrisConfirmation: parsed.originalQrisConfirmation,
+        };
       }
-      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, paymentConfirmation, paymentState: "SUBMITTED", snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current }));
+      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, paymentConfirmation, paymentState: "SUBMITTED", ...link, snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current }));
       // Quote baru sudah terlindungi sebelum rekaman lama dihapus.
       if (recoveryKeyRef.current && recoveryKeyRef.current !== key) removeRecovery();
       recoveryKeyRef.current = key;
@@ -843,10 +910,13 @@ export function CashierPage({
     if (isCheckingStatus || phase.kind !== "timeout") return;
     const { attempt } = phase;
     const epoch = sessionEpochRef.current;
+    const recoveryEpoch = recoveryEpochRef.current;
     setIsCheckingStatus(true);
     setPhase({ ...phase, known: undefined });
     try {
       const result = await dataSource.getCheckoutStatus(attempt.attemptKey);
+      // Rekaman bisa berganti (draft baru/transaksi baru) saat lookup berjalan.
+      if (recoveryEpoch !== recoveryEpochRef.current) return;
       if (result.status === "COMMITTED") {
         commitSucceeded(result, epoch);
         return;
@@ -867,6 +937,9 @@ export function CashierPage({
   }
 
   function startNewDraft(): void {
+    // Jangan biarkan lookup yang masih berjalan menimpa draft baru.
+    if (isCheckingStatus) return;
+    recoveryEpochRef.current += 1;
     // Tidak ada API dipanggil; ini hanya membersihkan UI setelah status ABANDONED.
     const failedKey = removeRecovery();
     if (snapshotDraftIdRef.current !== null) {
@@ -1324,6 +1397,7 @@ export function CashierPage({
               {phase.replacementReason !== undefined && (
                 <Button
                   variant="primary"
+                  disabled={isRetryingReplacement}
                   onClick={() => void retryValidationWithNewAttempt(
                     phase.attempt,
                     phase.paymentConfirmation ?? {
@@ -1337,12 +1411,12 @@ export function CashierPage({
                 </Button>
               )}
               {phase.noReplay && (
-                <Button variant="secondary" onClick={startNewDraft}>
+                <Button variant="secondary" disabled={isCheckingStatus} onClick={startNewDraft}>
                   Selesai rekonsiliasi, draft baru
                 </Button>
               )}
               {phase.known === "ABANDONED" && (
-                <Button variant="primary" onClick={startNewDraft}>Buat draft baru</Button>
+                <Button variant="primary" disabled={isCheckingStatus} onClick={startNewDraft}>Buat draft baru</Button>
               )}
             </div>
           </div>

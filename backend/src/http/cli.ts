@@ -34,7 +34,11 @@ function parsePort(value: string | undefined, fallback: number): number {
   if (value === undefined) {
     return fallback;
   }
-  const parsed = Number(value);
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Port tidak valid: nilai kosong");
+  }
+  const parsed = Number(trimmed);
   // 0 = minta OS memilih port bebas; dipakai skrip E2E agar tidak ada race.
   if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 65535) {
     throw new Error(`Port tidak valid: ${value}`);

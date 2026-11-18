@@ -769,7 +769,10 @@ describe("TASK-037 kontrak HTTP QRIS manual", () => {
           evidenceRef: "REF-1",
         },
       }),
-    ).rejects.toThrow(/verifikasi/);
+    ).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+      message: expect.stringMatching(/verifikasi/),
+    });
   });
 
   it("lookup COMMITTED QRIS tanpa verifikasi sah ditolak sebagai INVALID_RESPONSE", async () => {
@@ -779,7 +782,10 @@ describe("TASK-037 kontrak HTTP QRIS manual", () => {
       { status: 200, body: { data: { ...QRIS_COMMITTED, qrisVerification: { status: "pending" } } } },
     ]);
     const dataSource = await loginCashier(fetchImpl);
-    await expect(dataSource.getCheckoutStatus("co_qris")).rejects.toThrow(/verifikasi/);
+    await expect(dataSource.getCheckoutStatus("co_qris")).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+      message: expect.stringMatching(/verifikasi/),
+    });
   });
 
   it("lookup QRIS PREPARED memuat status pending", async () => {

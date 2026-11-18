@@ -226,6 +226,11 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     expect(calls[0]?.[0].requestHash).toBe("a".repeat(64));
     expect(calls[1]?.[0].attemptKey).toBe("co_qris_2");
     expect(calls[1]?.[0].requestHash).toBe(NEW_HASH);
+    // Pendahulu yang sudah digantikan tidak boleh muncul lagi di recovery.
+    const recoveryKeys = Object.keys(localStorage).filter((key) =>
+      key.startsWith("pos.checkout.recovery."),
+    );
+    expect(recoveryKeys).toEqual([]);
   });
 
   it("SHIFT_NOT_ACTIVE QRIS tidak membuka replay attempt yang PREPARED", async () => {
@@ -239,13 +244,17 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     }));
     const source = buildSource({ commit, status });
     const user = userEvent.setup();
-    render(<Harness source={source} />);
+    const view = render(<Harness source={source} />);
     await openQrisPayment(user);
     await user.click(screen.getByRole("checkbox", { name: /sudah memeriksa transaksi/ }));
     await user.type(screen.getByLabelText(/Nominal yang terlihat di merchant/), "5000");
     await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
 
     expect(await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeTruthy();
+    expect(screen.getByText(/tidak boleh di-commit ulang/)).toBeTruthy();
+    // Blokir replay harus bertahan setelah reload halaman.
+    view.unmount();
+    render(<Harness source={source} />);
     expect(screen.getByText(/tidak boleh di-commit ulang/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
     await waitFor(() => expect(screen.getByText(/Status: PENDING/)).toBeTruthy());

@@ -568,6 +568,10 @@ test("HTTP CLI port & pembersihan bucket rate-limiter kedaluwarsa", async () => 
   assert.equal(withoutPort.port, undefined);
   const withPort = parseHttpCliArgs(["serve", "--port", "8787"]);
   assert.equal(withPort.port, 8787);
+  const portZero = parseHttpCliArgs(["serve", "--port", "0"]);
+  assert.equal(portZero.port, 0);
+  assert.throws(() => parseHttpCliArgs(["serve", "--port", ""]), /Port tidak valid/);
+  assert.throws(() => parseHttpCliArgs(["serve", "--port", "   "]), /Port tidak valid/);
 
   const prevEnvPort = process.env.POS_HTTP_PORT;
   const { database, db } = createDatabase();
