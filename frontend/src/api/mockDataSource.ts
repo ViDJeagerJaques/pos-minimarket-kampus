@@ -358,8 +358,9 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       // Angka sintetis untuk pratinjau UI; bukan data transaksi nyata.
       return {
         cash: { totalRp: 125_000, count: 5 },
-        qrisManual: { totalRp: 75_000, count: 3, verifiedCount: 3 },
-        totalRp: 200_000,
+        // Ringkasan harus cocok dengan satu baris rincian DEMO di bawah.
+        qrisManual: { totalRp: 25_000, count: 1, verifiedCount: 1 },
+        totalRp: 150_000,
         qrisSales: [
           {
             saleId: 9001,

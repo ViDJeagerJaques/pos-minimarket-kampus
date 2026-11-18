@@ -142,6 +142,9 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     const commitButton = screen.getByRole("button", { name: "Ya, commit pembayaran" }) as HTMLButtonElement;
     expect(commitButton.disabled).toBe(true);
     await user.click(screen.getByRole("checkbox", { name: /sudah memeriksa transaksi/ }));
+    // Nominal tidak boleh terisi otomatis; kasir harus mengetiknya sendiri.
+    expect(commitButton.disabled).toBe(true);
+    await user.type(screen.getByLabelText(/Nominal yang terlihat di merchant/), "5000");
     expect(commitButton.disabled).toBe(false);
 
     await user.type(screen.getByLabelText(/Referensi bukti/), "REF-MERCHANT-1");
@@ -186,6 +189,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     await openQrisPayment(user);
 
     await user.click(screen.getByRole("checkbox", { name: /sudah memeriksa transaksi/ }));
+    await user.type(screen.getByLabelText(/Nominal yang terlihat di merchant/), "5000");
     await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
 
     await waitFor(() => {
@@ -193,6 +197,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     });
     expect(screen.queryByRole("dialog", { name: "Transaksi tersimpan" })).toBeNull();
     expect(commit).toHaveBeenCalledTimes(1);
+    expect(source.prepareCheckout).toHaveBeenCalledTimes(2);
   });
 
   it("timeout QRIS mengarahkan ke lookup dan memakai upaya yang sama saat lanjut", async () => {
@@ -211,12 +216,17 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     }));
     const source = buildSource({ commit, status });
     const user = userEvent.setup();
-    render(<Harness source={source} />);
+    const view = render(<Harness source={source} />);
     await openQrisPayment(user);
     await user.click(screen.getByRole("checkbox", { name: /sudah memeriksa transaksi/ }));
+    await user.type(screen.getByLabelText(/Nominal yang terlihat di merchant/), "5000");
+    await user.type(screen.getByLabelText(/Referensi bukti/), "REF-MERCHANT-2");
     await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
 
     expect(await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeTruthy();
+    // Respons hilang: reload/remount harus memuat rekaman dari localStorage.
+    view.unmount();
+    render(<Harness source={source} />);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
     await waitFor(() => expect(screen.getByText(/Status: PENDING/)).toBeTruthy());
     await user.click(screen.getByRole("button", { name: "Lanjutkan commit upaya ini" }));
@@ -224,8 +234,17 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     expect(await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).toBeTruthy();
     expect(commitCalls).toBe(2);
     const calls = vi.mocked(source.commitCheckout).mock.calls;
-    expect(calls[0]?.[0].attemptKey).toBe("co_qris_1");
-    expect(calls[1]?.[0].attemptKey).toBe("co_qris_1");
-    expect(calls[1]?.[0].paymentConfirmation).toMatchObject({ method: "QRIS_MANUAL", merchantConfirmed: true });
+    const expected = {
+      attemptKey: "co_qris_1",
+      requestHash: "a".repeat(64),
+      paymentConfirmation: {
+        method: "QRIS_MANUAL",
+        merchantConfirmed: true,
+        confirmedAmountRp: 5000,
+        evidenceRef: "REF-MERCHANT-2",
+      },
+    };
+    expect(calls[0]?.[0]).toMatchObject(expected);
+    expect(calls[1]?.[0]).toMatchObject(expected);
   });
 });

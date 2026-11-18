@@ -186,6 +186,9 @@ export function CashierPage({
   const [merchantAmountInput, setMerchantAmountInput] = useState("");
   const [evidenceRefInput, setEvidenceRefInput] = useState("");
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  /** Transfer QRIS lama yang ditolak karena harga/stok; tidak dipakai ulang untuk pembayaran baru. */
+  const [priorQrisConfirmation, setPriorQrisConfirmation] = useState<PaymentConfirmation | null>(null);
+  const [priorQrisReconciled, setPriorQrisReconciled] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
   const barcodeRef = useRef<HTMLInputElement>(null);
@@ -467,10 +470,13 @@ export function CashierPage({
       // attemptKey baru dibuat sekali per niat; retry memakai kunci yang sama.
       const attempt = await runPrepare(createAttemptKey(), snapshotLinesRef.current, selectedMethod);
       setCashInput("");
-      setMerchantAmountInput(String(attempt.quote.totalRp));
+      // Kasir wajib mengetik nominal merchant sendiri; jangan isi otomatis.
+      setMerchantAmountInput("");
       setMerchantConfirmed(false);
       setEvidenceRefInput("");
       setPaymentError(null);
+      setPriorQrisConfirmation(null);
+      setPriorQrisReconciled(false);
       setPhase({ kind: "payment", attempt });
       setStatus({ tone: "info", text: "Quote pricing tersimpan. Periksa total sebelum membayar." });
     } catch (error) {
@@ -488,6 +494,11 @@ export function CashierPage({
     paymentConfirmation: PaymentConfirmation,
   ): Promise<void> {
     const previousTotalRp = previous.quote.totalRp;
+    // Transfer lama harus tetap terlihat & direkonsiliasi, tidak dipakai ulang.
+    if (paymentConfirmation.method === "QRIS_MANUAL") {
+      setPriorQrisConfirmation(paymentConfirmation);
+      setPriorQrisReconciled(false);
+    }
     try {
       if (snapshotLinesRef.current.length === 0) throw new Error("Snapshot kosong");
       const attempt = await runPrepare(
@@ -496,8 +507,10 @@ export function CashierPage({
         previous.quote.payment.method,
       );
       setCashInput("");
-      setMerchantAmountInput(String(attempt.quote.totalRp));
+      // Nominal dan referensi transfer baru dikumpulkan terpisah.
+      setMerchantAmountInput("");
       setMerchantConfirmed(false);
+      setEvidenceRefInput("");
       setPaymentError(null);
       setPhase({ kind: "priceChanged", attempt, previousTotalRp });
       setStatus({ tone: "warning", text: "Harga berubah. Setujui ringkasan baru sebelum melanjutkan." });
@@ -517,6 +530,8 @@ export function CashierPage({
     // Commit bisa selesai setelah logout/pindah halaman; jangan sentuh draft sesi baru.
     if (epoch !== sessionEpochRef.current) return;
     setPhase({ kind: "success", result });
+    setPriorQrisConfirmation(null);
+    setPriorQrisReconciled(false);
     // Draft dibersihkan HANYA setelah backend mengonfirmasi COMMITTED, dan hanya
     // garis yang masuk snapshot prepare. Baris lain tidak ikut terhapus.
     if (snapshotDraftIdRef.current !== null) {
@@ -545,6 +560,71 @@ export function CashierPage({
     openNextRecovery(failedKey ?? undefined);
   }
 
+  function rejectQrisAttempt(
+    attempt: PrepareCheckoutResult,
+    paymentConfirmation: PaymentConfirmation,
+  ): void {
+    // QRIS gagal setelah uang ditransfer: rekaman lokal sengaja dipertahankan.
+    setPhase({
+      kind: "timeout",
+      attempt,
+      cashReceivedRp: confirmationAmount(paymentConfirmation),
+      paymentConfirmation,
+    });
+    setStatus({
+      tone: "danger",
+      text: "Transfer QRIS tercatat. Periksa aplikasi merchant dan status upaya; jangan bayar ulang tanpa rekonsiliasi.",
+    });
+  }
+
+  /**
+   * VALIDATION_ERROR tidak menghasilkan sale, tetapi attemptKey lama sudah
+   * dipakai. Siapkan identitas baru sambil mempertahankan rekaman lama sampai
+   * rekaman attempt baru tersimpan.
+   */
+  async function retryValidationWithNewAttempt(
+    attempt: PrepareCheckoutResult,
+    reason: string,
+  ): Promise<void> {
+    try {
+      if (snapshotLinesRef.current.length === 0) throw new Error("Snapshot kosong");
+      const fresh = await runPrepare(
+        createAttemptKey(),
+        snapshotLinesRef.current,
+        attempt.quote.payment.method,
+      );
+      const key = `${storagePrefix}.${encodeURIComponent(fresh.attemptKey)}`;
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          attempt: fresh,
+          cashReceivedRp: 0,
+          paymentConfirmation: null,
+          snapshot: snapshotLinesRef.current,
+          draftId: snapshotDraftIdRef.current,
+        }),
+      );
+      const previousKey = recoveryKeyRef.current;
+      if (previousKey !== null && previousKey !== key) {
+        localStorage.removeItem(previousKey);
+      }
+      recoveryKeyRef.current = key;
+      setCashInput("");
+      setMerchantAmountInput("");
+      setMerchantConfirmed(false);
+      setEvidenceRefInput("");
+      setPaymentError(
+        `Status: GAGAL — ${reason} Upaya baru dibuat; isi ulang konfirmasi. Tidak ada penjualan.`,
+      );
+      setPhase({ kind: "payment", attempt: fresh });
+    } catch {
+      setPhase({ kind: "payment", attempt });
+      setPaymentError(
+        `Status: GAGAL — ${reason} Upaya baru gagal dibuat; periksa status upaya.`,
+      );
+    }
+  }
+
   async function handleCommitError(
     error: unknown,
     attempt: PrepareCheckoutResult,
@@ -557,11 +637,9 @@ export function CashierPage({
         return;
       }
       if (error.code === "VALIDATION_ERROR") {
-        // Verifikasi QRIS gagal (belum dikonfirmasi/nominal beda) atau tunai kurang.
-        // Tidak ada sale; tampilkan status GAGAL dan biarkan kasir memperbaiki input.
-        setPhase({ kind: "payment", attempt });
-        setPaymentError(`Status: GAGAL — ${error.message} Tidak ada penjualan.`);
-        setStatus({ tone: "danger", text: error.message });
+        // Verifikasi QRIS/tunai ditolak backend: tidak ada sale, tapi kunci lama
+        // tidak boleh dipakai ulang. Pindah ke attempt baru.
+        await retryValidationWithNewAttempt(attempt, error.message);
         return;
       }
       if (error.code === "PRICE_CHANGED") {
@@ -569,15 +647,24 @@ export function CashierPage({
         return;
       }
       if (error.code === "SHIFT_NOT_ACTIVE") {
-        finishRejectedAttempt();
+        if (paymentConfirmation.method === "QRIS_MANUAL") {
+          rejectQrisAttempt(attempt, paymentConfirmation);
+        } else {
+          finishRejectedAttempt();
+        }
         setShift(null);
         setStatus({ tone: "warning", text: error.message });
         void reloadShift();
         return;
       }
       if (error.code === "INSUFFICIENT_STOCK") {
-        finishRejectedAttempt();
-        handleActionError(error, "Stok tidak cukup.");
+        if (paymentConfirmation.method === "QRIS_MANUAL") {
+          rejectQrisAttempt(attempt, paymentConfirmation);
+          setStatus({ tone: "danger", text: `${error.message} Transfer QRIS tercatat; periksa merchant sebelum melanjutkan.` });
+        } else {
+          finishRejectedAttempt();
+          handleActionError(error, "Stok tidak cukup.");
+        }
         return;
       }
       if (error.code === "NETWORK_ERROR" || error.code === "INVALID_RESPONSE") {
@@ -630,8 +717,15 @@ export function CashierPage({
     // Catat sebelum mengirim commit; bila penyimpanan gagal, jangan kirim.
     try {
       const key = `${storagePrefix}.${encodeURIComponent(attempt.attemptKey)}`;
-      // Jangan menimpa rekaman lain, termasuk identitas yang bertabrakan.
-      if (localStorage.getItem(key) !== null) throw new Error("Attempt already recorded");
+      // Jangan menimpa rekaman dengan konfirmasi nyata. Placeholder dari
+      // retry VALIDATION_ERROR belum memiliki konfirmasi dan boleh ditimpa.
+      const stored = localStorage.getItem(key);
+      if (stored !== null) {
+        const parsed = JSON.parse(stored) as { paymentConfirmation?: unknown };
+        if (parsed.paymentConfirmation !== null && parsed.paymentConfirmation !== undefined) {
+          throw new Error("Attempt already recorded");
+        }
+      }
       localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, paymentConfirmation, snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current }));
       // Quote baru sudah terlindungi sebelum rekaman lama dihapus.
       if (recoveryKeyRef.current && recoveryKeyRef.current !== key) removeRecovery();
@@ -765,8 +859,12 @@ export function CashierPage({
     ? merchantConfirmed && merchantAmountValue !== null && merchantAmountValue === quoteTotalRp
     : cashValue !== null && quoteTotalRp !== null && cashValue >= quoteTotalRp;
   const timeoutConfirmation: PaymentConfirmation | null = phase.kind === "timeout"
-    ? phase.paymentConfirmation ?? { method: "CASH", cashReceivedRp: phase.cashReceivedRp }
+    ? phase.paymentConfirmation ??
+      (phase.attempt.quote.payment.method === "CASH"
+        ? { method: "CASH", cashReceivedRp: phase.cashReceivedRp }
+        : null)
     : null;
+  const canResumeTimeout = timeoutConfirmation !== null;
 
   return (
     <div className="cashier">
@@ -922,6 +1020,13 @@ export function CashierPage({
             </ul>
             {paymentIsQris ? (
               <div className="qris-panel">
+                {priorQrisConfirmation?.method === "QRIS_MANUAL" && (
+                  <p className="muted">
+                    Transfer QRIS sebelumnya <MoneyText amountRp={priorQrisConfirmation.confirmedAmountRp} />{" "}
+                    (ref. {priorQrisConfirmation.evidenceRef ?? "—"}) sudah direkonsiliasi. Isi nominal dan
+                    referensi transfer baru secara terpisah.
+                  </p>
+                )}
                 <p className="muted">
                   Buka aplikasi merchant di luar POS. Periksa transaksi berhasil dan nominalnya
                   sebelum mencentang. POS tidak menerima notifikasi bank dan tidak otomatis lunas.
@@ -1029,12 +1134,33 @@ export function CashierPage({
                 </li>
               ))}
             </ul>
+            {priorQrisConfirmation?.method === "QRIS_MANUAL" && (
+              <div className="qris-prior">
+                <p>
+                  Transfer QRIS lama <MoneyText amountRp={priorQrisConfirmation.confirmedAmountRp} />{" "}
+                  dengan referensi <code>{priorQrisConfirmation.evidenceRef ?? "—"}</code> tidak dipakai
+                  untuk quote baru. Rekonsiliasi transfer itu sebelum melanjutkan.
+                </p>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={priorQrisReconciled}
+                    onChange={(event) => setPriorQrisReconciled(event.target.checked)}
+                  />
+                  Saya sudah memeriksa dan menyesuaikan transfer QRIS lama di aplikasi merchant
+                </label>
+              </div>
+            )}
             <div className="dialog__actions">
               <Button variant="secondary" onClick={rejectRevisedQuote}>Tolak dan kembali</Button>
               <Button
                 variant="primary"
+                disabled={priorQrisConfirmation?.method === "QRIS_MANUAL" && !priorQrisReconciled}
                 onClick={() => {
                   setCashInput("");
+                  setMerchantAmountInput("");
+                  setMerchantConfirmed(false);
+                  setEvidenceRefInput("");
                   setPhase({ kind: "payment", attempt: phase.attempt });
                 }}
               >
@@ -1077,17 +1203,23 @@ export function CashierPage({
               <Button variant="secondary" disabled={isCheckingStatus} onClick={() => void checkAttemptStatus()}>
                 {isCheckingStatus ? "Mengecek…" : "Cek status upaya"}
               </Button>
-              {phase.known === "PREPARED" && (
+              {phase.known === "PREPARED" && canResumeTimeout && (
                 <Button
                   variant="primary"
                   disabled={isCheckingStatus}
                   onClick={() => void resumeSameAttempt(
                     phase.attempt,
-                    timeoutConfirmation ?? { method: "CASH", cashReceivedRp: phase.cashReceivedRp },
+                    timeoutConfirmation as PaymentConfirmation,
                   )}
                 >
                   Lanjutkan commit upaya ini
                 </Button>
+              )}
+              {phase.known === "PREPARED" && !canResumeTimeout && (
+                <p className="field-error" role="alert">
+                  Konfirmasi QRIS belum tersimpan. Periksa aplikasi merchant dan status upaya di
+                  backend; jangan minta transfer baru tanpa rekonsiliasi.
+                </p>
               )}
               {phase.known === "ABANDONED" && (
                 <Button variant="primary" onClick={startNewDraft}>Buat draft baru</Button>

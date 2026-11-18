@@ -53,56 +53,80 @@ export function createReportService(db: DatabaseSync): ReportService {
       if (actor.role !== "ADMIN") {
         throw new ForbiddenError("Laporan pembayaran hanya untuk ADMIN.");
       }
-      const rows = db
-        .prepare(
-          `SELECT s.id AS sale_id, s.sale_no AS sale_no, s.committed_at_ms AS committed_at_ms,
-                  p.method_code AS method_code, p.amount_rp AS amount_rp,
-                  p.verified_by AS verified_by, p.verified_at_ms AS verified_at_ms,
-                  p.evidence_ref AS evidence_ref, u.username AS cashier_username
-           FROM sales s
-           JOIN payments p ON p.sale_id = s.id
-           LEFT JOIN users u ON u.id = p.verified_by
-           ORDER BY s.committed_at_ms DESC, s.id DESC`,
-        )
-        .all() as Row[];
+      // Agregat dihitung SQL; rincian QRIS diambil terpisah dengan batas.
+      // Keduanya dibaca dalam satu snapshot SQLite yang sama.
+      db.exec("BEGIN");
+      try {
+        const summary = db
+          .prepare(
+            `SELECT
+               COALESCE(SUM(CASE WHEN p.method_code = 'CASH' THEN p.amount_rp ELSE 0 END), 0) AS cash_total,
+               SUM(CASE WHEN p.method_code = 'CASH' THEN 1 ELSE 0 END) AS cash_count,
+               COALESCE(SUM(CASE WHEN p.method_code = 'QRIS_MANUAL' THEN p.amount_rp ELSE 0 END), 0) AS qris_total,
+               SUM(CASE WHEN p.method_code = 'QRIS_MANUAL' THEN 1 ELSE 0 END) AS qris_count,
+               SUM(CASE WHEN p.method_code = 'QRIS_MANUAL'
+                             AND p.verified_by IS NOT NULL AND p.verified_at_ms IS NOT NULL
+                        THEN 1 ELSE 0 END) AS verified_count,
+               COALESCE(SUM(p.amount_rp), 0) AS total
+             FROM sales s JOIN payments p ON p.sale_id = s.id`,
+          )
+          .get() as {
+          cash_total: number;
+          cash_count: number;
+          qris_total: number;
+          qris_count: number;
+          verified_count: number;
+          total: number;
+        };
+        const rows = db
+          .prepare(
+            `SELECT s.id AS sale_id, s.sale_no AS sale_no, s.committed_at_ms AS committed_at_ms,
+                    p.amount_rp AS amount_rp, p.verified_by AS verified_by,
+                    p.verified_at_ms AS verified_at_ms, p.evidence_ref AS evidence_ref,
+                    u.username AS cashier_username
+             FROM sales s
+             JOIN payments p ON p.sale_id = s.id
+             LEFT JOIN users u ON u.id = p.verified_by
+             WHERE p.method_code = 'QRIS_MANUAL'
+               AND p.verified_by IS NOT NULL AND p.verified_at_ms IS NOT NULL
+             ORDER BY s.committed_at_ms DESC, s.id DESC
+             LIMIT 100`,
+          )
+          .all() as Row[];
 
-      const report: PaymentReport = {
-        cash: { totalRp: 0, count: 0 },
-        qrisManual: { totalRp: 0, count: 0, verifiedCount: 0 },
-        totalRp: 0,
-        qrisSales: [],
-      };
-
-      for (const row of rows) {
-        const amount = Number(row.amount_rp);
-        report.totalRp += amount;
-        if (row.method_code === "CASH") {
-          report.cash.totalRp += amount;
-          report.cash.count += 1;
-          continue;
-        }
-        if (row.method_code !== "QRIS_MANUAL") {
-          continue;
-        }
-        report.qrisManual.totalRp += amount;
-        report.qrisManual.count += 1;
-        // Baris QRIS yang valid selalu punya verifier dari sesi backend.
-        if (row.verified_by !== null && row.verified_at_ms !== null) {
-          report.qrisManual.verifiedCount += 1;
-          report.qrisSales.push({
+        const report: PaymentReport = {
+          cash: {
+            totalRp: Number(summary.cash_total),
+            count: Number(summary.cash_count),
+          },
+          qrisManual: {
+            totalRp: Number(summary.qris_total),
+            count: Number(summary.qris_count),
+            verifiedCount: Number(summary.verified_count),
+          },
+          totalRp: Number(summary.total),
+          qrisSales: rows.map((row) => ({
             saleId: Number(row.sale_id),
             saleNo: String(row.sale_no),
             committedAtMs: Number(row.committed_at_ms),
-            totalRp: amount,
+            totalRp: Number(row.amount_rp),
             cashierUsername: row.cashier_username,
             verifiedBy: Number(row.verified_by),
             verifiedAtMs: Number(row.verified_at_ms),
             evidenceRef: row.evidence_ref,
             status: "verified",
-          });
+          })),
+        };
+        db.exec("COMMIT");
+        return report;
+      } catch (error) {
+        try {
+          db.exec("ROLLBACK");
+        } catch {
+          // Error asli tetap dilempar.
         }
+        throw error;
       }
-      return report;
     },
   };
 }

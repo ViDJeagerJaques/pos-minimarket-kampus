@@ -78,9 +78,12 @@ DB akhir pada E2E: `sales=1`, `payments=1`, `inventory_movements=2` (1 OPENING +
   dan `GET /checkouts/:attemptKey` mengembalikan `qrisVerification.status = "pending"`.
 - `verified` — hanya ada setelah commit `COMMITTED`; `payments.verified_by/verified_at_ms`
   dan audit `QRIS_MANUAL_CONFIRMED` mengikat kasir dan waktu dari backend.
-- `failed` — ditampilkan UI bila konfirmasi kurang/beda nominal atau backend menolak
-  validasi. Tidak ada baris sale yang dibuat, sehingga tidak masuk laporan. Status gagal
-  **tidak dipersistenkan** karena SOP/rekaman kegagalan belum disetujui; ini batas DEMO.
+- `failed` — beda makna dengan **PENDING**: konfirmasi belum dicentang atau
+  nominal merchant belum sama dengan quote membuat dialog tetap PENDING dan
+  tombol commit dinonaktifkan, bukan GAGAL. Teks "GAGAL" hanya dipakai bila
+  backend menolak validasi saat commit (misalnya `VALIDATION_ERROR`) dan tidak
+  ada penjualan. Status gagal tidak dipersistenkan karena SOP/rekaman kegagalan
+  belum disetujui; ini batas DEMO.
 
 ## 4. Risiko, celah kontrak, dan GO-LIVE
 
@@ -99,10 +102,38 @@ DB akhir pada E2E: `sales=1`, `payments=1`, `inventory_movements=2` (1 OPENING +
    secara nyata (timeout hanya disimulasikan lewat `ApiError`).
 6. QRIS tidak masuk kas fisik; rekonsiliasi laci dan selisih menunggu SOP/DEC-016.
 
-## 5. Langkah berikutnya
+## 5. Perbaikan temuan review PR #34
+
+Seluruh 22 temuan CodeRabbit (BUG-033–BUG-054) diperiksa terhadap kode saat ini
+dan masih valid. Perbaikan diterapkan di branch yang sama, tanpa PR baru:
+
+- QRIS: nominal merchant tidak diisi otomatis; PRICE_CHANGED menyimpan transfer
+  lama untuk rekonsiliasi; VALIDATION_ERROR memakai attempt baru; penolakan
+  stok/shift tidak menghapus rekaman QRIS; fallback timeout hanya untuk CASH.
+- Backend: cleanup tes QRIS bertahap; laporan memakai agregasi SQL + rincian
+  dibatasi dalam satu snapshot.
+- UI laporan: deskripsi DEMO vs API lokal dibedakan, tombol retry dinonaktifkan
+  saat memuat, label kas diperbaiki.
+- Data/teks: ringkasan QRIS DEMO cocok dengan rincian, komentar metode bayar
+  tidak lagi menyebut "disahkan", banner/README membedakan mock dan API lokal.
+- Skrip E2E: backend bind port 0, stop server menunggu exit sebelum hapus DB.
+- Tes/DTO: verifikasi QRIS dibedakan per fase, tes retry memakai referensi +
+  remount dan membandingkan seluruh isi request kedua.
+
+## 6. Langkah berikutnya
 
 1. Review PR ini; bila disetujui, merge oleh tim sesuai aturan branch (tidak oleh agen).
-2. Naazmi: uji perilaku QRIS setelah merge dengan fixture tes (checkout manual di UI masih
-   terblokir stok kosong sampai TASK-025/027); status TESTING tetap "Perlu uji ulang".
+2. Naazmi: uji QRIS di browser setelah merge. Muat fixture QA TASK-006 ke DB
+   uji terpisah, bukan DB E2E script:
+   `node backend/qa/qa_runner.ts reset --db <path-qa.sqlite> --confirm-dev-reset`
+   lalu arahkan backend ke file itu (`POS_DB_PATH=<path-qa.sqlite>`), setel
+   sandi uji untuk akun CASHIER fixture seperti prosedur di
+   `scripts/task-013_integration_e2e.mjs`, dan login di browser. Stok awal
+   fixture yang diharapkan: product 1 `DEMO-001` 22 unit, product 6
+   `QA-STOK-1` 1 unit, product 5 `QA-STOK-0` 0 unit (blokir stok). DB
+   sementara milik `scripts/task-037_qris_e2e.mjs` **tidak** dipakai browser
+   dan tidak di-seed untuk checkout UI. Status TESTING tetap "Perlu uji ulang";
+   checkout manual di UI masih terblokir bila stok produk pilihan kosong
+   sampai TASK-025/027.
 3. David/Rahmat: tinjau dan tambahkan endpoint/laporan QRIS ke `API_CONTRACT.md` lewat review.
 4. Validasi SOP merchant, nominal, bukti, dan cutover dengan pengelola sebelum GO-LIVE.

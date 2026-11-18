@@ -29,10 +29,11 @@ import type {
   PosDataSource,
   PrepareCheckoutInput,
   PrepareCheckoutResult,
+  PendingQrisVerification,
   ProductSummary,
-  QrisVerification,
   Role,
   SessionUser,
+  VerifiedQrisVerification,
   ShiftSummary,
   ShiftClosePreview,
   ShiftClosing,
@@ -147,17 +148,21 @@ function asCheckoutMethod(value: unknown): CheckoutPaymentMethod {
   return value;
 }
 
-function toQrisVerification(value: unknown): QrisVerification | undefined {
-  if (!isRecord(value)) return undefined;
-  if (value.status === "pending") return { status: "pending" };
+function toPendingQrisVerification(value: unknown): PendingQrisVerification | undefined {
+  if (!isRecord(value) || value.status !== "pending") return undefined;
+  return { status: "pending" };
+}
+
+function toVerifiedQrisVerification(value: unknown): VerifiedQrisVerification | undefined {
   if (
-    value.status === "verified" &&
-    isPositiveInt(value.verifiedBy) &&
-    isNonNegativeInt(value.verifiedAtMs)
+    !isRecord(value) ||
+    value.status !== "verified" ||
+    !isPositiveInt(value.verifiedBy) ||
+    !isNonNegativeInt(value.verifiedAtMs)
   ) {
-    return { status: "verified", verifiedBy: value.verifiedBy, verifiedAtMs: value.verifiedAtMs };
+    return undefined;
   }
-  return undefined;
+  return { status: "verified", verifiedBy: value.verifiedBy, verifiedAtMs: value.verifiedAtMs };
 }
 
 function invalidResponse(message: string): ApiError {
@@ -412,7 +417,7 @@ function toCommitResult(value: unknown): CommitCheckoutResult {
     throw invalidResponse("Hasil commit checkout dari backend tidak valid.");
   }
   const method = asCheckoutMethod(payment.method);
-  const verification = toQrisVerification(value.qrisVerification);
+  const verification = toVerifiedQrisVerification(value.qrisVerification);
   return {
     saleId: value.saleId,
     saleNo: value.saleNo,
@@ -455,7 +460,7 @@ function toCheckoutStatus(value: unknown): CheckoutStatusResult {
       status: "PREPARED",
       quote: value.quote === null || value.quote === undefined ? null : toCheckoutQuote(value.quote),
       ...(value.qrisVerification !== undefined
-        ? { qrisVerification: toQrisVerification(value.qrisVerification) }
+        ? { qrisVerification: toPendingQrisVerification(value.qrisVerification) }
         : {}),
     };
   }

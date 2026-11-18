@@ -67,8 +67,10 @@ export function ReportsPage({ dataSource, currentUser, onSessionExpired }: Repor
         Laporan Pembayaran <span className="chip chip--warning">ADMIN · QRIS terpisah</span>
       </h1>
       <p className="muted">
-        Masuk sebagai <strong>{currentUser.username}</strong>. Angka berasal dari transaksi yang
-        benar-benar tersimpan. Upaya pending/gagal tidak dihitung sebagai penjualan.
+        Masuk sebagai <strong>{currentUser.username}</strong>.
+        {isDemo
+          ? "Mode DEMO menampilkan angka sintetis untuk pratinjau UI, bukan bukti transaksi."
+          : "Angka berasal dari transaksi yang benar-benar tersimpan di backend lokal. Upaya pending/gagal tidak dihitung sebagai penjualan."}
       </p>
       {isDemo && (
         <StatusMessage
@@ -86,7 +88,7 @@ export function ReportsPage({ dataSource, currentUser, onSessionExpired }: Repor
       {loadError && (
         <div className="account-load-error">
           <p className="field-error" role="alert">{loadError}</p>
-          <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
+          <Button variant="secondary" disabled={isLoading} onClick={() => setReloadKey((value) => value + 1)}>
             Coba lagi
           </Button>
         </div>
@@ -98,7 +100,7 @@ export function ReportsPage({ dataSource, currentUser, onSessionExpired }: Repor
             <div className="report-card">
               <h2 className="section-title">Kas tunai</h2>
               <p className="money money--total"><MoneyText amountRp={report.cash.totalRp} /></p>
-              <p className="muted">{report.cash.count} transaksi · uang fisik di laci</p>
+              <p className="muted">{report.cash.count} transaksi · penjualan CASH tercatat</p>
             </div>
             <div className="report-card">
               <h2 className="section-title">QRIS manual</h2>

@@ -1,8 +1,10 @@
 # Frontend — UI Kasir/Admin (DEMO)
 
-> **Status: DEMO.** Autentikasi dan pengelolaan akun memakai backend lokal
-> nyata (TASK-009/TASK-011). Katalog produk masih data sintetis dan belum ada
-> checkout, pembayaran, atau stok tersimpan. Bukan izin transaksi uang sungguhan.
+> **Status: DEMO.** Mode mock (`VITE_AUTH_MODE=demo`) memakai data sintetis di
+> memori: tidak ada transaksi, pembayaran, atau stok yang disimpan. Mode API
+> lokal memakai backend dan SQLite nyata; commit yang berhasil menyimpan sale
+> dan payment yang dipakai halaman **Laporan**. QRIS masih DEMO sampai SOP
+> merchant pengelola disetujui. Bukan izin transaksi uang sungguhan.
 
 ## 1. Prasyarat
 
@@ -70,6 +72,8 @@ dimasukkan ke uang fisik laci.
 ```powershell
 npm run typecheck
 npm test
+# Jika vitest berhenti karena batas waktu pada mesin lambat:
+npx vitest run --testTimeout=15000
 npm run build
 # dari root repo, E2E terhadap backend + SQLite sementara:
 node scripts/task-011_auth_e2e.mjs

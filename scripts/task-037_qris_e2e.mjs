@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { once } from "node:events";
@@ -44,22 +43,6 @@ function runNode(args, extraEnv = {}) {
   return result.stdout;
 }
 
-function freeLoopbackPort() {
-  return new Promise((resolvePort, reject) => {
-    const probe = createServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (typeof address !== "object" || address === null) {
-        probe.close(() => reject(new Error("Gagal port loopback.")));
-        return;
-      }
-      const { port } = address;
-      probe.close((error) => (error ? reject(error) : resolvePort(port)));
-    });
-  });
-}
-
 function waitForServerStart(child) {
   return new Promise((resolveUrl, reject) => {
     let output = "";
@@ -80,8 +63,10 @@ function waitForServerStart(child) {
   });
 }
 
-async function startServer(port) {
-  server = spawn(process.execPath, ["src/http/cli.ts", "serve", "--db", dbPath, "--port", String(port)], {
+async function startServer() {
+  // Port 0: backend memilih port bebas sendiri; tidak ada port yang dilepas
+  // sebelum di-bind (menghindari race dengan proses lain).
+  server = spawn(process.execPath, ["src/http/cli.ts", "serve", "--db", dbPath], {
     cwd: backendDir,
     env: { ...process.env, POS_DB_PATH: dbPath },
     stdio: ["ignore", "pipe", "pipe"],
@@ -92,11 +77,14 @@ async function startServer(port) {
 }
 
 async function stopServer() {
-  if (!server || server.exitCode !== null) return;
+  if (!server || server.exitCode !== null || server.signalCode !== null) return;
   const exited = once(server, "exit").catch(() => undefined);
   server.kill();
   await Promise.race([exited, new Promise((r) => setTimeout(r, 3000))]);
-  if (server.exitCode === null) server.kill("SIGKILL");
+  if (server.exitCode === null && server.signalCode === null) {
+    server.kill("SIGKILL");
+    await exited;
+  }
 }
 
 async function call(base, path, options = {}) {
@@ -136,8 +124,7 @@ async function main() {
     ["src/auth/cli.ts", "bootstrap-admin", "--username", adminUsername, "--db", dbPath],
     { POS_BOOTSTRAP_PASSWORD: adminPassword },
   );
-  const port = await freeLoopbackPort();
-  const base = await startServer(port);
+  const base = await startServer();
   pass(`Migrasi SQLite sementara dan server loopback ${base}`);
 
   const adminLogin = await call(base, "/auth/login", {

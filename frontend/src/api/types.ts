@@ -96,7 +96,7 @@ export interface ShiftClosing {
   declaredCashRp: number | null; varianceRp: number | null;
   totals: { cashRp: number; qrisManualRp: number; totalSalesRp: number; saleCount: number };
 }
-/** Metode bayar yang disahkan: tunai dan QRIS manual (DEC-016, TASK-037). */
+/** Metode bayar yang didukung: tunai dan QRIS manual (DEC-016 masih PENDING untuk SOP). */
 export type CheckoutPaymentMethod = "CASH" | "QRIS_MANUAL";
 
 export interface CheckoutQuoteItem {
@@ -144,9 +144,13 @@ export type PaymentConfirmation =
       evidenceRef: string | null;
     };
 
-export type QrisVerification =
-  | { status: "pending" }
-  | { status: "verified"; verifiedBy: number; verifiedAtMs: number };
+export type PendingQrisVerification = { status: "pending" };
+export type VerifiedQrisVerification = {
+  status: "verified";
+  verifiedBy: number;
+  verifiedAtMs: number;
+};
+export type QrisVerification = PendingQrisVerification | VerifiedQrisVerification;
 
 export interface CommitCheckoutInput {
   attemptKey: string;
@@ -171,7 +175,8 @@ export interface CommitCheckoutResult {
     verifiedAtMs: number | null;
     evidenceRef: string | null;
   };
-  qrisVerification?: QrisVerification;
+  /** Hanya tersedia untuk QRIS_MANUAL yang COMMITTED. */
+  qrisVerification?: VerifiedQrisVerification;
 }
 
 export type CheckoutStatusResult =
@@ -180,7 +185,8 @@ export type CheckoutStatusResult =
       requestHash: string;
       status: "PREPARED";
       quote: CheckoutQuote | null;
-      qrisVerification?: QrisVerification;
+      /** Lookup PREPARED hanya boleh membawa status pending. */
+      qrisVerification?: PendingQrisVerification;
     }
   | { attemptKey: string; requestHash: string; status: "ABANDONED"; abandonedAtMs: number }
   | CommitCheckoutResult;

@@ -49,9 +49,11 @@ function count(db: DatabaseSync, table: string): number {
 
 test("TASK-037 HTTP QRIS: verifikasi manual, audit sesi, retry identik, laporan terpisah", async () => {
   const database = createTempDatabase("pos-http-qris-");
-  const db = database.open();
-  migrateFresh(database);
-  insertBaseFixture(db);
+  try {
+    const db = database.open();
+    try {
+      migrateFresh(database);
+      insertBaseFixture(db);
   db.prepare(
     `INSERT INTO inventory_movements (product_id, kind, delta, opening_batch_ref, actor_id, created_at_ms)
      VALUES (1, 'OPENING', 5, 'QRIS-OPEN-1', 1, ?)`,
@@ -68,18 +70,17 @@ test("TASK-037 HTTP QRIS: verifikasi manual, audit sesi, retry identik, laporan 
   auth.createUser(adminActor, { username: "admin.qris", password: ADMIN_PASS, role: "ADMIN" });
   auth.createUser(adminActor, { username: "kasir.qris", password: CASHIER_PASS, role: "CASHIER" });
 
-  const running = await startHttpServer({
-    auth,
-    sessions,
-    securityLog,
-    catalog: createCatalogService(db),
-    shift,
-    checkout,
-    reports,
-  });
-
-  try {
-    async function login(username: string, password: string) {
+      const running = await startHttpServer({
+        auth,
+        sessions,
+        securityLog,
+        catalog: createCatalogService(db),
+        shift,
+        checkout,
+        reports,
+      });
+      try {
+        async function login(username: string, password: string) {
       const result = await call(running.url, "/auth/login", {
         method: "POST",
         payload: { username, password },
@@ -238,9 +239,17 @@ test("TASK-037 HTTP QRIS: verifikasi manual, audit sesi, retry identik, laporan 
     assert.equal(JSON.stringify(details).includes("REF-QRIS-E2E-1"), false, "audit tidak menyimpan bukti mentah");
     assert.equal(JSON.stringify(audits).includes(ADMIN_PASS), false);
     assert.equal(JSON.stringify(audits).includes(CASHIER_PASS), false);
+    } finally {
+      try {
+        await running.close();
+      } catch {
+        // Tutup server gagal; tetap bersihkan koneksi DB dan direktori temp.
+      }
+    }
+    } finally {
+      db.close();
+    }
   } finally {
-    await running.close();
-    db.close();
     database.cleanup();
   }
 });
