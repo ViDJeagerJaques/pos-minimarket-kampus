@@ -66,7 +66,7 @@ function waitForServerStart(child) {
 async function startServer() {
   // Port 0: backend memilih port bebas sendiri; tidak ada port yang dilepas
   // sebelum di-bind (menghindari race dengan proses lain).
-  server = spawn(process.execPath, ["src/http/cli.ts", "serve", "--db", dbPath], {
+  server = spawn(process.execPath, ["src/http/cli.ts", "serve", "--db", dbPath, "--port", "0"], {
     cwd: backendDir,
     env: { ...process.env, POS_DB_PATH: dbPath },
     stdio: ["ignore", "pipe", "pipe"],

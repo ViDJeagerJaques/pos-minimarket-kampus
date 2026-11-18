@@ -418,6 +418,11 @@ function toCommitResult(value: unknown): CommitCheckoutResult {
   }
   const method = asCheckoutMethod(payment.method);
   const verification = toVerifiedQrisVerification(value.qrisVerification);
+  if (method === "QRIS_MANUAL" && verification === undefined) {
+    // QRIS COMMITTED tanpa verifikasi sah bukan hasil yang bisa dipercaya.
+    // Jangan ditampilkan sebagai sukses; attempt tetap bisa dicek lewat status.
+    throw invalidResponse("Hasil commit QRIS tidak memuat verifikasi terverifikasi yang valid.");
+  }
   return {
     saleId: value.saleId,
     saleNo: value.saleNo,

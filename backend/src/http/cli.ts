@@ -30,6 +30,18 @@ const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const MIN_SESSION_TTL_MS = 5 * 60 * 1000;
 const MAX_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+function parsePort(value: string | undefined, fallback: number): number {
+  if (value === undefined) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  // 0 = minta OS memilih port bebas; dipakai skrip E2E agar tidak ada race.
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 65535) {
+    throw new Error(`Port tidak valid: ${value}`);
+  }
+  return parsed;
+}
+
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined) {
     return fallback;
@@ -59,7 +71,7 @@ export function parseArgs(argv: string[]): Options {
       options.dbPath = value;
       index += 1;
     } else if (arg === "--port") {
-      options.port = parsePositiveInt(rest[index + 1], 0);
+      options.port = parsePort(rest[index + 1], 0);
       index += 1;
     } else if (arg === "--session-ttl-ms") {
       options.sessionTtlMs = parsePositiveInt(

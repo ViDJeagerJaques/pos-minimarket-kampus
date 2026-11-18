@@ -751,6 +751,37 @@ describe("TASK-037 kontrak HTTP QRIS manual", () => {
     });
   });
 
+  it("commit QRIS tanpa verifikasi sah ditolak sebagai INVALID_RESPONSE", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: { ...QRIS_COMMITTED, qrisVerification: undefined } } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    await expect(
+      dataSource.commitCheckout({
+        attemptKey: "co_qris",
+        requestHash: HASH,
+        paymentConfirmation: {
+          method: "QRIS_MANUAL",
+          merchantConfirmed: true,
+          confirmedAmountRp: 5000,
+          evidenceRef: "REF-1",
+        },
+      }),
+    ).rejects.toThrow(/verifikasi/);
+  });
+
+  it("lookup COMMITTED QRIS tanpa verifikasi sah ditolak sebagai INVALID_RESPONSE", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: { ...QRIS_COMMITTED, qrisVerification: { status: "pending" } } } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    await expect(dataSource.getCheckoutStatus("co_qris")).rejects.toThrow(/verifikasi/);
+  });
+
   it("lookup QRIS PREPARED memuat status pending", async () => {
     const { fetchImpl } = stubFetch([
       loginEnvelope(),

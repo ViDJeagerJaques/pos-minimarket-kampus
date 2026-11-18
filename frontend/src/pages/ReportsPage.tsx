@@ -106,13 +106,21 @@ export function ReportsPage({ dataSource, currentUser, onSessionExpired }: Repor
               <h2 className="section-title">QRIS manual</h2>
               <p className="money money--total"><MoneyText amountRp={report.qrisManual.totalRp} /></p>
               <p className="muted">
-                {report.qrisManual.count} transaksi · {report.qrisManual.verifiedCount} terverifikasi
+                {report.qrisManual.count} transaksi · {report.qrisManual.verifiedCount} terverifikasi ·{" "}
+                {report.qrisSales.length} ditampilkan
               </p>
               <p className="muted">Tidak ditambahkan ke kas fisik.</p>
             </div>
           </div>
 
           <h2 className="section-title">Rincian QRIS terverifikasi</h2>
+          {report.qrisSales.length < report.qrisManual.verifiedCount && (
+            <p className="muted" role="note">
+              Daftar hanya sebagian: menampilkan {report.qrisSales.length} dari{" "}
+              {report.qrisManual.verifiedCount} transaksi QRIS terverifikasi. Total di atas tetap
+              mencakup seluruh transaksi tersimpan.
+            </p>
+          )}
           {report.qrisSales.length === 0 ? (
             <p className="muted">Belum ada transaksi QRIS terverifikasi.</p>
           ) : (

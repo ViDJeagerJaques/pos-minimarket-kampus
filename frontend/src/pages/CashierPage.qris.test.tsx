@@ -179,11 +179,24 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     expect(source.commitCheckout).not.toHaveBeenCalled();
   });
 
-  it("VALIDATION_ERROR dari backend ditampilkan sebagai GAGAL tanpa penjualan", async () => {
-    const commit = vi.fn(async () => {
-      throw new ApiError(422, "VALIDATION_ERROR", "Nominal konfirmasi QRIS tidak sama dengan total belanja.");
+  it("VALIDATION_ERROR QRIS memakai attempt pengganti setelah transfer lama direkonsiliasi", async () => {
+    const NEW_HASH = "b".repeat(64);
+    let prepareCalls = 0;
+    const prepare = vi.fn(async () => {
+      prepareCalls += 1;
+      return prepareCalls === 1
+        ? PREPARED_QRIS
+        : { ...PREPARED_QRIS, attemptKey: "co_qris_2", requestHash: NEW_HASH };
     });
-    const source = buildSource({ commit });
+    let commitCalls = 0;
+    const commit = vi.fn(async () => {
+      commitCalls += 1;
+      if (commitCalls === 1) {
+        throw new ApiError(422, "VALIDATION_ERROR", "Nominal konfirmasi QRIS tidak sama dengan total belanja.");
+      }
+      return { ...COMMITTED_QRIS, attemptKey: "co_qris_2", requestHash: NEW_HASH, saleNo: "QRIS-002" };
+    });
+    const source = buildSource({ prepare, commit });
     const user = userEvent.setup();
     render(<Harness source={source} />);
     await openQrisPayment(user);
@@ -192,12 +205,52 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     await user.type(screen.getByLabelText(/Nominal yang terlihat di merchant/), "5000");
     await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
 
-    await waitFor(() => {
-      expect(screen.getByText(/Status: GAGAL/)).toBeTruthy();
-    });
+    expect(await screen.findByText(/Status: GAGAL/)).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Transaksi tersimpan" })).toBeNull();
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(source.prepareCheckout).toHaveBeenCalledTimes(2);
+    expect(prepareCalls).toBe(2);
+    expect(screen.getByText(/co_qris_2/)).toBeTruthy();
+
+    // Tombol commit tetap terkunci sampai kasir menyatakan transfer lama tidak dipakai.
+    const commitButton = screen.getByRole("button", { name: "Ya, commit pembayaran" }) as HTMLButtonElement;
+    expect(commitButton.disabled).toBe(true);
+    await user.click(screen.getByRole("checkbox", { name: /Transfer lama tidak dipakai/ }));
+    await user.click(screen.getByRole("checkbox", { name: /sudah memeriksa transaksi/ }));
+    await user.type(screen.getByLabelText(/Nominal yang terlihat di merchant/), "5000");
+    await user.type(screen.getByLabelText(/Referensi bukti/), "REF-MERCHANT-2");
+    expect(commitButton.disabled).toBe(false);
+    await user.click(commitButton);
+
+    expect(await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).toBeTruthy();
+    const calls = vi.mocked(source.commitCheckout).mock.calls;
+    expect(calls[0]?.[0].attemptKey).toBe("co_qris_1");
+    expect(calls[0]?.[0].requestHash).toBe("a".repeat(64));
+    expect(calls[1]?.[0].attemptKey).toBe("co_qris_2");
+    expect(calls[1]?.[0].requestHash).toBe(NEW_HASH);
+  });
+
+  it("SHIFT_NOT_ACTIVE QRIS tidak membuka replay attempt yang PREPARED", async () => {
+    const commit = vi.fn(async () => {
+      throw new ApiError(409, "SHIFT_NOT_ACTIVE", "Shift tidak aktif atau bukan milik kasir ini.");
+    });
+    const status = vi.fn(async (): Promise<CheckoutStatusResult> => ({
+      ...PREPARED_QRIS,
+      status: "PREPARED",
+      qrisVerification: { status: "pending" },
+    }));
+    const source = buildSource({ commit, status });
+    const user = userEvent.setup();
+    render(<Harness source={source} />);
+    await openQrisPayment(user);
+    await user.click(screen.getByRole("checkbox", { name: /sudah memeriksa transaksi/ }));
+    await user.type(screen.getByLabelText(/Nominal yang terlihat di merchant/), "5000");
+    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+
+    expect(await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeTruthy();
+    expect(screen.getByText(/tidak boleh di-commit ulang/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await waitFor(() => expect(screen.getByText(/Status: PENDING/)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Selesai rekonsiliasi/ })).toBeTruthy();
   });
 
   it("timeout QRIS mengarahkan ke lookup dan memakai upaya yang sama saat lanjut", async () => {
