@@ -56,6 +56,7 @@ type SaleRow = {
 type PaymentRow = {
   method_code: string;
   amount_rp: number;
+  evidence_ref: string | null;
   verified_by: number | null;
   verified_at_ms: number | null;
 };
@@ -235,7 +236,7 @@ export function createCheckoutService(
     }
     const paymentRow = db
       .prepare(
-        "SELECT method_code, amount_rp, verified_by, verified_at_ms FROM payments WHERE sale_id = ? LIMIT 1",
+        "SELECT method_code, amount_rp, evidence_ref, verified_by, verified_at_ms FROM payments WHERE sale_id = ? LIMIT 1",
       )
       .get(sale.id) as PaymentRow | undefined;
     if (!paymentRow) {
@@ -266,6 +267,7 @@ export function createCheckoutService(
       changeRp,
       verifiedBy: paymentRow.verified_by === null ? null : Number(paymentRow.verified_by),
       verifiedAtMs: paymentRow.verified_at_ms === null ? null : Number(paymentRow.verified_at_ms),
+      evidenceRef: paymentRow.evidence_ref,
     };
     return {
       saleId: Number(sale.id),
@@ -276,6 +278,15 @@ export function createCheckoutService(
       totalRp: Number(sale.total_rp),
       committedAtMs: Number(sale.committed_at_ms),
       payment,
+      ...(method === "QRIS_MANUAL" && payment.verifiedBy !== null && payment.verifiedAtMs !== null
+        ? {
+            qrisVerification: {
+              status: "verified" as const,
+              verifiedBy: payment.verifiedBy,
+              verifiedAtMs: payment.verifiedAtMs,
+            },
+          }
+        : {}),
     };
   }
 
@@ -636,6 +647,26 @@ export function createCheckoutService(
           },
           nowMs: committedAtMs,
         });
+        if (paymentConf.method === "QRIS_MANUAL" && verifiedBy !== null && verifiedAtMs !== null) {
+          // AUD-08: identitas dan waktu dari sesi/jam backend, bukan body UI.
+          // Ditulis dalam transaksi yang sama dengan sale/payment/mutasi.
+          writeCheckoutAudit(db, {
+            actorId: actor.userId,
+            action: "QRIS_MANUAL_CONFIRMED",
+            entityType: "sales",
+            entityId: saleId,
+            details: {
+              saleNo,
+              attemptKey,
+              shiftId: quote.shiftId,
+              status: "verified",
+              amountRp: quote.totalRp,
+              verifiedBy,
+              verifiedAtMs,
+            },
+            nowMs: verifiedAtMs,
+          });
+        }
 
         return {
           saleId,
@@ -652,7 +683,17 @@ export function createCheckoutService(
             changeRp,
             verifiedBy,
             verifiedAtMs,
+            evidenceRef: paymentConf.method === "QRIS_MANUAL" ? paymentConf.evidenceRef : null,
           },
+          ...(paymentConf.method === "QRIS_MANUAL" && verifiedBy !== null && verifiedAtMs !== null
+            ? {
+                qrisVerification: {
+                  status: "verified" as const,
+                  verifiedBy,
+                  verifiedAtMs,
+                },
+              }
+            : {}),
         };
       });
     },
@@ -685,11 +726,15 @@ export function createCheckoutService(
           abandonedAtMs: Number(attempt.abandoned_at_ms),
         };
       }
+      const quote = loadStoredQuote(attemptKey);
       return {
         attemptKey: String(attempt.attempt_key),
         requestHash: Buffer.from(attempt.request_hash).toString("hex"),
         status: "PREPARED",
-        quote: loadStoredQuote(attemptKey),
+        quote,
+        ...(quote?.payment.method === "QRIS_MANUAL"
+          ? { qrisVerification: { status: "pending" as const } }
+          : {}),
       };
     },
   };

@@ -502,6 +502,7 @@ const COMMITTED_DTO = {
     changeRp: 5000,
     verifiedBy: 2,
     verifiedAtMs: 1_700_000_001_000,
+    evidenceRef: null,
   },
 };
 
@@ -641,5 +642,158 @@ describe("TASK-023 kontrak HTTP tutup shift", () => {
     expect(calls[3]?.url).toBe("/api/v1/shifts/7/close");
     expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({ closeKey: "close_test", declaredCashRp: 590000 });
     expect(calls[4]?.init?.method).toBe("GET");
+  });
+});
+
+describe("TASK-037 kontrak HTTP QRIS manual", () => {
+  const QRIS_QUOTE = {
+    shiftId: 7,
+    cashierId: 2,
+    items: [
+      {
+        productId: 1,
+        sku: "QRIS-001",
+        name: "Produk QRIS",
+        quantity: 1,
+        unitPriceRp: 5000,
+        lineTotalRp: 5000,
+      },
+    ],
+    totalRp: 5000,
+    payment: { method: "QRIS_MANUAL" },
+  };
+  const QRIS_PREPARED = {
+    attemptKey: "co_qris",
+    requestHash: HASH,
+    status: "PREPARED",
+    quote: QRIS_QUOTE,
+    qrisVerification: { status: "pending" },
+  };
+  const QRIS_COMMITTED = {
+    saleId: 12,
+    saleNo: "QRIS-001",
+    attemptKey: "co_qris",
+    requestHash: HASH,
+    status: "COMMITTED",
+    totalRp: 5000,
+    committedAtMs: 1_700_000_001_000,
+    payment: {
+      method: "QRIS_MANUAL",
+      amountRp: 5000,
+      cashReceivedRp: null,
+      changeRp: 0,
+      verifiedBy: 2,
+      verifiedAtMs: 1_700_000_001_000,
+      evidenceRef: "REF-1",
+    },
+    qrisVerification: { status: "verified", verifiedBy: 2, verifiedAtMs: 1_700_000_001_000 },
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("prepare QRIS mengirim metode dan memetakan quote", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: QRIS_PREPARED } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const result = await dataSource.prepareCheckout({
+      attemptKey: "co_qris",
+      shiftId: 7,
+      items: [{ productId: 1, quantity: 1 }],
+      paymentMethod: "QRIS_MANUAL",
+    });
+    expect(result.quote.payment.method).toBe("QRIS_MANUAL");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({
+      attemptKey: "co_qris",
+      shiftId: 7,
+      items: [{ productId: 1, quantity: 1 }],
+      payment: { method: "QRIS_MANUAL" },
+    });
+  });
+
+  it("commit QRIS memetakan status verified, kasir, waktu, dan referensi", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: QRIS_COMMITTED } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const result = await dataSource.commitCheckout({
+      attemptKey: "co_qris",
+      requestHash: HASH,
+      paymentConfirmation: {
+        method: "QRIS_MANUAL",
+        merchantConfirmed: true,
+        confirmedAmountRp: 5000,
+        evidenceRef: "REF-1",
+      },
+    });
+    expect(result.payment.method).toBe("QRIS_MANUAL");
+    expect(result.payment.evidenceRef).toBe("REF-1");
+    expect(result.qrisVerification).toEqual({
+      status: "verified",
+      verifiedBy: 2,
+      verifiedAtMs: 1_700_000_001_000,
+    });
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({
+      attemptKey: "co_qris",
+      requestHash: HASH,
+      paymentConfirmation: {
+        method: "QRIS_MANUAL",
+        merchantConfirmed: true,
+        confirmedAmountRp: 5000,
+        evidenceRef: "REF-1",
+      },
+    });
+  });
+
+  it("lookup QRIS PREPARED memuat status pending", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: QRIS_PREPARED } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const result = await dataSource.getCheckoutStatus("co_qris");
+    expect(result.status).toBe("PREPARED");
+    if (result.status === "PREPARED") {
+      expect(result.qrisVerification).toEqual({ status: "pending" });
+    }
+  });
+
+  it("GET /reports/payments memetakan angka kas dan QRIS terpisah", async () => {
+    const report = {
+      cash: { totalRp: 125000, count: 5 },
+      qrisManual: { totalRp: 75000, count: 3, verifiedCount: 3 },
+      totalRp: 200000,
+      qrisSales: [
+        {
+          saleId: 12,
+          saleNo: "QRIS-001",
+          committedAtMs: 1_700_000_000_000,
+          totalRp: 25000,
+          cashierUsername: "kasir.demo",
+          verifiedBy: 2,
+          verifiedAtMs: 1_700_000_000_000,
+          evidenceRef: "REF-1",
+          status: "verified",
+        },
+      ],
+    };
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: report } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const result = await dataSource.getPaymentReport();
+    expect(result.cash.totalRp).toBe(125000);
+    expect(result.qrisManual.totalRp).toBe(75000);
+    expect(result.qrisSales[0]?.status).toBe("verified");
+    expect(calls[2]?.url).toBe("/api/v1/reports/payments");
   });
 });

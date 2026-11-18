@@ -69,6 +69,7 @@ const COMMITTED: CommitCheckoutResult = {
     changeRp: 5000,
     verifiedBy: 2,
     verifiedAtMs: 1_700_000_001_000,
+    evidenceRef: null,
   },
 };
 

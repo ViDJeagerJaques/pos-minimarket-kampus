@@ -10,8 +10,10 @@ import {
 } from "react";
 import { ApiError } from "../api/errors";
 import type {
+  CheckoutPaymentMethod,
   CheckoutStatusResult,
   CommitCheckoutResult,
+  PaymentConfirmation,
   PosDataSource,
   PrepareCheckoutResult,
   ProductSummary,
@@ -66,6 +68,8 @@ type CheckoutPhase =
       kind: "timeout";
       attempt: PrepareCheckoutResult;
       cashReceivedRp: number;
+      /** Konfirmasi asli yang dipakai saat commit; dipakai ulang saat retry. */
+      paymentConfirmation?: PaymentConfirmation;
       known?: Extract<CheckoutStatusResult, { status: "PREPARED" | "ABANDONED" }>["status"];
     }
   | { kind: "priceChanged"; attempt: PrepareCheckoutResult; previousTotalRp: number }
@@ -93,6 +97,10 @@ function parseRupiahInput(raw: string): number | null {
   }
   const value = Number(trimmed);
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function confirmationAmount(confirmation: PaymentConfirmation): number {
+  return confirmation.method === "CASH" ? confirmation.cashReceivedRp : confirmation.confirmedAmountRp;
 }
 
 function formatShiftTime(openedAtMs: number): string {
@@ -143,7 +151,23 @@ export function CashierPage({
         if (!snapshot.every((line: CartLine) => Number.isSafeInteger(line.productId))) {
           return { phase: { kind: "recoveryError" }, key, snapshot: [], draftId: null };
         }
-        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
+        const savedConfirmation = saved.paymentConfirmation;
+        const paymentConfirmation: PaymentConfirmation | undefined =
+          savedConfirmation?.method === "QRIS_MANUAL" &&
+          savedConfirmation.merchantConfirmed === true &&
+          Number.isSafeInteger(savedConfirmation.confirmedAmountRp) &&
+          (savedConfirmation.evidenceRef === null || typeof savedConfirmation.evidenceRef === "string")
+            ? {
+                method: "QRIS_MANUAL",
+                merchantConfirmed: true,
+                confirmedAmountRp: savedConfirmation.confirmedAmountRp,
+                evidenceRef: savedConfirmation.evidenceRef,
+              }
+            : savedConfirmation?.method === "CASH" &&
+              Number.isSafeInteger(savedConfirmation.cashReceivedRp)
+              ? { method: "CASH", cashReceivedRp: savedConfirmation.cashReceivedRp }
+              : undefined;
+        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp, paymentConfirmation }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
       }
       return { phase: { kind: "recoveryError" }, key, snapshot: [], draftId: null };
     } catch {
@@ -157,6 +181,11 @@ export function CashierPage({
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const recoveryKeyRef = useRef<string | null>(initialRecovery.key);
   const [cashInput, setCashInput] = useState("");
+  const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>("CASH");
+  const [merchantConfirmed, setMerchantConfirmed] = useState(false);
+  const [merchantAmountInput, setMerchantAmountInput] = useState("");
+  const [evidenceRefInput, setEvidenceRefInput] = useState("");
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
   const barcodeRef = useRef<HTMLInputElement>(null);
@@ -400,7 +429,11 @@ export function CashierPage({
     return source.map((line) => ({ productId: line.productId, quantity: line.quantity }));
   }
 
-  async function runPrepare(attemptKey: string, source: CartLine[]): Promise<PrepareCheckoutResult> {
+  async function runPrepare(
+    attemptKey: string,
+    source: CartLine[],
+    method: CheckoutPaymentMethod,
+  ): Promise<PrepareCheckoutResult> {
     if (shift === null || shift === undefined) {
       throw new ApiError(409, "SHIFT_NOT_ACTIVE", "Shift aktif tidak ditemukan.");
     }
@@ -408,7 +441,7 @@ export function CashierPage({
       attemptKey,
       shiftId: shift.id,
       items: cartItems(source),
-      paymentMethod: "CASH",
+      paymentMethod: method,
     });
   }
 
@@ -432,8 +465,12 @@ export function CashierPage({
     setPhase({ kind: "preparing" });
     try {
       // attemptKey baru dibuat sekali per niat; retry memakai kunci yang sama.
-      const attempt = await runPrepare(createAttemptKey(), snapshotLinesRef.current);
+      const attempt = await runPrepare(createAttemptKey(), snapshotLinesRef.current, selectedMethod);
       setCashInput("");
+      setMerchantAmountInput(String(attempt.quote.totalRp));
+      setMerchantConfirmed(false);
+      setEvidenceRefInput("");
+      setPaymentError(null);
       setPhase({ kind: "payment", attempt });
       setStatus({ tone: "info", text: "Quote pricing tersimpan. Periksa total sebelum membayar." });
     } catch (error) {
@@ -446,17 +483,32 @@ export function CashierPage({
   }
 
   /** Setelah PRICE_CHANGED: upaya lama tidak bisa dipakai, tapi user yang menyetujui harga baru. */
-  async function prepareRevisedQuote(previous: PrepareCheckoutResult, cashReceivedRp: number): Promise<void> {
+  async function prepareRevisedQuote(
+    previous: PrepareCheckoutResult,
+    paymentConfirmation: PaymentConfirmation,
+  ): Promise<void> {
     const previousTotalRp = previous.quote.totalRp;
     try {
       if (snapshotLinesRef.current.length === 0) throw new Error("Snapshot kosong");
-      const attempt = await runPrepare(createAttemptKey(), snapshotLinesRef.current);
+      const attempt = await runPrepare(
+        createAttemptKey(),
+        snapshotLinesRef.current,
+        previous.quote.payment.method,
+      );
       setCashInput("");
+      setMerchantAmountInput(String(attempt.quote.totalRp));
+      setMerchantConfirmed(false);
+      setPaymentError(null);
       setPhase({ kind: "priceChanged", attempt, previousTotalRp });
       setStatus({ tone: "warning", text: "Harga berubah. Setujui ringkasan baru sebelum melanjutkan." });
     } catch (error) {
       // Simpan rekaman dan snapshot lama agar pembelian dapat diperiksa lagi.
-      setPhase({ kind: "timeout", attempt: previous, cashReceivedRp });
+      setPhase({
+        kind: "timeout",
+        attempt: previous,
+        cashReceivedRp: confirmationAmount(paymentConfirmation),
+        paymentConfirmation,
+      });
       handleActionError(error, "Quote harga baru gagal disiapkan. Periksa kembali upaya ini.");
     }
   }
@@ -493,14 +545,27 @@ export function CashierPage({
     openNextRecovery(failedKey ?? undefined);
   }
 
-  async function handleCommitError(error: unknown, attempt: PrepareCheckoutResult, cashReceivedRp: number): Promise<void> {
+  async function handleCommitError(
+    error: unknown,
+    attempt: PrepareCheckoutResult,
+    paymentConfirmation: PaymentConfirmation,
+  ): Promise<void> {
+    const cashReceivedRp = confirmationAmount(paymentConfirmation);
     if (error instanceof ApiError) {
       if (error.isSessionExpired) {
         onSessionExpired();
         return;
       }
+      if (error.code === "VALIDATION_ERROR") {
+        // Verifikasi QRIS gagal (belum dikonfirmasi/nominal beda) atau tunai kurang.
+        // Tidak ada sale; tampilkan status GAGAL dan biarkan kasir memperbaiki input.
+        setPhase({ kind: "payment", attempt });
+        setPaymentError(`Status: GAGAL — ${error.message} Tidak ada penjualan.`);
+        setStatus({ tone: "danger", text: error.message });
+        return;
+      }
       if (error.code === "PRICE_CHANGED") {
-        await prepareRevisedQuote(attempt, cashReceivedRp);
+        await prepareRevisedQuote(attempt, paymentConfirmation);
         return;
       }
       if (error.code === "SHIFT_NOT_ACTIVE") {
@@ -518,31 +583,56 @@ export function CashierPage({
       if (error.code === "NETWORK_ERROR" || error.code === "INVALID_RESPONSE") {
         // Respons bisa saja berhasil di server tetapi gagal dibaca klien. Jangan
         // buat upaya baru dan jangan minta pembayaran fisik lagi: arahkan ke lookup.
-        setPhase({ kind: "timeout", attempt, cashReceivedRp });
+        setPhase({ kind: "timeout", attempt, cashReceivedRp, paymentConfirmation });
         setStatus({ tone: "danger", text: MSG_TIMEOUT });
         return;
       }
     }
     // Kesalahan lain tidak membuktikan commit gagal; tetap kunci dan cek status.
-    setPhase({ kind: "timeout", attempt, cashReceivedRp });
+    setPhase({ kind: "timeout", attempt, cashReceivedRp, paymentConfirmation });
     setStatus({ tone: "danger", text: MSG_TIMEOUT });
   }
 
   async function confirmCommit(): Promise<void> {
     if (checkoutLockRef.current || phase.kind !== "payment") return;
-    const cashReceivedRp = parseRupiahInput(cashInput);
-    if (cashReceivedRp === null || cashReceivedRp < phase.attempt.quote.totalRp) {
-      setStatus({ tone: "warning", text: "Nominal tunai harus berupa bilangan bulat dan minimal sama dengan total." });
-      return;
-    }
     const attempt = phase.attempt;
+    const quoteTotalRp = attempt.quote.totalRp;
+    let paymentConfirmation: PaymentConfirmation;
+
+    if (attempt.quote.payment.method === "QRIS_MANUAL") {
+      const confirmedAmountRp = parseRupiahInput(merchantAmountInput);
+      if (!merchantConfirmed) {
+        setPaymentError("Status: GAGAL — centang konfirmasi hanya setelah melihat transaksi di aplikasi merchant. Tidak ada penjualan.");
+        return;
+      }
+      if (confirmedAmountRp === null || confirmedAmountRp !== quoteTotalRp) {
+        setPaymentError(`Status: GAGAL — nominal merchant harus sama dengan total ${quoteTotalRp}. Tidak ada penjualan.`);
+        return;
+      }
+      paymentConfirmation = {
+        method: "QRIS_MANUAL",
+        merchantConfirmed: true,
+        confirmedAmountRp,
+        evidenceRef: evidenceRefInput.trim().length > 0 ? evidenceRefInput.trim().slice(0, 120) : null,
+      };
+    } else {
+      const cashReceivedRp = parseRupiahInput(cashInput);
+      if (cashReceivedRp === null || cashReceivedRp < quoteTotalRp) {
+        setStatus({ tone: "warning", text: "Nominal tunai harus berupa bilangan bulat dan minimal sama dengan total." });
+        return;
+      }
+      paymentConfirmation = { method: "CASH", cashReceivedRp };
+    }
+
+    setPaymentError(null);
+    const cashReceivedRp = confirmationAmount(paymentConfirmation);
     const epoch = sessionEpochRef.current;
     // Catat sebelum mengirim commit; bila penyimpanan gagal, jangan kirim.
     try {
       const key = `${storagePrefix}.${encodeURIComponent(attempt.attemptKey)}`;
       // Jangan menimpa rekaman lain, termasuk identitas yang bertabrakan.
       if (localStorage.getItem(key) !== null) throw new Error("Attempt already recorded");
-      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current }));
+      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, paymentConfirmation, snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current }));
       // Quote baru sudah terlindungi sebelum rekaman lama dihapus.
       if (recoveryKeyRef.current && recoveryKeyRef.current !== key) removeRecovery();
       recoveryKeyRef.current = key;
@@ -556,18 +646,21 @@ export function CashierPage({
       const result = await dataSource.commitCheckout({
         attemptKey: attempt.attemptKey,
         requestHash: attempt.requestHash,
-        paymentConfirmation: { method: "CASH", cashReceivedRp },
+        paymentConfirmation,
       });
       commitSucceeded(result, epoch);
     } catch (error) {
-      await handleCommitError(error, attempt, cashReceivedRp);
+      await handleCommitError(error, attempt, paymentConfirmation);
     } finally {
       checkoutLockRef.current = false;
     }
   }
 
   /** Lanjutkan UPAYA YANG SAMA setelah status PREPARED diketahui (bukan transaksi baru). */
-  async function resumeSameAttempt(attempt: PrepareCheckoutResult, cashReceivedRp: number): Promise<void> {
+  async function resumeSameAttempt(
+    attempt: PrepareCheckoutResult,
+    paymentConfirmation: PaymentConfirmation,
+  ): Promise<void> {
     if (checkoutLockRef.current) return;
     const epoch = sessionEpochRef.current;
     checkoutLockRef.current = true;
@@ -576,11 +669,11 @@ export function CashierPage({
       const result = await dataSource.commitCheckout({
         attemptKey: attempt.attemptKey,
         requestHash: attempt.requestHash,
-        paymentConfirmation: { method: "CASH", cashReceivedRp },
+        paymentConfirmation,
       });
       commitSucceeded(result, epoch);
     } catch (error) {
-      await handleCommitError(error, attempt, cashReceivedRp);
+      await handleCommitError(error, attempt, paymentConfirmation);
     } finally {
       checkoutLockRef.current = false;
     }
@@ -665,6 +758,15 @@ export function CashierPage({
     quoteTotalRp !== null && cashValue !== null && cashValue >= quoteTotalRp
       ? cashValue - quoteTotalRp
       : null;
+  const paymentIsQris =
+    phase.kind === "payment" && phase.attempt.quote.payment.method === "QRIS_MANUAL";
+  const merchantAmountValue = parseRupiahInput(merchantAmountInput);
+  const canCommitPayment = paymentIsQris
+    ? merchantConfirmed && merchantAmountValue !== null && merchantAmountValue === quoteTotalRp
+    : cashValue !== null && quoteTotalRp !== null && cashValue >= quoteTotalRp;
+  const timeoutConfirmation: PaymentConfirmation | null = phase.kind === "timeout"
+    ? phase.paymentConfirmation ?? { method: "CASH", cashReceivedRp: phase.cashReceivedRp }
+    : null;
 
   return (
     <div className="cashier">
@@ -735,6 +837,28 @@ export function CashierPage({
         <p className="summary__draft-note muted">
           Draft belum tersimpan sebagai transaksi sampai commit dikonfirmasi backend.
         </p>
+        <fieldset className="method-chooser" disabled={isDemo || isCheckoutActive}>
+          <legend className="field-label">Metode pembayaran</legend>
+          <label className="checkbox-row">
+            <input
+              type="radio"
+              name="payment-method"
+              checked={selectedMethod === "CASH"}
+              onChange={() => setSelectedMethod("CASH")}
+            />
+            Tunai
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="radio"
+              name="payment-method"
+              checked={selectedMethod === "QRIS_MANUAL"}
+              onChange={() => setSelectedMethod("QRIS_MANUAL")}
+            />
+            QRIS manual (cek di aplikasi merchant)
+          </label>
+          <p className="muted">QRIS tidak otomatis lunas dan tidak masuk kas fisik.</p>
+        </fieldset>
         <div className="summary__actions">
           <Button
             variant="primary"
@@ -781,9 +905,12 @@ export function CashierPage({
       {phase.kind === "payment" && (
         <div className="dialog-backdrop">
           <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
-            <h2 id="payment-title" className="dialog__title">Konfirmasi pembayaran tunai</h2>
+            <h2 id="payment-title" className="dialog__title">
+              {paymentIsQris ? "Konfirmasi QRIS manual" : "Konfirmasi pembayaran tunai"}
+            </h2>
             <p>
-              Total: <MoneyText amountRp={phase.attempt.quote.totalRp} />
+              <span className="badge badge--warning">PENDING — belum ada penjualan</span> · Total:{" "}
+              <MoneyText amountRp={phase.attempt.quote.totalRp} />
             </p>
             <ul className="catalog-list">
               {phase.attempt.quote.items.map((item) => (
@@ -793,20 +920,83 @@ export function CashierPage({
                 </li>
               ))}
             </ul>
-            <label htmlFor={cashInputId} className="field-label">Uang diterima (Rp)</label>
-            <input
-              id={cashInputId}
-              ref={cashInputRef}
-              className="input"
-              type="text"
-              inputMode="numeric"
-              value={cashInput}
-              onChange={(event) => setCashInput(event.target.value)}
-              aria-describedby="change-info"
-            />
-            <p id="change-info" className="muted">
-              Kembalian: <MoneyText amountRp={quoteChangeRp} />
-            </p>
+            {paymentIsQris ? (
+              <div className="qris-panel">
+                <p className="muted">
+                  Buka aplikasi merchant di luar POS. Periksa transaksi berhasil dan nominalnya
+                  sebelum mencentang. POS tidak menerima notifikasi bank dan tidak otomatis lunas.
+                </p>
+                {paymentError && (
+                  <p className="field-error" role="alert">{paymentError}</p>
+                )}
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={merchantConfirmed}
+                    onChange={(event) => {
+                      setMerchantConfirmed(event.target.checked);
+                      setPaymentError(null);
+                    }}
+                  />
+                  Saya sudah memeriksa transaksi di aplikasi merchant
+                </label>
+                <label htmlFor={cashInputId} className="field-label">
+                  Nominal yang terlihat di merchant (Rp)
+                </label>
+                <input
+                  id={cashInputId}
+                  ref={cashInputRef}
+                  className="input"
+                  type="text"
+                  inputMode="numeric"
+                  value={merchantAmountInput}
+                  onChange={(event) => {
+                    setMerchantAmountInput(event.target.value);
+                    setPaymentError(null);
+                  }}
+                  aria-describedby="qris-amount-hint"
+                />
+                <p id="qris-amount-hint" className="muted">
+                  Harus sama persis dengan total quote:{" "}
+                  <MoneyText amountRp={phase.attempt.quote.totalRp} />.
+                </p>
+                <label htmlFor={`${cashInputId}-ref`} className="field-label">
+                  Referensi bukti (opsional)
+                </label>
+                <input
+                  id={`${cashInputId}-ref`}
+                  className="input"
+                  type="text"
+                  maxLength={120}
+                  value={evidenceRefInput}
+                  onChange={(event) => setEvidenceRefInput(event.target.value)}
+                  placeholder="Mis. ID transaksi di aplikasi merchant"
+                />
+              </div>
+            ) : (
+              <>
+                {paymentError && (
+                  <p className="field-error" role="alert">{paymentError}</p>
+                )}
+                <label htmlFor={cashInputId} className="field-label">Uang diterima (Rp)</label>
+                <input
+                  id={cashInputId}
+                  ref={cashInputRef}
+                  className="input"
+                  type="text"
+                  inputMode="numeric"
+                  value={cashInput}
+                  onChange={(event) => {
+                    setCashInput(event.target.value);
+                    setPaymentError(null);
+                  }}
+                  aria-describedby="change-info"
+                />
+                <p id="change-info" className="muted">
+                  Kembalian: <MoneyText amountRp={quoteChangeRp} />
+                </p>
+              </>
+            )}
             <p className="muted">
               Upaya: <code>{phase.attempt.attemptKey}</code>. Jangan ulangi pembayaran fisik jika respons lambat.
             </p>
@@ -814,7 +1004,7 @@ export function CashierPage({
               <Button variant="secondary" onClick={closePayment}>Batal</Button>
               <Button
                 variant="primary"
-                disabled={cashValue === null || cashValue < phase.attempt.quote.totalRp}
+                disabled={!canCommitPayment}
                 onClick={() => void confirmCommit()}
               >
                 Ya, commit pembayaran
@@ -867,14 +1057,19 @@ export function CashierPage({
             <h2 id="timeout-title" className="dialog__title">Status pembayaran belum diketahui</h2>
             <p>{MSG_TIMEOUT}</p>
             <p className="muted">
-              Upaya <code>{phase.attempt.attemptKey}</code> · uang diterima{" "}
+              Upaya <code>{phase.attempt.attemptKey}</code> ·{" "}
+              {phase.attempt.quote.payment.method === "QRIS_MANUAL"
+                ? "nominal merchant"
+                : "uang diterima"}{" "}
               <MoneyText amountRp={phase.cashReceivedRp} /> · total{" "}
               <MoneyText amountRp={phase.attempt.quote.totalRp} />.
             </p>
             {phase.known !== undefined && (
               <p className="field-error" role="alert">
                 {phase.known === "PREPARED"
-                  ? "Status: PREPARED (belum ada penjualan)."
+                  ? phase.attempt.quote.payment.method === "QRIS_MANUAL"
+                    ? "Status: PENDING — belum ada penjualan. Periksa dulu aplikasi merchant; jangan minta bayar ulang."
+                    : "Status: PREPARED (belum ada penjualan)."
                   : "Status: ABANDONED (upaya dibatalkan)."}
               </p>
             )}
@@ -886,7 +1081,10 @@ export function CashierPage({
                 <Button
                   variant="primary"
                   disabled={isCheckingStatus}
-                  onClick={() => void resumeSameAttempt(phase.attempt, phase.cashReceivedRp)}
+                  onClick={() => void resumeSameAttempt(
+                    phase.attempt,
+                    timeoutConfirmation ?? { method: "CASH", cashReceivedRp: phase.cashReceivedRp },
+                  )}
                 >
                   Lanjutkan commit upaya ini
                 </Button>
@@ -916,11 +1114,27 @@ export function CashierPage({
               Nomor penjualan <strong>{phase.result.saleNo}</strong> · status{" "}
               <strong>{phase.result.status}</strong>.
             </p>
-            <p>
-              Total <MoneyText amountRp={phase.result.totalRp} /> · uang diterima{" "}
-              <MoneyText amountRp={phase.result.payment.cashReceivedRp} /> · kembalian{" "}
-              <MoneyText amountRp={phase.result.payment.changeRp} />.
-            </p>
+            {phase.result.payment.method === "QRIS_MANUAL" ? (
+              <>
+                <p>
+                  <span className="badge badge--ok">TERVERIFIKASI</span> · Total{" "}
+                  <MoneyText amountRp={phase.result.totalRp} /> · kembalian{" "}
+                  <MoneyText amountRp={phase.result.payment.changeRp} />.
+                </p>
+                {phase.result.qrisVerification?.status === "verified" && (
+                  <p className="muted">
+                    Diverifikasi kasir #{phase.result.qrisVerification.verifiedBy} pada{" "}
+                    {formatShiftTime(phase.result.qrisVerification.verifiedAtMs)} oleh backend. QRIS tidak masuk kas fisik.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p>
+                Total <MoneyText amountRp={phase.result.totalRp} /> · uang diterima{" "}
+                <MoneyText amountRp={phase.result.payment.cashReceivedRp} /> · kembalian{" "}
+                <MoneyText amountRp={phase.result.payment.changeRp} />.
+              </p>
+            )}
             <p className="muted">Cetak ulang belum tersedia (TASK-021).</p>
             <div className="dialog__actions">
               <Button variant="primary" onClick={() => { const failedKey = removeRecovery(); openNextRecovery(failedKey ?? undefined); }}>

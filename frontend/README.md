@@ -48,6 +48,13 @@ memerlukan role ADMIN, sedangkan **Kasir** memakai shift dan checkout
 menampilkan "Transaksi tersimpan"; saat respons commit tidak jelas, UI menyuruh
 kasir mengecek status upaya dan tidak membuat transaksi baru.
 
+QRIS manual (TASK-037) tersedia sebagai pilihan metode bayar, tetapi **DEMO**
+sampai SOP merchant pengelola disetujui. Kasir wajib memeriksa transaksi dan
+nominal di aplikasi merchant di luar POS; POS tidak menerima notifikasi bank,
+tidak menyimpan kredensial merchant, dan tidak menandai lunas dari tombol UI.
+Laporan ADMIN di halaman **Laporan** memisahkan total CASH dan QRIS; QRIS tidak
+dimasukkan ke uang fisik laci.
+
 ## 4. Keamanan yang sudah diterapkan di klien
 
 - Token sesi hanya disimpan di memori modul; tidak ada `localStorage`/`sessionStorage`.

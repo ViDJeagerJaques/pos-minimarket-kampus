@@ -23,6 +23,7 @@ import type { ShiftService } from "../shift/service.ts";
 import { ShiftError } from "../shift/errors.ts";
 import { CheckoutError } from "../checkout/errors.ts";
 import type { CheckoutService } from "../checkout/service.ts";
+import type { ReportService } from "../reports/service.ts";
 
 /**
  * Server HTTP loopback dengan dependensi nol. Ini adapter tipis, bukan
@@ -42,6 +43,8 @@ export type HttpAppOptions = {
   shift?: ShiftService;
   /** Service checkout TASK-016; bila tidak diisi, route checkout tidak aktif. */
   checkout?: CheckoutService;
+  /** Service laporan pembayaran TASK-037; ADMIN saja. */
+  reports?: ReportService;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -423,6 +426,18 @@ function createCheckoutRoutes(checkout: CheckoutService): Route[] {
   ];
 }
 
+/** Route laporan QRIS terpisah dari kas; ADMIN saja (DEC-014). */
+function createReportRoutes(reports: ReportService): Route[] {
+  return [
+    {
+      method: "GET",
+      pattern: /^\/reports\/payments$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({ data: reports.getPaymentReport(ctx.actor as SessionUser) }),
+    },
+  ];
+}
+
 export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
   const { auth, sessions, securityLog } = options;
@@ -527,6 +542,9 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   }
   if (options.checkout) {
     routes.push(...createCheckoutRoutes(options.checkout));
+  }
+  if (options.reports) {
+    routes.push(...createReportRoutes(options.reports));
   }
 
   return async (req, res) => {
