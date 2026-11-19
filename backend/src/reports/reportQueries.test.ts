@@ -221,6 +221,20 @@ test("Laporan stok membatasi rincian ke 20 entri terbaru tanpa mengubah rekonsil
         .prepare("SELECT MIN(id) AS id FROM inventory_movements WHERE product_id = 2")
         .get() as { id: number }
     ).id;
+    const newest = (
+      db
+        .prepare("SELECT MAX(id) AS id FROM inventory_movements WHERE product_id = 2")
+        .get() as { id: number }
+    ).id;
+    const expectedIds = (
+      db
+        .prepare(
+          "SELECT id FROM inventory_movements WHERE product_id = 2 ORDER BY id DESC LIMIT 20",
+        )
+        .all() as Array<{ id: number }>
+    )
+      .map((row) => row.id)
+      .sort((a, b) => a - b);
     const service = createReportService(db);
     const report = service.getStockReport(admin, {});
     const product2 = report.products.find((row) => row.productId === 2);
@@ -233,8 +247,14 @@ test("Laporan stok membatasi rincian ke 20 entri terbaru tanpa mengubah rekonsil
       false,
       "entri terlama dibuang dari rincian",
     );
+    assert.equal(
+      product2.movements.some((movement) => movement.id === newest),
+      true,
+      "mutasi terbaru tetap muncul",
+    );
     const ids = product2.movements.map((movement) => movement.id);
     assert.deepEqual(ids, [...ids].sort((a, b) => a - b), "urutan lama→baru dipertahankan");
+    assert.deepEqual(ids, expectedIds, "tepat 20 ID mutasi terbaru");
   } finally {
     db.close();
     database.cleanup();

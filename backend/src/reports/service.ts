@@ -375,7 +375,7 @@ export function createReportService(db: DatabaseSync): ReportService {
               reconciled.ledgerOnHand > 0 &&
               reconciled.ledgerOnHand <= lowStockThreshold,
             zero: reconciled.ledgerOnHand === 0,
-            movements: movements.slice(0, 20).map((movement) => ({
+            movements: movements.slice(-20).map((movement) => ({
               id: movement.id,
               kind: movement.kind,
               delta: movement.delta,
