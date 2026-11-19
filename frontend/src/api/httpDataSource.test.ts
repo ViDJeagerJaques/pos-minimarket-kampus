@@ -834,3 +834,103 @@ describe("TASK-037 kontrak HTTP QRIS manual", () => {
     expect(calls[2]?.url).toBe("/api/v1/reports/payments");
   });
 });
+
+describe("TASK-021 klien struk & cetak ulang", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const RECEIPT = {
+    saleId: 102,
+    saleNo: "S-000102",
+    committedAtMs: 1_700_000_000_000,
+    totalRp: 5000,
+    items: [
+      { sku: "FX-001", name: "Produk lama", quantity: 2, unitPriceRp: 2500, lineTotalRp: 5000 },
+    ],
+    payment: {
+      method: "CASH",
+      amountRp: 5000,
+      cashReceivedRp: 10_000,
+      changeRp: 5000,
+      evidenceRef: null,
+      verifiedAtMs: null,
+    },
+  };
+
+  it("GET receipt dan POST print memakai saleId lama", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: { receipt: RECEIPT, text: "=== STRUK DEMO ===\nS-000102\n", demo: true } } },
+      {
+        status: 200,
+        body: {
+          data: {
+            saleId: 102,
+            saleNo: "S-000102",
+            status: "PRINTED",
+            channel: "VIRTUAL",
+            printedAtMs: 1_700_000_020_000,
+            text: "=== STRUK DEMO ===\nS-000102\n",
+            demo: true,
+          },
+        },
+      },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const view = await dataSource.getSaleReceipt(102);
+    expect(view.receipt.saleNo).toBe("S-000102");
+    expect(view.demo).toBe(true);
+    expect(calls[2]?.url).toBe("/api/v1/sales/102/receipt");
+
+    const printed = await dataSource.printSaleReceipt(102);
+    expect(printed.status).toBe("PRINTED");
+    expect(calls[3]?.url).toBe("/api/v1/sales/102/print");
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({});
+  });
+
+  it("PRINTER_UNAVAILABLE (503) dipetakan sebagai ApiError yang dapat dicetak ulang", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      {
+        status: 503,
+        body: {
+          error: {
+            code: "PRINTER_UNAVAILABLE",
+            message: "Printer mati (simulasi).",
+            retryable: true,
+          },
+        },
+      },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const error = await dataSource.printSaleReceipt(102).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      status: 503,
+      code: "PRINTER_UNAVAILABLE",
+      retryable: true,
+    });
+    expect((error as ApiError).message).toContain("Printer mati");
+  });
+
+  it("BUG-078: pesan 403 bersifat netral peran (cetak itu CASHIER own, bukan ADMIN)", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      {
+        status: 403,
+        body: {
+          error: { code: "FORBIDDEN", message: "Akses hanya untuk petugas berwenang.", retryable: false },
+        },
+      },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const error = await dataSource.printSaleReceipt(102).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 403, code: "FORBIDDEN" });
+    expect((error as ApiError).message).toContain("403");
+    expect((error as ApiError).message).not.toMatch(/ADMIN/i);
+  });
+});

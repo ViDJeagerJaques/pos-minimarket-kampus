@@ -30,7 +30,10 @@ import type {
   PrepareCheckoutInput,
   PrepareCheckoutResult,
   PendingQrisVerification,
+  PrintResult,
   ProductSummary,
+  Receipt,
+  ReceiptView,
   Role,
   SessionUser,
   VerifiedQrisVerification,
@@ -62,6 +65,7 @@ const KNOWN_CODES = new Set<ApiErrorCode>([
   "INSUFFICIENT_STOCK",
   "IDEMPOTENCY_CONFLICT",
   "PAYMENT_RECONCILIATION_REQUIRED",
+  "PRINTER_UNAVAILABLE",
   "INTERNAL_ERROR",
   "DEMO_UNSUPPORTED",
 ]);
@@ -100,7 +104,7 @@ function safeMessage(status: number, code: ApiErrorCode, serverMessage: unknown)
     case "SESSION_INVALID":
       return "Sesi berakhir. Silakan masuk lagi.";
     case "FORBIDDEN":
-      return "Akses ditolak oleh backend (403). Tindakan ini hanya untuk ADMIN.";
+      return "Akses ditolak oleh backend (403). Tindakan ini tidak diizinkan untuk akun Anda.";
     case "CONFLICT":
     case "VALIDATION_ERROR":
     case "DUPLICATE_SKU":
@@ -118,6 +122,10 @@ function safeMessage(status: number, code: ApiErrorCode, serverMessage: unknown)
         : "Data tidak valid atau bertentangan dengan data yang tersimpan.";
     case "NOT_FOUND":
       return "Data tidak ditemukan.";
+    case "PRINTER_UNAVAILABLE":
+      return typeof serverMessage === "string" && serverMessage.length > 0
+        ? serverMessage
+        : "Struk belum dapat dicetak. Transaksi tetap tersimpan; cetak ulang dari transaksi yang sama.";
     case "NETWORK_ERROR":
       return "Backend lokal tidak dapat dihubungi. Pastikan server lokal berjalan.";
     case "INVALID_RESPONSE":
@@ -473,6 +481,98 @@ function toCheckoutStatus(value: unknown): CheckoutStatusResult {
     return { ...ids, status: "ABANDONED", abandonedAtMs: value.abandonedAtMs };
   }
   throw invalidResponse("Status checkout dari backend tidak dikenal.");
+}
+
+function toReceipt(value: unknown): Receipt {
+  if (
+    !isRecord(value) ||
+    !isPositiveInt(value.saleId) ||
+    typeof value.saleNo !== "string" ||
+    value.saleNo.length === 0 ||
+    !isNonNegativeInt(value.committedAtMs) ||
+    !isNonNegativeInt(value.totalRp) ||
+    !Array.isArray(value.items) ||
+    value.items.length === 0 ||
+    !isRecord(value.payment)
+  ) {
+    throw invalidResponse("Struk dari backend tidak valid.");
+  }
+  const items = value.items.map((raw) => {
+    if (
+      !isRecord(raw) ||
+      typeof raw.sku !== "string" ||
+      typeof raw.name !== "string" ||
+      !isPositiveInt(raw.quantity) ||
+      !isNonNegativeInt(raw.unitPriceRp) ||
+      !isNonNegativeInt(raw.lineTotalRp)
+    ) {
+      throw invalidResponse("Item struk dari backend tidak valid.");
+    }
+    return {
+      sku: raw.sku,
+      name: raw.name,
+      quantity: raw.quantity,
+      unitPriceRp: raw.unitPriceRp,
+      lineTotalRp: raw.lineTotalRp,
+    };
+  });
+  const payment = value.payment;
+  if (
+    !isNonNegativeInt(payment.amountRp) ||
+    (payment.cashReceivedRp !== null && !isNonNegativeInt(payment.cashReceivedRp)) ||
+    (payment.changeRp !== null && !isNonNegativeInt(payment.changeRp)) ||
+    (payment.evidenceRef !== null && typeof payment.evidenceRef !== "string") ||
+    (payment.verifiedAtMs !== null && !isNonNegativeInt(payment.verifiedAtMs))
+  ) {
+    throw invalidResponse("Pembayaran pada struk tidak valid.");
+  }
+  return {
+    saleId: value.saleId,
+    saleNo: value.saleNo,
+    committedAtMs: value.committedAtMs,
+    totalRp: value.totalRp,
+    items,
+    payment: {
+      method: asCheckoutMethod(payment.method),
+      amountRp: payment.amountRp,
+      cashReceivedRp: payment.cashReceivedRp as number | null,
+      changeRp: payment.changeRp as number | null,
+      evidenceRef: payment.evidenceRef as string | null,
+      verifiedAtMs: payment.verifiedAtMs as number | null,
+    },
+  };
+}
+
+function toReceiptView(value: unknown): ReceiptView {
+  if (!isRecord(value) || typeof value.text !== "string" || value.demo !== true) {
+    throw invalidResponse("Pratinjau struk dari backend tidak valid.");
+  }
+  return { receipt: toReceipt(value.receipt), text: value.text, demo: true };
+}
+
+function toPrintResult(value: unknown): PrintResult {
+  if (
+    !isRecord(value) ||
+    !isPositiveInt(value.saleId) ||
+    typeof value.saleNo !== "string" ||
+    value.saleNo.length === 0 ||
+    value.status !== "PRINTED" ||
+    typeof value.channel !== "string" ||
+    !isNonNegativeInt(value.printedAtMs) ||
+    typeof value.text !== "string" ||
+    value.demo !== true
+  ) {
+    throw invalidResponse("Hasil cetak dari backend tidak valid.");
+  }
+  return {
+    saleId: value.saleId,
+    saleNo: value.saleNo,
+    status: "PRINTED",
+    channel: value.channel,
+    printedAtMs: value.printedAtMs,
+    text: value.text,
+    demo: true,
+  };
 }
 
 function toPaymentReport(value: unknown): PaymentReport {
@@ -942,6 +1042,24 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     );
   }
 
+  async function getSaleReceipt(saleId: number): Promise<ReceiptView> {
+    if (!isPositiveInt(saleId)) {
+      throw new ApiError(422, "VALIDATION_ERROR", "ID transaksi tidak valid.");
+    }
+    return toReceiptView(
+      await request("GET", `/sales/${saleId}/receipt`, undefined, requireToken()),
+    );
+  }
+
+  async function printSaleReceipt(saleId: number): Promise<PrintResult> {
+    if (!isPositiveInt(saleId)) {
+      throw new ApiError(422, "VALIDATION_ERROR", "ID transaksi tidak valid.");
+    }
+    return toPrintResult(
+      await request("POST", `/sales/${saleId}/print`, {}, requireToken()),
+    );
+  }
+
   async function getPaymentReport(): Promise<PaymentReport> {
     return toPaymentReport(await request("GET", "/reports/payments", undefined, requireToken()));
   }
@@ -975,6 +1093,8 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     prepareCheckout,
     commitCheckout,
     getCheckoutStatus,
+    getSaleReceipt,
+    printSaleReceipt,
     getPaymentReport,
   };
 }

@@ -352,6 +352,26 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       );
     },
 
+    async getSaleReceipt() {
+      callLog.push({ operation: "getSaleReceipt", isMutation: false });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan transaksi. Jalankan backend lokal untuk melihat struk.",
+      );
+    },
+
+    async printSaleReceipt() {
+      callLog.push({ operation: "printSaleReceipt", isMutation: false });
+      await delay();
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak mencetak. Jalankan backend lokal untuk struk virtual.",
+      );
+    },
+
     async getPaymentReport(): Promise<PaymentReport> {
       callLog.push({ operation: "getPaymentReport", isMutation: false });
       await delay();

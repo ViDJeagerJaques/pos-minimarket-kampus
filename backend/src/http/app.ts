@@ -23,6 +23,8 @@ import type { ShiftService } from "../shift/service.ts";
 import { ShiftError } from "../shift/errors.ts";
 import { CheckoutError } from "../checkout/errors.ts";
 import type { CheckoutService } from "../checkout/service.ts";
+import { PrintError } from "../print/errors.ts";
+import type { PrintService } from "../print/service.ts";
 import type { ReportService } from "../reports/service.ts";
 
 /**
@@ -45,6 +47,8 @@ export type HttpAppOptions = {
   checkout?: CheckoutService;
   /** Service laporan pembayaran TASK-037; ADMIN saja. */
   reports?: ReportService;
+  /** Service struk/cetak ulang TASK-021; POST hanya CASHIER pemilik sale. */
+  print?: PrintService;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -206,6 +210,17 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
         requestId,
         field: error.field,
         retryable: false,
+      },
+    });
+    return;
+  }
+  if (error instanceof PrintError) {
+    sendJson(res, error.httpStatus, {
+      error: {
+        code: error.code,
+        message: error.message,
+        requestId,
+        retryable: error.retryable,
       },
     });
     return;
@@ -438,6 +453,30 @@ function createReportRoutes(reports: ReportService): Route[] {
   ];
 }
 
+/**
+ * Route struk TASK-021. `GET` (baca/repratinjau) boleh ADMIN dan CASHIER,
+ * tetapi `POST /print` HANYA CASHIER — sesuai AUTHORIZATION §3/AUTH-07 dan
+ * audit TASK-001 K-03. Izin cetak ADMIN masih menunggu keputusan David;
+ * jangan dibuka lewat route ini.
+ */
+function createPrintRoutes(print: PrintService): Route[] {
+  const actorOf = (ctx: RequestContext): SessionUser => ctx.actor as SessionUser;
+  return [
+    {
+      method: "GET",
+      pattern: /^\/sales\/(?<id>\d+)\/receipt$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => ({ data: print.getReceipt(actorOf(ctx), Number(ctx.params.id)) }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/sales\/(?<id>\d+)\/print$/,
+      roles: ["CASHIER"],
+      handler: (ctx) => ({ data: print.print(actorOf(ctx), Number(ctx.params.id), ctx.body) }),
+    },
+  ];
+}
+
 export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
   const { auth, sessions, securityLog } = options;
@@ -545,6 +584,9 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   }
   if (options.reports) {
     routes.push(...createReportRoutes(options.reports));
+  }
+  if (options.print) {
+    routes.push(...createPrintRoutes(options.print));
   }
 
   return async (req, res) => {
