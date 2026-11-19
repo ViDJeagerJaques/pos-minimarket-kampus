@@ -38,8 +38,8 @@ Aturan:
 | Perintah | Hasil |
 |---|---|
 | `npm run typecheck` | **PASS**, exit 0 |
-| `npm test` | **PASS 131/131**, 0 fail, ±13,9 s |
-| `node --test src/reports/reportQueries.test.ts src/http/reportQueries.test.ts` | **PASS 5/5** |
+| `npm test` | **PASS 132/132**, 0 fail, ±11,5 s |
+| `node --test src/reports/reportQueries.test.ts src/http/reportQueries.test.ts` | **PASS 6/6** |
 
 Bukti: dua shift melintasi tengah malam; filter `[start,end)` memilih tiap
 sale tepat satu kali; sale tepat di `start` masuk dan tepat di `end` tidak;
@@ -50,6 +50,10 @@ dengan rincian sumber; CASHIER 403; filter invalid 422 tanpa perubahan data.
 
 ## 3. Risiko / belum diuji
 
+- Filter `start`/`end` kosong atau spasi ditolak 422 di HTTP sebelum konversi
+  angka; `start=0` tetap diterima. Rincian mutasi stok mengambil 21 entri
+  terbaru, menampilkan maksimal 20, dan memakai entri ke-21 sebagai penanda
+  `movementsTruncated`; rekonsiliasi tetap memakai seluruh mutasi.
 - Zona operasional/batas hari belum disahkan; caller harus mengirim epoch ms
   yang sudah disesuaikan. Ambang "stok menipis" default 0 (belum final).
 - Rincian dibatasi 100 sale dan 20 mutasi per produk dengan penanda

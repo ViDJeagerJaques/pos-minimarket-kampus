@@ -135,6 +135,24 @@ test("TASK-026 HTTP: GET /reports/daily & /reports/stock hanya ADMIN, filter div
 
     const invalid = await call(base, "/reports/daily", adminToken);
     assert.equal(invalid.status, 422);
+    const emptyStart = await call(
+      base,
+      `/reports/daily?start=&end=${MIDNIGHT + HOUR}`,
+      adminToken,
+    );
+    assert.equal(emptyStart.status, 422);
+    const blankEnd = await call(
+      base,
+      `/reports/daily?start=${MIDNIGHT - HOUR}&end=%20%20`,
+      adminToken,
+    );
+    assert.equal(blankEnd.status, 422);
+    const explicitZero = await call(
+      base,
+      `/reports/daily?start=0&end=${MIDNIGHT + HOUR}`,
+      adminToken,
+    );
+    assert.equal(explicitZero.status, 200, "start=0 tetap valid");
     const reversed = await call(
       base,
       `/reports/daily?start=${MIDNIGHT + HOUR}&end=${MIDNIGHT}`,

@@ -207,6 +207,40 @@ test("AC-08.02: laporan stok dari ledger dengan saldo, komponen, dan sumber muta
   }
 });
 
+test("Laporan stok membatasi rincian ke 20 entri terbaru tanpa mengubah rekonsiliasi", () => {
+  const { database, db, admin } = setup();
+  try {
+    for (let i = 0; i < 25; i += 1) {
+      db.prepare(
+        `INSERT INTO inventory_movements (product_id, kind, delta, adjustment_reason, actor_id, created_at_ms)
+         VALUES (2, 'ADJUSTMENT', 1, 'uji batas rincian', ?, ?)`,
+      ).run(admin.userId, MIDNIGHT + i * 1000);
+    }
+    const oldest = (
+      db
+        .prepare("SELECT MIN(id) AS id FROM inventory_movements WHERE product_id = 2")
+        .get() as { id: number }
+    ).id;
+    const service = createReportService(db);
+    const report = service.getStockReport(admin, {});
+    const product2 = report.products.find((row) => row.productId === 2);
+    assert.ok(product2);
+    assert.equal(product2.onHand, 25, "agregat memakai seluruh mutasi");
+    assert.equal(product2.movements.length, 20);
+    assert.equal(product2.movementsTruncated, true);
+    assert.equal(
+      product2.movements.some((movement) => movement.id === oldest),
+      false,
+      "entri terlama dibuang dari rincian",
+    );
+    const ids = product2.movements.map((movement) => movement.id);
+    assert.deepEqual(ids, [...ids].sort((a, b) => a - b), "urutan lama→baru dipertahankan");
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});
+
 test("AC-01.03/AC-08.01: CASHIER ditolak; filter invalid tidak mengubah data", () => {
   const { database, db, admin, cashier } = setup();
   try {

@@ -486,12 +486,17 @@ function createReportRoutes(reports: ReportService): Route[] {
       pattern: /^\/reports\/daily$/,
       roles: ["ADMIN"],
       handler: (ctx) => {
-        const rawStart = ctx.searchParams.get("start");
-        const rawEnd = ctx.searchParams.get("end");
+        const requiredBound = (raw: string | null, field: string): number | null => {
+          if (raw === null) return null;
+          if (raw.trim().length === 0) {
+            throw new ValidationError(`${field} wajib diisi.`, field);
+          }
+          return Number(raw);
+        };
         return {
           data: reports.getDailyReport(ctx.actor as SessionUser, {
-            startMs: rawStart === null ? null : Number(rawStart),
-            endMs: rawEnd === null ? null : Number(rawEnd),
+            startMs: requiredBound(ctx.searchParams.get("start"), "start"),
+            endMs: requiredBound(ctx.searchParams.get("end"), "end"),
             shiftId: ctx.searchParams.get("shiftId") ?? undefined,
           }),
         };

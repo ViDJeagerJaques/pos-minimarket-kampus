@@ -358,7 +358,8 @@ export function createReportService(db: DatabaseSync): ReportService {
         const nameStmt = db.prepare("SELECT name FROM products WHERE id = ?");
         const products: ProductStockReport[] = reconcileAll(db).map((reconciled) => {
           const nameRow = nameStmt.get(reconciled.productId) as { name: string } | undefined;
-          const movements = listStockMovements(db, reconciled.productId);
+          // Ambil 21 entri terbaru; entri ke-21 hanya penanda pemotongan.
+          const movements = listStockMovements(db, reconciled.productId, { limit: 21 });
           return {
             productId: reconciled.productId,
             sku: reconciled.sku,
