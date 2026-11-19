@@ -104,7 +104,7 @@ function safeMessage(status: number, code: ApiErrorCode, serverMessage: unknown)
     case "SESSION_INVALID":
       return "Sesi berakhir. Silakan masuk lagi.";
     case "FORBIDDEN":
-      return "Akses ditolak oleh backend (403). Tindakan ini hanya untuk ADMIN.";
+      return "Akses ditolak oleh backend (403). Tindakan ini tidak diizinkan untuk akun Anda.";
     case "CONFLICT":
     case "VALIDATION_ERROR":
     case "DUPLICATE_SKU":

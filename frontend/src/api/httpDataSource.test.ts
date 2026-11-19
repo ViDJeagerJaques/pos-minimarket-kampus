@@ -915,4 +915,22 @@ describe("TASK-021 klien struk & cetak ulang", () => {
     });
     expect((error as ApiError).message).toContain("Printer mati");
   });
+
+  it("BUG-078: pesan 403 bersifat netral peran (cetak itu CASHIER own, bukan ADMIN)", async () => {
+    const { fetchImpl } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      {
+        status: 403,
+        body: {
+          error: { code: "FORBIDDEN", message: "Akses hanya untuk petugas berwenang.", retryable: false },
+        },
+      },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const error = await dataSource.printSaleReceipt(102).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 403, code: "FORBIDDEN" });
+    expect((error as ApiError).message).toContain("403");
+    expect((error as ApiError).message).not.toMatch(/ADMIN/i);
+  });
 });

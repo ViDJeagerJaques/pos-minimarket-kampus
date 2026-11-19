@@ -117,4 +117,43 @@ describe("TASK-021 ReceiptPanel — struk dari transaksi tersimpan", () => {
       expect(screen.queryByRole("status")?.textContent ?? "").toMatch(/fallback manual/);
     });
   });
+
+  it("BUG-077: cetak sukses tetapi pratinjau 401 mengembalikan aplikasi ke login", async () => {
+    const onSessionExpired = vi.fn();
+    const printSaleReceipt = vi.fn(async () => PRINTED);
+    const getSaleReceipt = vi.fn(async () => {
+      throw new ApiError(401, "AUTH_REQUIRED", "Sesi berakhir.");
+    });
+    const user = userEvent.setup();
+    render(
+      <ReceiptPanel
+        dataSource={makeSource({ printSaleReceipt, getSaleReceipt })}
+        saleId={102}
+        onSessionExpired={onSessionExpired}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Cetak struk/ }));
+    await waitFor(() => expect(onSessionExpired).toHaveBeenCalledTimes(1));
+    // Hasil cetak tetap dipertahankan walaupun sesi sudah habis.
+    expect((await screen.findByRole("status")).textContent).toContain("TERCETAK (virtual DEMO)");
+  });
+
+  it("BUG-077: kegagalan pratinjau bukan sesi tetap memakai teks hasil cetak", async () => {
+    const onSessionExpired = vi.fn();
+    const getSaleReceipt = vi.fn(async () => {
+      throw new ApiError(500, "INTERNAL_ERROR", "Struk gagal dimuat.");
+    });
+    const user = userEvent.setup();
+    render(
+      <ReceiptPanel
+        dataSource={makeSource({ printSaleReceipt: async () => PRINTED, getSaleReceipt })}
+        saleId={102}
+        onSessionExpired={onSessionExpired}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Cetak struk/ }));
+    expect((await screen.findByTestId("receipt-text")).textContent).toContain("S-000102");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onSessionExpired).not.toHaveBeenCalled();
+  });
 });

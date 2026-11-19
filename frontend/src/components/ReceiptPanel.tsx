@@ -61,8 +61,12 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
       if (view === null) {
         try {
           setView(await dataSource.getSaleReceipt(saleId));
-        } catch {
-          // Teks hasil cetak tetap ditampilkan bila pratinjau gagal dimuat.
+        } catch (previewFailure) {
+          // Sesi habis harus mengembalikan aplikasi ke login walaupun cetak sukses.
+          // Kegagalan pratinjau lain tetap diam agar teks hasil cetak dipakai.
+          if (previewFailure instanceof ApiError && previewFailure.isSessionExpired) {
+            handleFailure(previewFailure, "Struk tersimpan gagal dimuat.");
+          }
         }
       }
     } catch (failure) {
