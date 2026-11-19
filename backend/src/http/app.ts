@@ -481,6 +481,37 @@ function createReportRoutes(reports: ReportService): Route[] {
       roles: ["ADMIN"],
       handler: (ctx) => ({ data: reports.getPaymentReport(ctx.actor as SessionUser) }),
     },
+    {
+      method: "GET",
+      pattern: /^\/reports\/daily$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => {
+        const requiredBound = (raw: string | null, field: string): number | null => {
+          if (raw === null) return null;
+          if (raw.trim().length === 0) {
+            throw new ValidationError(`${field} wajib diisi.`, field);
+          }
+          return Number(raw);
+        };
+        return {
+          data: reports.getDailyReport(ctx.actor as SessionUser, {
+            startMs: requiredBound(ctx.searchParams.get("start"), "start"),
+            endMs: requiredBound(ctx.searchParams.get("end"), "end"),
+            shiftId: ctx.searchParams.get("shiftId") ?? undefined,
+          }),
+        };
+      },
+    },
+    {
+      method: "GET",
+      pattern: /^\/reports\/stock$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        data: reports.getStockReport(ctx.actor as SessionUser, {
+          lowStockThreshold: ctx.searchParams.get("lowStockThreshold") ?? undefined,
+        }),
+      }),
+    },
   ];
 }
 

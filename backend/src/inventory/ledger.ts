@@ -75,25 +75,32 @@ export function getStockBalance(db: DatabaseSync, productId: unknown): StockBala
 export function listStockMovements(
   db: DatabaseSync,
   productId: unknown,
+  options: { limit?: number } = {},
 ): StockMovementHistoryEntry[] {
   const id = assertProductId(productId);
-  const rows = db
-    .prepare(
-      `SELECT m.id, m.kind, m.delta, m.created_at_ms, m.actor_id,
-              m.sale_item_id, m.receipt_item_id, m.opening_batch_ref, m.adjustment_reason,
-              si.quantity AS sale_quantity,
-              s.sale_no AS sale_no,
-              ri.quantity AS receipt_quantity,
-              r.receipt_key AS receipt_key
-       FROM inventory_movements m
-       LEFT JOIN sale_items si ON si.id = m.sale_item_id
-       LEFT JOIN sales s ON s.id = si.sale_id
-       LEFT JOIN receipt_items ri ON ri.id = m.receipt_item_id
-       LEFT JOIN goods_receipts r ON r.id = ri.receipt_id
-       WHERE m.product_id = ?
-       ORDER BY m.id`,
-    )
-    .all(id) as Array<{
+  const limit = options.limit;
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0)) {
+    throw new ValidationError("limit harus bilangan bulat positif.", "limit");
+  }
+  const base = `SELECT m.id, m.kind, m.delta, m.created_at_ms, m.actor_id,
+          m.sale_item_id, m.receipt_item_id, m.opening_batch_ref, m.adjustment_reason,
+          si.quantity AS sale_quantity,
+          s.sale_no AS sale_no,
+          ri.quantity AS receipt_quantity,
+          r.receipt_key AS receipt_key
+   FROM inventory_movements m
+   LEFT JOIN sale_items si ON si.id = m.sale_item_id
+   LEFT JOIN sales s ON s.id = si.sale_id
+   LEFT JOIN receipt_items ri ON ri.id = m.receipt_item_id
+   LEFT JOIN goods_receipts r ON r.id = ri.receipt_id
+   WHERE m.product_id = ?`;
+  // Bila dibatasi, ambil entri TERBARU lalu kembalikan dalam urutan lama→baru
+  // agar perilaku tampilan tidak berubah.
+  const sql =
+    limit === undefined
+      ? `${base} ORDER BY m.id`
+      : `SELECT * FROM (${base} ORDER BY m.id DESC LIMIT ?) ORDER BY id`;
+  const rows = db.prepare(sql).all(...(limit === undefined ? [id] : [id, limit])) as Array<{
     id: number;
     kind: string;
     delta: number;
