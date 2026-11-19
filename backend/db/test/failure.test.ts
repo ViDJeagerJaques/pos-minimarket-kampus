@@ -51,7 +51,7 @@ test("migrasi gagal di tengah tidak meninggalkan skema parsial dan dapat dipulih
     ).run();
     db.close();
 
-    const failingMigration = path.join(migrationsDir, "0003_gagal_di_tengah.sql");
+    const failingMigration = path.join(migrationsDir, "0004_gagal_di_tengah.sql");
     writeFileSync(
       failingMigration,
       [
@@ -66,12 +66,12 @@ test("migrasi gagal di tengah tidak meninggalkan skema parsial dan dapat dipulih
     assert.throws(
       () => runMigrations({ dbPath: database.dbPath, migrationsDir, backup: "auto" }),
       (error: unknown) =>
-        error instanceof MigrationError && /0003_gagal_di_tengah\.sql gagal/.test(error.message),
+        error instanceof MigrationError && /0004_gagal_di_tengah\.sql gagal/.test(error.message),
     );
 
-    // Tidak ada keadaan parsial: versi, metadata, dan objek tetap pada v2.
-    assert.equal(scalar(database.dbPath, "PRAGMA user_version"), 2);
-    assert.equal(scalar(database.dbPath, "SELECT COUNT(*) AS total FROM schema_migrations"), 2);
+    // Tidak ada keadaan parsial: versi, metadata, dan objek tetap pada v3.
+    assert.equal(scalar(database.dbPath, "PRAGMA user_version"), 3);
+    assert.equal(scalar(database.dbPath, "SELECT COUNT(*) AS total FROM schema_migrations"), 3);
     assert.equal(
       scalar(database.dbPath, "SELECT COUNT(*) AS total FROM users"),
       1,
@@ -91,7 +91,7 @@ test("migrasi gagal di tengah tidak meninggalkan skema parsial dan dapat dipulih
     assert.equal(backups.length, 1);
     const backup = inspectBackup(path.join(backupDir, backups[0]));
     assert.equal(backup.integrity, "ok");
-    assert.equal(backup.userVersion, 2);
+    assert.equal(backup.userVersion, 3);
 
     // Perbaikan pada salinan: file yang sama dibetulkan lalu migrasi diulang.
     writeFileSync(
@@ -104,8 +104,8 @@ test("migrasi gagal di tengah tidak meninggalkan skema parsial dan dapat dipulih
       "utf8",
     );
     const recovered = runMigrations({ dbPath: database.dbPath, migrationsDir, backup: "auto" });
-    assert.deepEqual(recovered.appliedVersions, [3]);
-    assert.equal(recovered.schemaVersion, 3);
+    assert.deepEqual(recovered.appliedVersions, [4]);
+    assert.equal(recovered.schemaVersion, 4);
     assert.equal(scalar(database.dbPath, "SELECT COUNT(*) AS total FROM tabel_parsial"), 1);
     assert.equal(recovered.integrity.integrity, "ok");
   } finally {
@@ -160,9 +160,9 @@ test("file migrasi dengan pernyataan transaksi/PRAGMA ditolak sebelum menyentuh 
     runMigrations({ dbPath: database.dbPath, migrationsDir, backup: "off" });
 
     for (const [fileName, body, expected] of [
-      ["0003_commit_manual.sql", "CREATE TABLE x (id INTEGER) STRICT;\nCOMMIT;\n", /COMMIT/],
-      ["0004_pragma_fk.sql", "PRAGMA foreign_keys = OFF;\n", /PRAGMA/],
-      ["0005_vacuum.sql", "VACUUM;\n", /VACUUM/],
+      ["0004_commit_manual.sql", "CREATE TABLE x (id INTEGER) STRICT;\nCOMMIT;\n", /COMMIT/],
+      ["0005_pragma_fk.sql", "PRAGMA foreign_keys = OFF;\n", /PRAGMA/],
+      ["0006_vacuum.sql", "VACUUM;\n", /VACUUM/],
     ] as const) {
       const filePath = path.join(migrationsDir, fileName);
       writeFileSync(filePath, body, "utf8");
@@ -177,7 +177,7 @@ test("file migrasi dengan pernyataan transaksi/PRAGMA ditolak sebelum menyentuh 
         true,
         "file uji tetap ada, hanya tidak dieksekusi",
       );
-      assert.equal(scalar(database.dbPath, "PRAGMA user_version"), 2);
+      assert.equal(scalar(database.dbPath, "PRAGMA user_version"), 3);
     }
   } finally {
     database.cleanup();

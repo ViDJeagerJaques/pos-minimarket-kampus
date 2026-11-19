@@ -323,7 +323,7 @@ function assertExistingDbIsNotOperational(dbPath: string): void {
  * bukan sekadar status "test passed".
  */
 export const EXPECTED_QA_SNAPSHOT = {
-  userVersion: 2,
+  userVersion: 3,
   counts: {
     users: 4,
     categories: 3,

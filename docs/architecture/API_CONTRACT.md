@@ -104,3 +104,33 @@ Gunakan kode pada `ERROR_HANDLING.md`; `401` auth, `403` role, `404` not found, 
 ## 6. Contract tests minimum
 
 Login benar/salah; CASHIER mengakses adjustment => 403; stok kurang => tidak ada sale/movement; dua permintaan identik => satu sale; kunci sama isi berbeda => 409; QRIS tanpa merchantConfirmed atau beda nominal => ditolak; test golden-vector hash prepare/commit, metode bayar berbeda pada key sama => 409; cetak ulang => tidak menambah sale; shift close dua kali => hasil sama/tolak sesuai closeKey; restart => status persisted; offline => endpoint tetap bisa dijalankan.
+
+
+## TASK-039 — kontrak DEMO koreksi stok (K-11)
+
+Implementasi backend `POST /inventory/adjustments` hanya untuk ADMIN aktif.
+Kontrak aditif untuk uji TASK-039; SOP koreksi/DEC-018 tetap PROPOSED dan perlu
+validasi pengelola. K-11 ditangani secara teknis oleh migrasi 0003, bukan klaim
+persetujuan operasional. Tidak mengubah kontrak checkout atau penerimaan.
+
+Request: `{ "adjustmentKey": "adj-demo-1", "productId": 1,
+"expectedOnHand": 5, "targetOnHand": 3, "reason": "DEMO hasil hitung fisik" }`.
+Kunci 1–128 karakter, alasan 1–200 karakter (trim, tanpa karakter kontrol);
+ID positif, saldo integer aman nonnegatif. Saldo tujuan harus berbeda dari saldo awal.
+Actor dan waktu diambil dari sesi dan jam backend; field tambahan actor/waktu diabaikan.
+Produk harus ada; produk nonaktif tetap dapat dikoreksi oleh ADMIN.
+
+Transaksi `BEGIN IMMEDIATE` memeriksa retry sebelum saldo: key dan niat kanonis
+(versi, actor, productId, expectedOnHand, targetOnHand, reason) sama mengembalikan
+hasil tersimpan, termasuk setelah restart atau perubahan saldo berikutnya.
+Key sama dengan niat/actor berbeda ditolak `409 IDEMPOTENCY_CONFLICT`.
+Saldo aktual berbeda dari expectedOnHand ditolak `409 CONFLICT` agar hitungan
+lama tidak menimpa transaksi yang telah masuk. Buat upaya baru hanya setelah
+hasil lama diketahui dan saldo dihitung ulang. Timeout: ulangi payload/key identik.
+
+HTTP 201 `{data: {adjustmentKey, requestHash, movementId, productId,
+previousOnHand, onHand, delta, reason, actorId, committedAtMs, duplicate}}`.
+`onHand` adalah snapshot sesudah koreksi itu, bukan saldo terkini pada retry.
+401 untuk sesi invalid, 403 untuk CASHIER, 404 produk tidak ada, 422 input invalid
+(termasuk saldo negatif, alasan kosong, delta nol). Kesalahan tidak menambah mutasi/audit.
+Ledger ADJUSTMENT, identitas retry, dan audit INVENTORY_ADJUSTED commit/rollback bersama.

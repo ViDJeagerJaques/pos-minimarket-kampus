@@ -9,6 +9,7 @@ import { createShiftService } from "../shift/service.ts";
 import { createCheckoutService } from "../checkout/service.ts";
 import { createPrintService } from "../print/service.ts";
 import { createReportService } from "../reports/service.ts";
+import { createAdjustmentService } from "../inventory/adjustments.ts";
 import { createReceivingService } from "../receiving/service.ts";
 import { startHttpServer } from "./app.ts";
 
@@ -143,6 +144,7 @@ async function main(argv: string[]): Promise<number> {
       checkout,
       reports,
       receiving,
+      adjustments: createAdjustmentService(db),
       print,
       port: options.port,
     });

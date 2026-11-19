@@ -26,6 +26,8 @@ import type { CheckoutService } from "../checkout/service.ts";
 import { PrintError } from "../print/errors.ts";
 import type { PrintService } from "../print/service.ts";
 import type { ReportService } from "../reports/service.ts";
+import { InventoryError } from "../inventory/errors.ts";
+import type { AdjustmentService } from "../inventory/adjustments.ts";
 import { ReceivingError } from "../receiving/errors.ts";
 import type { ReceivingService } from "../receiving/service.ts";
 
@@ -53,6 +55,8 @@ export type HttpAppOptions = {
   print?: PrintService;
   /** Service penerimaan barang TASK-025; ADMIN saja. */
   receiving?: ReceivingService;
+  /** Koreksi stok TASK-039; ADMIN, kunci retry dan audit atomik. */
+  adjustments?: AdjustmentService;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -218,7 +222,7 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
     });
     return;
   }
-  if (error instanceof ReceivingError) {
+  if (error instanceof ReceivingError || error instanceof InventoryError) {
     sendJson(res, error.httpStatus, {
       error: {
         code: error.code,
@@ -649,6 +653,18 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   }
   if (options.print) {
     routes.push(...createPrintRoutes(options.print));
+  }
+  if (options.adjustments) {
+    const adjustments = options.adjustments;
+    routes.push({
+      method: "POST",
+      pattern: /^\/inventory\/adjustments$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        status: 201,
+        data: adjustments.adjustStock(ctx.actor as SessionUser, asObject(ctx.body)),
+      }),
+    });
   }
   if (options.receiving) {
     routes.push(...createReceivingRoutes(options.receiving));
