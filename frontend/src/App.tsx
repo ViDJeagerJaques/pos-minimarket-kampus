@@ -192,7 +192,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     try {
       await dataSource.logout();
     } finally {
-      if (sessionEpochRef.current === logoutEpoch) {
+      // Reload akan membuang recovery milik user lain yang masih berada di memori.
+      if (sessionEpochRef.current === logoutEpoch && recoveredReceiptRef.current.size === 0) {
         onAfterLogout();
       }
     }

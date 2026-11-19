@@ -177,6 +177,58 @@ describe("TASK-027 App — upaya penerimaan dimiliki sesi (BUG-083)", () => {
     expect(screen.queryByText(/Upaya penerimaan belum selesai/)).toBeNull();
   });
 
+  it("BUG-095: logout default tidak reload selama recovery pemilik lain belum selesai", async () => {
+    const reload = vi.fn();
+    const browserWindow = window;
+    // jsdom tidak menjalankan navigasi; amati efek reload di batas browser,
+    // tanpa mengganti callback onAfterLogout bawaan App.
+    vi.stubGlobal("window", new Proxy(browserWindow, {
+      get(target, property, receiver) {
+        if (property === "location") return { ...target.location, reload };
+        return Reflect.get(target, property, receiver);
+      },
+    }));
+    try {
+      const base = createMockDataSource({ latencyMs: 0 });
+      let owner = 1;
+      const login: PosDataSource["login"] = async (...args) => {
+        const result = await base.login(...args);
+        return result.ok ? { ...result, user: { ...result.user, userId: owner } } : result;
+      };
+      const logout = vi.fn(base.logout);
+      const receiveGoods = vi.fn<PosDataSource["receiveGoods"]>()
+        .mockRejectedValueOnce(new ApiError(401, "AUTH_REQUIRED", "Sesi berakhir."))
+        .mockImplementation(async (payload) => ({ ...RESULT, receiptKey: payload.receiptKey, duplicate: true }));
+      render(<App dataSource={{ ...base, login, logout, receiveGoods }} />);
+      const user = userEvent.setup();
+      await loginAdmin(user);
+      await submitDraft(user);
+      await screen.findByRole("button", { name: "Masuk" });
+      const payload = receiveGoods.mock.calls[0]![0];
+
+      owner = 2;
+      await loginAdmin(user);
+      await user.click(screen.getByRole("button", { name: "Penerimaan" }));
+      expect(screen.queryByText(payload.receiptKey)).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Keluar" }));
+      await screen.findByRole("button", { name: "Masuk" });
+      expect(logout).toHaveBeenCalledTimes(2);
+      expect(reload).not.toHaveBeenCalled();
+
+      owner = 1;
+      await loginAdmin(user);
+      await user.click(screen.getByRole("button", { name: "Penerimaan" }));
+      expect(await screen.findByText(payload.receiptKey)).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Periksa ulang dengan kunci yang sama" }));
+      await screen.findByText(/sudah tercatat sebelumnya/);
+      expect(receiveGoods.mock.calls[1]![0]).toEqual(payload);
+      await user.click(screen.getByRole("button", { name: "Keluar" }));
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("BUG-094: 401 riwayat saat PENDING menyimpan UNKNOWN dan mengabaikan hasil sesi lama", async () => {
     const base = createMockDataSource({ latencyMs: 0 });
     const history = createDeferred<Awaited<ReturnType<PosDataSource["getStockReport"]>>>();
