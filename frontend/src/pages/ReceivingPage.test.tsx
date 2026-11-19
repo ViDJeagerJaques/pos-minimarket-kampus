@@ -1,9 +1,14 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ApiError } from "../api/errors";
 import { createMockDataSource } from "../api/mockDataSource";
-import type { PosDataSource, ReceiveGoodsInput, ReceiptResult, StockReport } from "../api/types";
+import type {
+  PosDataSource,
+  ReceiveGoodsInput,
+  ReceiptResult,
+  StockReport,
+} from "../api/types";
+import type { ReceiptAttempt } from "../domain/receivingAttempt";
 import { ReceivingPage } from "./ReceivingPage";
 
 const ADMIN = { userId: 1, username: "admin.demo", displayName: "Admin DEMO", role: "ADMIN" as const };
@@ -11,42 +16,46 @@ const ADMIN = { userId: 1, username: "admin.demo", displayName: "Admin DEMO", ro
 const SUPPLIERS = [{ id: 1, name: "Supplier A" }];
 const PRODUCTS = [
   { id: 1, sku: "FX-1", name: "Barang A", priceRp: 1000, stock: 2, active: true },
+  { id: 101, sku: "FX-101", name: "Barang ke-101", priceRp: 2000, stock: 9, active: true },
 ];
 
-const STOCK_REPORT: StockReport = {
-  generatedAtMs: 1_700_000_000_000,
-  lowStockThreshold: 0,
-  products: [
-    {
-      productId: 1,
-      sku: "FX-1",
-      name: "Barang A",
-      onHand: 7,
-      opening: 2,
-      receipt: 5,
-      sale: 0,
-      adjustment: 0,
-      matched: true,
-      low: false,
-      zero: false,
-      movements: [
-        {
-          id: 9,
-          kind: "RECEIPT",
-          delta: 5,
-          createdAtMs: 1_700_000_000_000,
-          actorId: 1,
-          sourceType: "RECEIPT_ITEM",
-          sourceId: 1,
-          sourceRef: "rcv_hist_1",
-          sourceQuantity: 5,
-          adjustmentReason: null,
-        },
-      ],
-      movementsTruncated: false,
-    },
-  ],
-};
+function stockReport(overrides: Partial<StockReport> = {}): StockReport {
+  return {
+    generatedAtMs: 1_700_000_000_000,
+    lowStockThreshold: 0,
+    products: [
+      {
+        productId: 1,
+        sku: "FX-1",
+        name: "Barang A",
+        onHand: 7,
+        opening: 2,
+        receipt: 5,
+        sale: 0,
+        adjustment: -2,
+        matched: true,
+        low: false,
+        zero: false,
+        movements: [
+          {
+            id: 9,
+            kind: "RECEIPT",
+            delta: 5,
+            createdAtMs: 1_700_000_000_000,
+            actorId: 1,
+            sourceType: "RECEIPT_ITEM",
+            sourceId: 1,
+            sourceRef: "rcv_hist_1",
+            sourceQuantity: 5,
+            adjustmentReason: null,
+          },
+        ],
+        movementsTruncated: false,
+      },
+    ],
+    ...overrides,
+  };
+}
 
 const RESULT: ReceiptResult = {
   receiptId: 11,
@@ -69,31 +78,61 @@ function makeSource(overrides: Partial<PosDataSource> = {}) {
     authMode: "LOCAL_API",
     catalogMode: "LOCAL_API",
     listSuppliers: vi.fn(async () => SUPPLIERS),
-    listProducts: vi.fn(async () => PRODUCTS),
-    getStockReport: vi.fn(async () => STOCK_REPORT),
+    searchActiveProducts: vi.fn(async (query: string) =>
+      PRODUCTS.filter(
+        (item) =>
+          item.name.toLowerCase().includes(query.trim().toLowerCase()) ||
+          item.sku.toLowerCase().includes(query.trim().toLowerCase()),
+      ),
+    ),
+    getStockReport: vi.fn(async () => stockReport()),
     ...overrides,
   };
   return { source, callLog: base.callLog };
 }
 
-function renderPage(source: PosDataSource, onSessionExpired = vi.fn()) {
-  render(<ReceivingPage dataSource={source} currentUser={ADMIN} onSessionExpired={onSessionExpired} />);
-  return { onSessionExpired };
+function renderPage(source: PosDataSource, options: {
+  attempt?: ReceiptAttempt | null;
+  onSubmitAttempt?: (payload: ReceiveGoodsInput) => void;
+  onRetryAttempt?: () => void;
+  onClearAttempt?: () => void;
+  onSessionExpired?: () => void;
+} = {}) {
+  const onSessionExpired = options.onSessionExpired ?? vi.fn();
+  const onSubmitAttempt = options.onSubmitAttempt ?? vi.fn();
+  const onRetryAttempt = options.onRetryAttempt ?? vi.fn();
+  const onClearAttempt = options.onClearAttempt ?? vi.fn();
+  const view = render(
+    <ReceivingPage
+      dataSource={source}
+      currentUser={ADMIN}
+      onSessionExpired={onSessionExpired}
+      attempt={options.attempt ?? null}
+      onSubmitAttempt={onSubmitAttempt}
+      onRetryAttempt={onRetryAttempt}
+      onClearAttempt={onClearAttempt}
+    />,
+  );
+  return { view, onSessionExpired, onSubmitAttempt, onRetryAttempt, onClearAttempt };
 }
 
 async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
   await user.selectOptions(await screen.findByLabelText(/Supplier/), "1");
-  await user.selectOptions(screen.getByLabelText(/Produk/), "1");
+  await waitFor(() => expect(screen.getByRole("option", { name: /FX-1 — Barang A/ })).toBeTruthy());
+  await user.selectOptions(screen.getByLabelText("Produk"), "1");
   await user.type(screen.getByLabelText(/Jumlah diterima/), "5");
   await user.click(screen.getByRole("button", { name: "Tambah ke draft" }));
 }
 
-describe("TASK-027 ReceivingPage — draft, konfirmasi, error, riwayat", () => {
-  it("batal draft tidak memanggil API dan tidak mengubah stok", async () => {
-    const receiveGoods = vi.fn(async () => RESULT);
-    const { source, callLog } = makeSource({ receiveGoods });
+function committedAttempt(payload: ReceiveGoodsInput): ReceiptAttempt {
+  return { receiptKey: payload.receiptKey, payload, status: "COMMITTED", result: RESULT, error: null };
+}
+
+describe("TASK-027 ReceivingPage — draft, upaya, riwayat", () => {
+  it("batal draft yang belum dikirim tidak memanggil API dan tidak mengubah stok", async () => {
+    const { source, callLog } = makeSource();
+    const { onSubmitAttempt } = renderPage(source);
     const user = userEvent.setup();
-    renderPage(source);
 
     await fillDraft(user);
     expect(screen.getByRole("table", { name: "Draft penerimaan" })).toBeTruthy();
@@ -101,65 +140,118 @@ describe("TASK-027 ReceivingPage — draft, konfirmasi, error, riwayat", () => {
 
     expect(screen.queryByRole("table", { name: "Draft penerimaan" })).toBeNull();
     expect(screen.getByText(/Draft dibatalkan/)).toBeTruthy();
-    expect(receiveGoods).not.toHaveBeenCalled();
+    expect(onSubmitAttempt).not.toHaveBeenCalled();
     expect(callLog.filter((entry) => entry.isMutation && entry.operation === "receiveGoods")).toHaveLength(0);
   });
 
-  it("konfirmasi menyimpan penerimaan sekali dan menampilkan hasil backend", async () => {
-    const receiveGoods = vi.fn(async (_input: ReceiveGoodsInput) => RESULT);
-    const { source } = makeSource({ receiveGoods });
+  it("konfirmasi mengirim payload sekali; hasil COMMITTED menyegarkan saldo dan riwayat", async () => {
+    const { source } = makeSource();
+    const { view, onSubmitAttempt } = renderPage(source);
     const user = userEvent.setup();
-    renderPage(source);
 
     await fillDraft(user);
     await user.click(screen.getByRole("button", { name: "Konfirmasi penerimaan" }));
     await user.click(screen.getByRole("button", { name: "Ya, simpan penerimaan" }));
 
-    await waitFor(() => expect(receiveGoods).toHaveBeenCalledTimes(1));
-    const payload = receiveGoods.mock.calls[0]![0];
+    expect(onSubmitAttempt).toHaveBeenCalledTimes(1);
+    const payload = (onSubmitAttempt as ReturnType<typeof vi.fn>).mock.calls[0]![0] as ReceiveGoodsInput;
     expect(payload.receiptKey).toMatch(/^rcv_/);
     expect(payload.supplierId).toBe(1);
     expect(payload.items).toEqual([{ productId: 1, quantity: 5 }]);
-    expect(screen.getByText("rcv_1")).toBeTruthy();
-    expect(screen.getByText(/Stok bertambah satu kali/)).toBeTruthy();
+
+    view.rerender(
+      <ReceivingPage
+        dataSource={source}
+        currentUser={ADMIN}
+        onSessionExpired={vi.fn()}
+        attempt={committedAttempt(payload)}
+        onSubmitAttempt={onSubmitAttempt}
+        onRetryAttempt={vi.fn()}
+        onClearAttempt={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText("rcv_1")).toBeTruthy();
+    expect(screen.getByText(/Saldo produk telah dimuat ulang/)).toBeTruthy();
+    await waitFor(() => {
+      expect((source.searchActiveProducts as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(1);
+      expect((source.getStockReport as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(1);
+    });
   });
 
-  it("403 ditampilkan sebagai error dan draft dipertahankan untuk retry identik", async () => {
-    const receiveGoods = vi.fn(async () => {
-      throw new ApiError(403, "FORBIDDEN", "Hanya ADMIN yang boleh menerima barang.");
+  it("upaya PENDING mengunci draft dan tombol periksa ulang", async () => {
+    const onClearAttempt = vi.fn();
+    const { source } = makeSource();
+    renderPage(source, {
+      attempt: { receiptKey: "rcv_x", payload: { receiptKey: "rcv_x", supplierId: 1, items: [] }, status: "PENDING", result: null, error: null },
+      onClearAttempt,
     });
-    const { source } = makeSource({ receiveGoods });
-    const { onSessionExpired } = renderPage(source);
     const user = userEvent.setup();
 
-    await fillDraft(user);
-    const keyBefore = screen.getByText(/Identitas upaya/).textContent ?? "";
-    await user.click(screen.getByRole("button", { name: "Konfirmasi penerimaan" }));
-    await user.click(screen.getByRole("button", { name: "Ya, simpan penerimaan" }));
-
-    const alert = await screen.findByRole("status");
-    expect(alert.textContent).toContain("Hanya ADMIN");
-    expect(screen.getByRole("table", { name: "Draft penerimaan" })).toBeTruthy();
-    expect(screen.getByText(/Identitas upaya/).textContent).toBe(keyBefore);
-    expect(onSessionExpired).not.toHaveBeenCalled();
+    expect((screen.getByLabelText("Produk") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Periksa ulang/ }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Batal draft" }));
+    expect(screen.getByText(/masih diproses atau hasilnya belum pasti/)).toBeTruthy();
+    expect(onClearAttempt).not.toHaveBeenCalled();
   });
 
-  it("401 dari penerimaan mengalihkan ke login", async () => {
-    const receiveGoods = vi.fn(async () => {
-      throw new ApiError(401, "AUTH_REQUIRED", "Sesi berakhir.");
+  it("upaya UNKNOWN menampilkan error dan retry memakai kunci/payload asli", async () => {
+    const payload: ReceiveGoodsInput = {
+      receiptKey: "rcv_same",
+      supplierId: 1,
+      items: [{ productId: 1, quantity: 5 }],
+      supplierRef: null,
+    };
+    const onRetryAttempt = vi.fn();
+    const onClearAttempt = vi.fn();
+    const { source } = makeSource();
+    renderPage(source, {
+      attempt: { receiptKey: "rcv_same", payload, status: "UNKNOWN", result: null, error: "Jaringan terputus." },
+      onRetryAttempt,
+      onClearAttempt,
     });
-    const { source } = makeSource({ receiveGoods });
-    const { onSessionExpired } = renderPage(source);
     const user = userEvent.setup();
 
+    expect(screen.getByRole("alert").textContent).toContain("Jaringan terputus");
+    expect(screen.getByText(/rcv_same/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Periksa ulang/ }));
+    expect(onRetryAttempt).toHaveBeenCalledTimes(1);
+    expect(onClearAttempt).not.toHaveBeenCalled();
+  });
+
+  it("401 dari pengiriman mengalihkan ke login", async () => {
+    const onSessionExpired = vi.fn();
+    const { source } = makeSource();
+    renderPage(source, { onSubmitAttempt: () => onSessionExpired() });
+    const user = userEvent.setup();
     await fillDraft(user);
     await user.click(screen.getByRole("button", { name: "Konfirmasi penerimaan" }));
     await user.click(screen.getByRole("button", { name: "Ya, simpan penerimaan" }));
-
-    await waitFor(() => expect(onSessionExpired).toHaveBeenCalledTimes(1));
+    expect(onSessionExpired).toHaveBeenCalledTimes(1);
   });
 
-  it("riwayat menampilkan mutasi RECEIPT yang tersimpan di backend", async () => {
+  it("produk di luar 100 pertama dapat dicari dan dipilih", async () => {
+    const { source } = makeSource();
+    renderPage(source);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText(/Cari produk aktif/), "FX-101");
+    await waitFor(() => expect(screen.getByRole("option", { name: /FX-101/ })).toBeTruthy());
+    await user.selectOptions(screen.getByLabelText("Produk"), "101");
+    await user.type(screen.getByLabelText(/Jumlah diterima/), "2");
+    await user.click(screen.getByRole("button", { name: "Tambah ke draft" }));
+    expect(screen.getByRole("table", { name: "Draft penerimaan" }).textContent).toContain("FX-101");
+  });
+
+  it("riwayat terpotong tidak menampilkan pesan kosong definitif", async () => {
+    const report = stockReport();
+    report.products[0]!.movements = [];
+    report.products[0]!.movementsTruncated = true;
+    const { source } = makeSource({ getStockReport: vi.fn(async () => report) });
+    renderPage(source);
+    expect(await screen.findByText(/Riwayat menampilkan sebagian/)).toBeTruthy();
+    expect(screen.queryByText(/Belum ada mutasi penerimaan yang tersimpan/)).toBeNull();
+  });
+
+  it("riwayat menampilkan mutasi RECEIPT yang tersimpan", async () => {
     const { source } = makeSource();
     renderPage(source);
     const table = await screen.findByRole("table", { name: "Riwayat penerimaan tersimpan" });

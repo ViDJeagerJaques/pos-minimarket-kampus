@@ -712,7 +712,8 @@ function toStockReport(value: unknown): StockReport {
       !isNonNegativeInt(raw.opening) ||
       !isNonNegativeInt(raw.receipt) ||
       !isNonNegativeInt(raw.sale) ||
-      !isNonNegativeInt(raw.adjustment) ||
+      // Adjustment adalah delta ledger: boleh negatif, tetapi harus safe integer.
+      typeof raw.adjustment !== "number" || !Number.isSafeInteger(raw.adjustment) ||
       typeof raw.matched !== "boolean" ||
       typeof raw.low !== "boolean" ||
       typeof raw.zero !== "boolean" ||

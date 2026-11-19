@@ -1,8 +1,11 @@
 import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import type { PosDataSource, SessionUser } from "./api/types";
+import { ApiError } from "./api/errors";
+import type { PosDataSource, ReceiveGoodsInput, SessionUser } from "./api/types";
 import { defaultPage, isPageAllowed, NAV_BY_ROLE, type PageId } from "./app/navigation";
 import { AppShell } from "./components/AppShell";
+import { StatusMessage } from "./components/StatusMessage";
 import type { CartLine } from "./domain/cart";
+import { isUnresolvedReceipt, type ReceiptAttempt } from "./domain/receivingAttempt";
 import { hasPendingClose } from "./domain/shiftCloseRecovery";
 import { AccountsPage } from "./pages/AccountsPage";
 import { CashierPage } from "./pages/CashierPage";
@@ -51,6 +54,13 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   const [page, setPage] = useState<PageId>("cashier");
   const [notice, setNotice] = useState<string | null>(null);
   const [closePending, setClosePending] = useState(false);
+  // Upaya penerimaan dimiliki App agar tidak hilang saat halaman dibongkar.
+  const [receiptAttempt, setReceiptAttemptState] = useState<ReceiptAttempt | null>(null);
+  const receiptAttemptRef = useRef<ReceiptAttempt | null>(null);
+  const setReceiptAttempt = useCallback((next: ReceiptAttempt | null) => {
+    receiptAttemptRef.current = next;
+    setReceiptAttemptState(next);
+  }, []);
   // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
   const [draft, setDraft] = useState(() => ({ id: newDraftId(), lines: [] as CartLine[] }));
   const setDraftLines: Dispatch<SetStateAction<CartLine[]>> = (update) => {
@@ -79,6 +89,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
+    setReceiptAttempt(null);
     setNotice(null);
     setUser(nextUser);
     const pending = nextUser.role === "CASHIER" && dataSource.authMode !== "DEMO" && hasPendingClose(nextUser.userId);
@@ -94,20 +105,68 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
+    setReceiptAttempt(null);
     setUser(null);
     setPage("cashier");
     setNotice("Sesi berakhir atau tidak lagi valid. Silakan masuk kembali.");
     // Bersihkan token di memori klien; kegagalan revoke server ditangani TTL backend.
     void dataSource.logout();
-  }, [dataSource, sessionEpoch]);
+  }, [dataSource, sessionEpoch, setReceiptAttempt]);
+
+  const submitReceipt = useCallback(
+    async (payload: ReceiveGoodsInput) => {
+      const current = receiptAttemptRef.current;
+      if (current && current.status === "PENDING") return;
+      const epoch = sessionEpochRef.current;
+      const attempt: ReceiptAttempt = {
+        receiptKey: payload.receiptKey,
+        payload,
+        status: "PENDING",
+        result: null,
+        error: null,
+      };
+      setReceiptAttempt(attempt);
+      try {
+        const result = await dataSource.receiveGoods(payload);
+        if (epoch !== sessionEpochRef.current) return;
+        setReceiptAttempt({ ...attempt, status: "COMMITTED", result, error: null });
+      } catch (error) {
+        if (epoch !== sessionEpochRef.current) return;
+        if (error instanceof ApiError && error.isSessionExpired) {
+          handleSessionExpired();
+          return;
+        }
+        setReceiptAttempt({
+          ...attempt,
+          status: "UNKNOWN",
+          result: null,
+          error: error instanceof ApiError ? error.message : "Penerimaan gagal disimpan.",
+        });
+      }
+    },
+    [dataSource, handleSessionExpired, setReceiptAttempt],
+  );
+
+  const retryReceipt = useCallback(() => {
+    const current = receiptAttemptRef.current;
+    // Retry memakai payload snapshot yang sama, bukan draft yang sudah diubah.
+    if (current) void submitReceipt(current.payload);
+  }, [submitReceipt]);
+
+  const clearReceiptAttempt = useCallback(() => setReceiptAttempt(null), [setReceiptAttempt]);
 
   async function handleLogout() {
+    if (isUnresolvedReceipt(receiptAttempt)) {
+      setNotice("Penerimaan belum selesai atau hasilnya belum pasti. Periksa ulang dengan receiptKey yang sama sebelum keluar.");
+      return;
+    }
     const logoutEpoch = sessionEpochRef.current + 1;
     sessionEpochRef.current = logoutEpoch;
     setSessionEpoch(logoutEpoch);
     // Sembunyikan halaman terlindungi dan bersihkan state klien seketika
     // tanpa menunggu respons backend.
     setDraft({ id: newDraftId(), lines: [] });
+    setReceiptAttempt(null);
     setUser(null);
     setPage("cashier");
     setNotice(null);
@@ -139,13 +198,24 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
         <ForbiddenPage
           attemptedLabel={PAGE_LABEL[page]}
           roleLabel={ROLE_LABEL[currentUser.role]}
-          onBack={() => setPage(defaultPage(currentUser.role))}
+          onBack={() => navigateTo(defaultPage(currentUser.role))}
         />
       </AppShell>
     );
   }
 
   const activePage = page;
+
+  function navigateTo(next: PageId): void {
+    if (isUnresolvedReceipt(receiptAttempt) && next !== "receiving") {
+      setNotice(
+        "Penerimaan belum selesai atau hasilnya belum pasti. Periksa ulang dengan receiptKey yang sama sebelum pindah halaman.",
+      );
+      return;
+    }
+    setNotice(null);
+    setPage(next);
+  }
 
   function renderPage() {
     if (activePage === "cashier") {
@@ -202,6 +272,10 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}
+          attempt={receiptAttempt}
+          onSubmitAttempt={(payload) => void submitReceipt(payload)}
+          onRetryAttempt={retryReceipt}
+          onClearAttempt={clearReceiptAttempt}
         />
       );
     }
@@ -215,9 +289,10 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       authMode={dataSource.authMode}
       navItems={NAV_BY_ROLE[currentUser.role]}
       activePage={activePage}
-      onNavigate={(next) => { if (!closePending || next === "shift") setPage(next); }}
+      onNavigate={(next) => { if (!closePending || next === "shift") navigateTo(next); }}
       onLogout={handleLogout}
     >
+      {notice && <StatusMessage tone="warning" text={notice} />}
       {renderPage()}
     </AppShell>
   );

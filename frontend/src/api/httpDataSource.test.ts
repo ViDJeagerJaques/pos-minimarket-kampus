@@ -1007,7 +1007,7 @@ describe("TASK-021 klien struk & cetak ulang", () => {
           opening: 2,
           receipt: 5,
           sale: 0,
-          adjustment: 0,
+          adjustment: -2,
           matched: true,
           low: false,
           zero: false,
@@ -1037,6 +1037,7 @@ describe("TASK-021 klien struk & cetak ulang", () => {
     const dataSource = await loginCashier(fetchImpl);
     const report = await dataSource.getStockReport({ lowStockThreshold: 5 });
     expect(report.products[0]?.onHand).toBe(7);
+    expect(report.products[0]?.adjustment).toBe(-2);
     expect(report.products[0]?.movements[0]?.sourceRef).toBe("rcv_hist_1");
     expect(calls[2]?.url).toBe("/api/v1/reports/stock?lowStockThreshold=5");
   });

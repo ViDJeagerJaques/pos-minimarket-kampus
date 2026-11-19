@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "../api/errors";
 import type {
   PosDataSource,
   ProductSummary,
-  ReceiptResult,
+  ReceiveGoodsInput,
   SessionUser,
   StockMovementEntry,
   SupplierSummary,
@@ -11,26 +11,29 @@ import type {
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
+import {
+  isUnresolvedReceipt,
+  newReceiptKey,
+  type ReceiptAttempt,
+} from "../domain/receivingAttempt";
 
 interface ReceivingPageProps {
   dataSource: PosDataSource;
   currentUser: SessionUser;
   onSessionExpired: () => void;
+  /** Upaya dimiliki App; halaman hanya menampilkan dan memicu aksi. */
+  attempt: ReceiptAttempt | null;
+  onSubmitAttempt: (payload: ReceiveGoodsInput) => void;
+  onRetryAttempt: () => void;
+  onClearAttempt: () => void;
 }
 
 type Status = { tone: StatusTone; text: string };
-type DraftItem = { key: string; productId: number; quantity: number };
+type DraftItem = { key: string; productId: number; sku: string; name: string; quantity: number };
 type HistoryRow = StockMovementEntry & { productName: string; sku: string };
 
 const MAX_QUANTITY = 1_000_000;
-
-function newReceiptKey(): string {
-  const random =
-    typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `rcv_${random}`;
-}
+const SEARCH_LIMIT = 50;
 
 function formatTime(ms: number): string {
   const date = new Date(ms);
@@ -44,55 +47,59 @@ function parseQuantity(raw: string): number | null {
 }
 
 /**
- * Penerimaan barang ADMIN (TASK-025/027). Draft berupa niat di browser:
- * tombol "Batal draft" hanya membuang state dan TIDAK memanggil API, sehingga
- * tidak ada saldo yang berubah. Stok bertambah hanya setelah backend
- * mengembalikan ReceiptResult (satu transaksi + mutasi ledger + audit).
+ * Penerimaan barang ADMIN (TASK-025/027). Draft berupa niat di browser;
+ * tombol "Batal draft" untuk draft yang belum dikirim tidak memanggil API.
+ * Setelah dikirim, receiptKey dan payload snapshot disimpan App: retry memakai
+ * payload yang sama persis, sehingga tidak ada penerimaan ganda.
  */
-export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: ReceivingPageProps) {
+export function ReceivingPage({
+  dataSource,
+  currentUser,
+  onSessionExpired,
+  attempt,
+  onSubmitAttempt,
+  onRetryAttempt,
+  onClearAttempt,
+}: ReceivingPageProps) {
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
-  const [products, setProducts] = useState<ProductSummary[] | null>(null);
   const [baseError, setBaseError] = useState<string | null>(null);
 
   const [supplierId, setSupplierId] = useState("");
   const [supplierRef, setSupplierRef] = useState("");
+  const [productQuery, setProductQuery] = useState("");
   const [productId, setProductId] = useState("");
   const [quantityInput, setQuantityInput] = useState("");
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
   const [receiptKey, setReceiptKey] = useState(() => newReceiptKey());
   const [status, setStatus] = useState<Status | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [lastResult, setLastResult] = useState<ReceiptResult | null>(null);
+
+  const [searchResults, setSearchResults] = useState<ProductSummary[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [productRefreshKey, setProductRefreshKey] = useState(0);
+  const searchSeqRef = useRef(0);
 
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [historyTruncated, setHistoryTruncated] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyKey, setHistoryKey] = useState(0);
 
   const supplierSelectId = useId();
   const supplierRefId = useId();
+  const productSearchId = useId();
   const productSelectId = useId();
   const quantityId = useId();
 
-  const handleActionError = useCallback(
-    (error: unknown, fallback: string) => {
-      if (error instanceof ApiError && error.isSessionExpired) {
-        onSessionExpired();
-        return;
-      }
-      setStatus({ tone: "danger", text: error instanceof ApiError ? error.message : fallback });
-    },
-    [onSessionExpired],
-  );
+  const attemptPending = isUnresolvedReceipt(attempt);
 
   useEffect(() => {
     let isActive = true;
-    Promise.all([dataSource.listSuppliers(), dataSource.listProducts()])
-      .then(([supplierList, productList]) => {
+    dataSource
+      .listSuppliers()
+      .then((list) => {
         if (!isActive) return;
-        setSuppliers(supplierList);
-        setProducts(productList);
+        setSuppliers(list);
         setBaseError(null);
       })
       .catch((error: unknown) => {
@@ -101,12 +108,39 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
           onSessionExpired();
           return;
         }
-        setBaseError(error instanceof ApiError ? error.message : "Data master gagal dimuat.");
+        setBaseError(error instanceof ApiError ? error.message : "Daftar supplier gagal dimuat.");
       });
     return () => {
       isActive = false;
     };
   }, [dataSource, onSessionExpired]);
+
+  // Pencarian memakai searchActiveProducts (bukan listProducts yang terpotong).
+  useEffect(() => {
+    let isActive = true;
+    const seq = ++searchSeqRef.current;
+    const timer = setTimeout(() => {
+      dataSource
+        .searchActiveProducts(productQuery.trim())
+        .then((results) => {
+          if (!isActive || seq !== searchSeqRef.current) return;
+          setSearchResults(results);
+          setSearchError(null);
+        })
+        .catch((error: unknown) => {
+          if (!isActive || seq !== searchSeqRef.current) return;
+          if (error instanceof ApiError && error.isSessionExpired) {
+            onSessionExpired();
+            return;
+          }
+          setSearchError(error instanceof ApiError ? error.message : "Pencarian produk gagal.");
+        });
+    }, 200);
+    return () => {
+      isActive = false;
+      clearTimeout(timer);
+    };
+  }, [dataSource, productQuery, onSessionExpired, productRefreshKey]);
 
   useEffect(() => {
     let isActive = true;
@@ -115,17 +149,17 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
       .getStockReport()
       .then((report) => {
         if (!isActive) return;
-        const names = new Map(report.products.map((item) => [item.productId, item]));
         const rows: HistoryRow[] = [];
         for (const product of report.products) {
           for (const movement of product.movements) {
             if (movement.kind === "RECEIPT") {
-              rows.push({ ...movement, productName: product.name, sku: names.get(product.productId)?.sku ?? product.sku });
+              rows.push({ ...movement, productName: product.name, sku: product.sku });
             }
           }
         }
         rows.sort((left, right) => right.createdAtMs - left.createdAtMs);
         setHistory(rows);
+        setHistoryTruncated(report.products.some((product) => product.movementsTruncated));
         setHistoryError(null);
       })
       .catch((error: unknown) => {
@@ -144,6 +178,39 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
     };
   }, [dataSource, onSessionExpired, historyKey]);
 
+  // Upaya COMMITTED: segarkan saldo produk dan riwayat, lalu siapkan draft baru.
+  const committedKey = attempt?.status === "COMMITTED" ? attempt.result?.receiptKey : null;
+  useEffect(() => {
+    if (!committedKey) return;
+    setProductRefreshKey((value) => value + 1);
+    setHistoryKey((value) => value + 1);
+    setSupplierId("");
+    setSupplierRef("");
+    setProductQuery("");
+    setProductId("");
+    setQuantityInput("");
+    setDraftItems([]);
+    setReceiptKey(newReceiptKey());
+    setStatus({
+      tone: attempt?.result?.duplicate ? "warning" : "success",
+      text: attempt?.result?.duplicate
+        ? `Penerimaan ${committedKey} sudah tercatat sebelumnya; hasil lama dikembalikan tanpa mutasi tambahan.`
+        : `Penerimaan ${committedKey} tersimpan. Saldo produk telah dimuat ulang dari backend.`,
+    });
+    // Hanya bereaksi saat kunci hasil berubah, bukan setiap render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committedKey]);
+
+  function clearLocalDraft(): void {
+    setSupplierId("");
+    setSupplierRef("");
+    setProductQuery("");
+    setProductId("");
+    setQuantityInput("");
+    setDraftItems([]);
+    setReceiptKey(newReceiptKey());
+  }
+
   function addItem(): void {
     const parsed = parseQuantity(quantityInput);
     const id = Number(productId);
@@ -155,9 +222,16 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
       setStatus({ tone: "warning", text: "Produk ini sudah ada di draft. Ubah jumlahnya atau hapus dulu." });
       return;
     }
+    const selected = searchResults?.find((item) => item.id === id);
     setDraftItems((current) => [
       ...current,
-      { key: `${id}-${current.length}`, productId: id, quantity: parsed },
+      {
+        key: `${id}-${current.length}`,
+        productId: id,
+        sku: selected?.sku ?? `#${id}`,
+        name: selected?.name ?? "Produk",
+        quantity: parsed,
+      },
     ]);
     setProductId("");
     setQuantityInput("");
@@ -165,63 +239,49 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
   }
 
   function cancelDraft(): void {
-    // Draf hanya state UI. Tidak ada pemanggilan API dan tidak ada mutasi stok.
-    setSupplierId("");
-    setSupplierRef("");
-    setProductId("");
-    setQuantityInput("");
-    setDraftItems([]);
-    setShowConfirm(false);
-    setReceiptKey(newReceiptKey());
+    if (attemptPending) {
+      setStatus({
+        tone: "warning",
+        text: `Upaya ${attempt?.receiptKey} masih diproses atau hasilnya belum pasti. Periksa ulang dengan receiptKey dan payload yang sama sebelum membatalkan.`,
+      });
+      return;
+    }
+    clearLocalDraft();
+    if (attempt?.status === "COMMITTED") onClearAttempt();
     setStatus({ tone: "info", text: "Draft dibatalkan. Tidak ada penerimaan atau perubahan stok." });
   }
 
-  async function commitReceipt(): Promise<void> {
-    if (isSubmitting) return;
+  function confirmReceipt(): void {
+    if (attemptPending) return;
     setShowConfirm(false);
-    setIsSubmitting(true);
-    try {
-      const result = await dataSource.receiveGoods({
-        receiptKey,
-        supplierId: Number(supplierId),
-        items: draftItems.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-        supplierRef: supplierRef.trim().length > 0 ? supplierRef.trim() : null,
-      });
-      setLastResult(result);
-      // receiptKey lama sengaja dipertahankan pada error; setelah sukses dibuat yang baru.
-      setSupplierId("");
-      setSupplierRef("");
-      setProductId("");
-      setQuantityInput("");
-      setDraftItems([]);
-      setReceiptKey(newReceiptKey());
-      setStatus({
-        tone: result.duplicate ? "warning" : "success",
-        text: result.duplicate
-          ? `Penerimaan ${result.receiptKey} sudah tercatat sebelumnya; hasil lama dikembalikan tanpa mutasi tambahan.`
-          : `Penerimaan ${result.receiptKey} tersimpan. Stok bertambah satu kali.`,
-      });
-      setHistoryKey((value) => value + 1);
-    } catch (error) {
-      handleActionError(error, "Penerimaan gagal disimpan. Draft dan receiptKey dipertahankan.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    const payload: ReceiveGoodsInput = {
+      receiptKey,
+      supplierId: Number(supplierId),
+      items: draftItems.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+      supplierRef: supplierRef.trim().length > 0 ? supplierRef.trim() : null,
+    };
+    onSubmitAttempt(payload);
+  }
+
+  function startNewDraft(): void {
+    onClearAttempt();
+    clearLocalDraft();
+    setStatus({ tone: "info", text: "Draft baru siap. Tidak ada transaksi yang dibuat." });
   }
 
   const isDemo = dataSource.authMode === "DEMO" || dataSource.catalogMode === "DEMO";
   const supplierName = suppliers?.find((item) => item.id === Number(supplierId))?.name ?? `#${supplierId}`;
-  const canConfirm = supplierId !== "" && draftItems.length > 0 && !isSubmitting;
+  const canConfirm = supplierId !== "" && draftItems.length > 0 && !attemptPending;
 
   return (
-    <section className="panel" aria-labelledby="receiving-title" aria-busy={isSubmitting}>
+    <section className="panel" aria-labelledby="receiving-title" aria-busy={attempt?.status === "PENDING"}>
       <h1 id="receiving-title" className="page-title">
         Penerimaan Barang <span className="chip chip--warning">ADMIN</span>
       </h1>
       <p className="muted">
-        Masuk sebagai <strong>{currentUser.username}</strong>. Draft hanya ada di browser; tombol
-        batal tidak memanggil backend dan tidak mengubah stok. Saldo bertambah hanya setelah
-        konfirmasi tersimpan.
+        Masuk sebagai <strong>{currentUser.username}</strong>. Draft yang belum dikirim dapat
+        dibatalkan tanpa API. Setelah dikirim, receiptKey dan isi penerimaan dipertahankan sampai
+        hasilnya pasti; retry memakai payload yang sama persis.
       </p>
       {isDemo && (
         <StatusMessage
@@ -230,7 +290,27 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
         />
       )}
       {baseError && <p className="field-error" role="alert">{baseError}</p>}
+      {searchError && <p className="field-error" role="alert">{searchError}</p>}
       {status && <StatusMessage tone={status.tone} text={status.text} />}
+
+      {attemptPending && (
+        <div className="receipt-panel" aria-label="Upaya penerimaan berjalan">
+          <h2 className="section-title">Upaya penerimaan belum selesai</h2>
+          <p>
+            <code>{attempt?.receiptKey}</code> · {attempt?.status === "PENDING"
+              ? "Menyimpan ke backend…"
+              : "Hasil belum pasti — periksa ulang sebelum melanjutkan."}
+          </p>
+          {attempt?.error && <p className="field-error" role="alert">{attempt.error}</p>}
+          <p className="muted">
+            Isi asli: {attempt?.payload.items.length} item, supplier #{attempt?.payload.supplierId}.
+            Draft baru tidak dibuat sampai upaya ini selesai.
+          </p>
+          <Button variant="primary" disabled={attempt?.status === "PENDING"} onClick={onRetryAttempt}>
+            Periksa ulang dengan kunci yang sama
+          </Button>
+        </div>
+      )}
 
       <div className="form-grid receiving-form">
         <div>
@@ -239,6 +319,7 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
             id={supplierSelectId}
             className="input"
             value={supplierId}
+            disabled={attemptPending}
             onChange={(event) => setSupplierId(event.target.value)}
           >
             <option value="">Pilih supplier…</option>
@@ -255,8 +336,24 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
             type="text"
             maxLength={120}
             value={supplierRef}
+            disabled={attemptPending}
             onChange={(event) => setSupplierRef(event.target.value)}
             placeholder="Mis. SJ-001"
+          />
+        </div>
+        <div>
+          <label htmlFor={productSearchId} className="field-label">Cari produk aktif</label>
+          <input
+            id={productSearchId}
+            className="input"
+            type="text"
+            value={productQuery}
+            disabled={attemptPending}
+            onChange={(event) => {
+              setProductQuery(event.target.value);
+              setProductId("");
+            }}
+            placeholder="Nama atau SKU"
           />
         </div>
         <div>
@@ -265,15 +362,21 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
             id={productSelectId}
             className="input"
             value={productId}
+            disabled={attemptPending}
             onChange={(event) => setProductId(event.target.value)}
           >
             <option value="">Pilih produk…</option>
-            {(products ?? []).map((item) => (
+            {(searchResults ?? []).map((item) => (
               <option key={item.id} value={item.id}>
                 {item.sku} — {item.name} (stok {item.stock})
               </option>
             ))}
           </select>
+          {searchResults !== null && searchResults.length >= SEARCH_LIMIT && (
+            <p className="muted" role="note">
+              Hasil dibatasi {SEARCH_LIMIT} produk. Persempit pencarian bila produk yang dicari tidak muncul.
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor={quantityId} className="field-label">Jumlah diterima</label>
@@ -283,25 +386,29 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
             type="text"
             inputMode="numeric"
             value={quantityInput}
+            disabled={attemptPending}
             onChange={(event) => setQuantityInput(event.target.value)}
           />
         </div>
       </div>
       <div className="receiving-actions">
-        <Button variant="secondary" disabled={isSubmitting} onClick={addItem}>Tambah ke draft</Button>
-        <Button variant="secondary" disabled={isSubmitting} onClick={cancelDraft}>Batal draft</Button>
+        <Button variant="secondary" disabled={attemptPending} onClick={addItem}>Tambah ke draft</Button>
+        <Button variant="secondary" onClick={cancelDraft}>Batal draft</Button>
         <Button variant="primary" disabled={!canConfirm} onClick={() => setShowConfirm(true)}>
           Konfirmasi penerimaan
         </Button>
+        {attempt?.status === "COMMITTED" && (
+          <Button variant="secondary" onClick={startNewDraft}>Draft baru</Button>
+        )}
       </div>
       <p className="muted">
-        Identitas upaya: <code>{receiptKey}</code>. Kunci yang sama dipakai ulang bila pengiriman
-        gagal, agar penerimaan tidak tercatat dua kali.
+        Identitas upaya draft: <code>{receiptKey}</code>. Kunci ini dipakai sebagai identitas saat
+        konfirmasi dan dipertahankan bila hasil belum pasti.
       </p>
 
       <h2 className="section-title">Draft penerimaan (belum mengubah stok)</h2>
       {draftItems.length === 0 ? (
-        <p className="muted">Belum ada item. Pilih produk dan jumlah lalu tambahkan ke draft.</p>
+        <p className="muted">Belum ada item. Cari produk, lalu tambahkan ke draft.</p>
       ) : (
         <div className="table-wrap">
           <table className="table" aria-label="Draft penerimaan">
@@ -313,42 +420,39 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
               </tr>
             </thead>
             <tbody>
-              {draftItems.map((item) => {
-                const product = products?.find((entry) => entry.id === item.productId);
-                return (
-                  <tr key={item.key}>
-                    <td>{product ? `${product.sku} — ${product.name}` : `#${item.productId}`}</td>
-                    <td className="num">{item.quantity}</td>
-                    <td>
-                      <Button
-                        variant="secondary"
-                        disabled={isSubmitting}
-                        onClick={() => setDraftItems((current) => current.filter((entry) => entry.key !== item.key))}
-                      >
-                        Hapus
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {draftItems.map((item) => (
+                <tr key={item.key}>
+                  <td>{item.sku} — {item.name}</td>
+                  <td className="num">{item.quantity}</td>
+                  <td>
+                    <Button
+                      variant="secondary"
+                      disabled={attemptPending}
+                      onClick={() => setDraftItems((current) => current.filter((entry) => entry.key !== item.key))}
+                    >
+                      Hapus
+                    </Button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       )}
 
-      {lastResult && (
+      {attempt?.status === "COMMITTED" && attempt.result && (
         <div className="receipt-panel" aria-label="Hasil penerimaan tersimpan">
           <h2 className="section-title">Hasil penerimaan tersimpan</h2>
           <p>
-            <code>{lastResult.receiptKey}</code> · #{lastResult.receiptId} · supplier #{lastResult.supplierId} ·{" "}
-            {lastResult.totalQuantity} unit · {formatTime(lastResult.committedAtMs)}
+            <code>{attempt.result.receiptKey}</code> · #{attempt.result.receiptId} · supplier #{attempt.result.supplierId} ·{" "}
+            {attempt.result.totalQuantity} unit · {formatTime(attempt.result.committedAtMs)}
           </p>
-          <p className="muted">Hash niat: <code>{lastResult.requestHash}</code></p>
-          {lastResult.duplicate && (
+          <p className="muted">Hash niat: <code>{attempt.result.requestHash}</code></p>
+          {attempt.result.duplicate && (
             <p className="badge badge--warning" role="note">Retry identik — dokumen lama dikembalikan</p>
           )}
           <ul className="catalog-list">
-            {lastResult.items.map((item) => (
+            {attempt.result.items.map((item) => (
               <li key={item.receiptItemId}>
                 {item.sku} — {item.name}: {item.quantity} unit (mutasi #{item.movementId})
               </li>
@@ -368,7 +472,12 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
         </Button>
       </div>
       {historyError && <p className="field-error" role="alert">{historyError}</p>}
-      {!historyError && history.length === 0 && !historyLoading && (
+      {historyTruncated && (
+        <p className="muted" role="note">
+          Riwayat menampilkan sebagian mutasi terbaru; total saldo dihitung backend dari seluruh mutasi.
+        </p>
+      )}
+      {!historyError && history.length === 0 && !historyLoading && !historyTruncated && (
         <p className="muted">Belum ada mutasi penerimaan yang tersimpan.</p>
       )}
       {!historyError && history.length > 0 && (
@@ -404,7 +513,7 @@ export function ReceivingPage({ dataSource, currentUser, onSessionExpired }: Rec
           message={`${draftItems.length} item dari ${supplierName} akan menambah stok. Draft dibatalkan setelah konfirmasi; receiptKey ${receiptKey} dipakai sebagai identitas upaya.`}
           confirmLabel="Ya, simpan penerimaan"
           cancelLabel="Kembali ke draft"
-          onConfirm={() => void commitReceipt()}
+          onConfirm={confirmReceipt}
           onCancel={() => setShowConfirm(false)}
         />
       )}

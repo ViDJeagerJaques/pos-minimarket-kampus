@@ -16,7 +16,7 @@ function toDateInputValue(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function parseDay(raw: string): number | null {
+function parseCalendarDate(raw: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
   const [year, month, day] = raw.split("-").map(Number);
   const date = new Date(year!, month! - 1, day!);
@@ -27,6 +27,21 @@ function parseDay(raw: string): number | null {
   ) {
     return null;
   }
+  return date;
+}
+
+function parseDay(raw: string): number | null {
+  return parseCalendarDate(raw)?.getTime() ?? null;
+}
+
+/**
+ * Awal hari berikutnya menurut kalender lokal. Memakai setDate, bukan +24 jam,
+ * agar benar pada hari dengan transisi DST 23 jam maupun 25 jam.
+ */
+export function exclusiveEndMs(raw: string): number | null {
+  const date = parseCalendarDate(raw);
+  if (!date) return null;
+  date.setDate(date.getDate() + 1);
   return date.getTime();
 }
 
@@ -52,13 +67,12 @@ export function DailyReportPanel({ dataSource, onSessionExpired }: DailyReportPa
   async function load(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const startMs = parseDay(startDate);
-    const endDayMs = parseDay(endDate);
-    if (startMs === null || endDayMs === null) {
+    // `end` eksklusif mengikuti kalender lokal (aman untuk hari DST 23/25 jam).
+    const endMs = exclusiveEndMs(endDate);
+    if (startMs === null || endMs === null) {
       setError("Tanggal mulai dan akhir wajib diisi dengan benar.");
       return;
     }
-    // `end` eksklusif: seluruh hari akhir ikut terhitung.
-    const endMs = endDayMs + 86_400_000;
     if (startMs >= endMs) {
       setError("Tanggal akhir harus tidak sebelum tanggal mulai.");
       return;
@@ -169,7 +183,7 @@ export function DailyReportPanel({ dataSource, onSessionExpired }: DailyReportPa
                       <td><code>{sale.saleNo}</code></td>
                       <td>{formatTime(sale.committedAtMs)}</td>
                       <td>#{sale.shiftId}</td>
-                      <td>{sale.cashierUsername ?? `#${sale.saleId}`}</td>
+                      <td>{sale.cashierUsername ?? "Kasir tidak diketahui"}</td>
                       <td>{sale.method === "CASH" ? "Tunai" : "QRIS manual"}</td>
                       <td className="num"><MoneyText amountRp={sale.amountRp} /></td>
                     </tr>
