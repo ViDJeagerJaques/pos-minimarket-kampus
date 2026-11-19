@@ -54,7 +54,7 @@ Bukti perilaku:
 
 ## 4. Branch / commit / PR
 
-Branch `task/p21-021` dari `6722485`. Commit dan PR dicantumkan setelah perintah git dijalankan (lihat riwayat branch ini). Tidak ada merge sendiri.
+Branch `task/p21-021` dari `6722485`. Commit `1719072` (`feat: TASK-021 cetak struk`) sudah di-push. PR: https://github.com/ViDJeagerJaques/pos-minimarket-kampus/pull/35 (OPEN, base `master`). Tidak ada merge sendiri. CI (`.github/workflows/ci.yml`: backend + frontend typecheck/test/build pada ubuntu & windows Node 24) dan CodeRabbit masih berjalan saat laporan dibuat; belum ada temuan yang ditangani.
 
 ## 5. Risiko, ketergantungan, asumsi DEMO
 
