@@ -764,3 +764,36 @@ body {
   max-width: 680px;
 }
 
+/* TASK-021 — struk virtual dan cetak ulang dari transaksi tersimpan */
+.receipt-panel {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+.receipt-panel__summary {
+  margin: var(--space-2) 0;
+}
+.receipt-panel__text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.receipt-history__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+.receipt-history__form .input {
+  max-width: 240px;
+}
+

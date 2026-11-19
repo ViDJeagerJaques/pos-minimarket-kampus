@@ -25,6 +25,7 @@ import { CartList } from "../components/CartList";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MoneyText } from "../components/MoneyText";
 import { ProductSearch } from "../components/ProductSearch";
+import { ReceiptPanel } from "../components/ReceiptPanel";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
 import {
   addProduct,
@@ -1479,7 +1480,11 @@ export function CashierPage({
                 <MoneyText amountRp={phase.result.payment.changeRp} />.
               </p>
             )}
-            <p className="muted">Cetak ulang belum tersedia (TASK-021).</p>
+            <ReceiptPanel
+              dataSource={dataSource}
+              saleId={phase.result.saleId}
+              onSessionExpired={onSessionExpired}
+            />
             <div className="dialog__actions">
               <Button variant="primary" onClick={() => { const failedKey = removeRecovery(); openNextRecovery(failedKey ?? undefined); }}>
                 Transaksi baru

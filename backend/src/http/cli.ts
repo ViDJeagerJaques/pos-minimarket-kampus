@@ -7,6 +7,7 @@ import { createCatalogService } from "../catalog/service.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { createShiftService } from "../shift/service.ts";
 import { createCheckoutService } from "../checkout/service.ts";
+import { createPrintService } from "../print/service.ts";
 import { createReportService } from "../reports/service.ts";
 import { startHttpServer } from "./app.ts";
 
@@ -129,6 +130,8 @@ async function main(argv: string[]): Promise<number> {
     const shift = createShiftService(db);
     const checkout = createCheckoutService(db);
     const reports = createReportService(db);
+    // DEMO: adapter virtual (pratinjau), bukan printer fisik/ESC-POS.
+    const print = createPrintService(db);
     const running = await startHttpServer({
       auth,
       sessions,
@@ -137,6 +140,7 @@ async function main(argv: string[]): Promise<number> {
       shift,
       checkout,
       reports,
+      print,
       port: options.port,
     });
     process.stdout.write(

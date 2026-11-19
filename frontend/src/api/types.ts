@@ -191,6 +191,53 @@ export type CheckoutStatusResult =
   | { attemptKey: string; requestHash: string; status: "ABANDONED"; abandonedAtMs: number }
   | CommitCheckoutResult;
 
+/**
+ * Struk TASK-021: dibangun backend dari sale/items/payments yang COMMITTED.
+ * Harga pada item adalah harga historis (snapshot), bukan harga katalog kini.
+ */
+export interface ReceiptItem {
+  sku: string;
+  name: string;
+  quantity: number;
+  unitPriceRp: number;
+  lineTotalRp: number;
+}
+
+export interface ReceiptPayment {
+  method: CheckoutPaymentMethod;
+  amountRp: number;
+  cashReceivedRp: number | null;
+  changeRp: number | null;
+  evidenceRef: string | null;
+  verifiedAtMs: number | null;
+}
+
+export interface Receipt {
+  saleId: number;
+  saleNo: string;
+  committedAtMs: number;
+  totalRp: number;
+  items: ReceiptItem[];
+  payment: ReceiptPayment;
+}
+
+/** Pratinjau struk virtual DEMO; `demo` selalu true sampai printer fisik diuji. */
+export interface ReceiptView {
+  receipt: Receipt;
+  text: string;
+  demo: true;
+}
+
+export interface PrintResult {
+  saleId: number;
+  saleNo: string;
+  status: "PRINTED";
+  channel: string;
+  printedAtMs: number;
+  text: string;
+  demo: true;
+}
+
 /** Laporan pembayaran TASK-037: QRIS tidak dicampur ke kas fisik. */
 export interface PaymentReport {
   cash: { totalRp: number; count: number };
@@ -268,6 +315,9 @@ export interface PosDataSource {
   prepareCheckout(input: PrepareCheckoutInput): Promise<PrepareCheckoutResult>;
   commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult>;
   getCheckoutStatus(attemptKey: string): Promise<CheckoutStatusResult>;
+  /** TASK-021: baca struk dari sale tersimpan (reprint tidak membuat sale baru). */
+  getSaleReceipt(saleId: number): Promise<ReceiptView>;
+  printSaleReceipt(saleId: number): Promise<PrintResult>;
   /** Laporan ADMIN: omzet CASH dan QRIS dipisah (TASK-037). */
   getPaymentReport(): Promise<PaymentReport>;
 }
