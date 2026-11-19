@@ -26,6 +26,8 @@ import type { CheckoutService } from "../checkout/service.ts";
 import { PrintError } from "../print/errors.ts";
 import type { PrintService } from "../print/service.ts";
 import type { ReportService } from "../reports/service.ts";
+import { ReceivingError } from "../receiving/errors.ts";
+import type { ReceivingService } from "../receiving/service.ts";
 
 /**
  * Server HTTP loopback dengan dependensi nol. Ini adapter tipis, bukan
@@ -49,6 +51,8 @@ export type HttpAppOptions = {
   reports?: ReportService;
   /** Service struk/cetak ulang TASK-021; POST hanya CASHIER pemilik sale. */
   print?: PrintService;
+  /** Service penerimaan barang TASK-025; ADMIN saja. */
+  receiving?: ReceivingService;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -203,6 +207,18 @@ function sendError(res: ServerResponse, requestId: string, error: unknown): void
     return;
   }
   if (error instanceof CheckoutError) {
+    sendJson(res, error.httpStatus, {
+      error: {
+        code: error.code,
+        message: error.message,
+        requestId,
+        field: error.field,
+        retryable: false,
+      },
+    });
+    return;
+  }
+  if (error instanceof ReceivingError) {
     sendJson(res, error.httpStatus, {
       error: {
         code: error.code,
@@ -441,6 +457,21 @@ function createCheckoutRoutes(checkout: CheckoutService): Route[] {
   ];
 }
 
+/** Route penerimaan barang TASK-025: ADMIN saja, receiptKey idempotent. */
+function createReceivingRoutes(receiving: ReceivingService): Route[] {
+  return [
+    {
+      method: "POST",
+      pattern: /^\/goods-receipts$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        status: 201,
+        data: receiving.receiveGoods(ctx.actor as SessionUser, asObject(ctx.body)),
+      }),
+    },
+  ];
+}
+
 /** Route laporan QRIS terpisah dari kas; ADMIN saja (DEC-014). */
 function createReportRoutes(reports: ReportService): Route[] {
   return [
@@ -587,6 +618,9 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   }
   if (options.print) {
     routes.push(...createPrintRoutes(options.print));
+  }
+  if (options.receiving) {
+    routes.push(...createReceivingRoutes(options.receiving));
   }
 
   return async (req, res) => {
