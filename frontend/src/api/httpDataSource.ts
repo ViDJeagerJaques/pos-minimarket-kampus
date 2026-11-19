@@ -16,6 +16,7 @@ import type {
   CatalogProduct,
   CatalogQuery,
   CategorySummary,
+  CheckoutPaymentMethod,
   CheckoutQuote,
   CheckoutQuoteItem,
   CheckoutStatusResult,
@@ -24,12 +25,15 @@ import type {
   CreateAccountInput,
   CreateProductInput,
   LoginResult,
+  PaymentReport,
   PosDataSource,
   PrepareCheckoutInput,
   PrepareCheckoutResult,
+  PendingQrisVerification,
   ProductSummary,
   Role,
   SessionUser,
+  VerifiedQrisVerification,
   ShiftSummary,
   ShiftClosePreview,
   ShiftClosing,
@@ -135,6 +139,30 @@ function isPositiveInt(value: unknown): value is number {
 
 function isNonNegativeInt(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function asCheckoutMethod(value: unknown): CheckoutPaymentMethod {
+  if (value !== "CASH" && value !== "QRIS_MANUAL") {
+    throw invalidResponse("Metode pembayaran dari backend tidak dikenal.");
+  }
+  return value;
+}
+
+function toPendingQrisVerification(value: unknown): PendingQrisVerification | undefined {
+  if (!isRecord(value) || value.status !== "pending") return undefined;
+  return { status: "pending" };
+}
+
+function toVerifiedQrisVerification(value: unknown): VerifiedQrisVerification | undefined {
+  if (
+    !isRecord(value) ||
+    value.status !== "verified" ||
+    !isPositiveInt(value.verifiedBy) ||
+    !isNonNegativeInt(value.verifiedAtMs)
+  ) {
+    return undefined;
+  }
+  return { status: "verified", verifiedBy: value.verifiedBy, verifiedAtMs: value.verifiedAtMs };
 }
 
 function invalidResponse(message: string): ApiError {
@@ -314,8 +342,7 @@ function toCheckoutQuote(value: unknown): CheckoutQuote {
     !Array.isArray(rawItems) ||
     rawItems.length === 0 ||
     !isNonNegativeInt(value.totalRp) ||
-    !isRecord(value.payment) ||
-    value.payment.method !== "CASH"
+    !isRecord(value.payment)
   ) {
     throw invalidResponse("Quote checkout dari backend tidak valid.");
   }
@@ -345,7 +372,7 @@ function toCheckoutQuote(value: unknown): CheckoutQuote {
     cashierId: value.cashierId,
     items,
     totalRp: value.totalRp,
-    payment: { method: "CASH" },
+    payment: { method: asCheckoutMethod(value.payment.method) },
   };
 }
 
@@ -382,12 +409,19 @@ function toCommitResult(value: unknown): CommitCheckoutResult {
     !isNonNegativeInt(value.totalRp) ||
     !isNonNegativeInt(value.committedAtMs) ||
     !isRecord(payment) ||
-    payment.method !== "CASH" ||
     !isNonNegativeInt(payment.amountRp) ||
     (payment.cashReceivedRp !== null && !isNonNegativeInt(payment.cashReceivedRp)) ||
-    (payment.changeRp !== null && !isNonNegativeInt(payment.changeRp))
+    (payment.changeRp !== null && !isNonNegativeInt(payment.changeRp)) ||
+    (payment.evidenceRef !== null && typeof payment.evidenceRef !== "string")
   ) {
     throw invalidResponse("Hasil commit checkout dari backend tidak valid.");
+  }
+  const method = asCheckoutMethod(payment.method);
+  const verification = toVerifiedQrisVerification(value.qrisVerification);
+  if (method === "QRIS_MANUAL" && verification === undefined) {
+    // QRIS COMMITTED tanpa verifikasi sah bukan hasil yang bisa dipercaya.
+    // Jangan ditampilkan sebagai sukses; attempt tetap bisa dicek lewat status.
+    throw invalidResponse("Hasil commit QRIS tidak memuat verifikasi terverifikasi yang valid.");
   }
   return {
     saleId: value.saleId,
@@ -397,7 +431,7 @@ function toCommitResult(value: unknown): CommitCheckoutResult {
     totalRp: value.totalRp,
     committedAtMs: value.committedAtMs,
     payment: {
-      method: "CASH",
+      method,
       amountRp: payment.amountRp,
       cashReceivedRp: payment.cashReceivedRp as number | null,
       changeRp: payment.changeRp as number | null,
@@ -409,7 +443,11 @@ function toCommitResult(value: unknown): CommitCheckoutResult {
         typeof payment.verifiedAtMs === "number" && Number.isSafeInteger(payment.verifiedAtMs)
           ? payment.verifiedAtMs
           : null,
+      evidenceRef: payment.evidenceRef as string | null,
     },
+    ...(method === "QRIS_MANUAL" && verification !== undefined
+      ? { qrisVerification: verification }
+      : {}),
   };
 }
 
@@ -426,12 +464,69 @@ function toCheckoutStatus(value: unknown): CheckoutStatusResult {
       ...ids,
       status: "PREPARED",
       quote: value.quote === null || value.quote === undefined ? null : toCheckoutQuote(value.quote),
+      ...(value.qrisVerification !== undefined
+        ? { qrisVerification: toPendingQrisVerification(value.qrisVerification) }
+        : {}),
     };
   }
   if (value.status === "ABANDONED" && isNonNegativeInt(value.abandonedAtMs)) {
     return { ...ids, status: "ABANDONED", abandonedAtMs: value.abandonedAtMs };
   }
   throw invalidResponse("Status checkout dari backend tidak dikenal.");
+}
+
+function toPaymentReport(value: unknown): PaymentReport {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.cash) ||
+    !isNonNegativeInt(value.cash.totalRp) ||
+    !isNonNegativeInt(value.cash.count) ||
+    !isRecord(value.qrisManual) ||
+    !isNonNegativeInt(value.qrisManual.totalRp) ||
+    !isNonNegativeInt(value.qrisManual.count) ||
+    !isNonNegativeInt(value.qrisManual.verifiedCount) ||
+    !isNonNegativeInt(value.totalRp) ||
+    !Array.isArray(value.qrisSales)
+  ) {
+    throw invalidResponse("Laporan pembayaran dari backend tidak valid.");
+  }
+  const qrisSales = value.qrisSales.map((raw) => {
+    if (
+      !isRecord(raw) ||
+      !isPositiveInt(raw.saleId) ||
+      typeof raw.saleNo !== "string" ||
+      !isNonNegativeInt(raw.committedAtMs) ||
+      !isNonNegativeInt(raw.totalRp) ||
+      (raw.cashierUsername !== null && typeof raw.cashierUsername !== "string") ||
+      !isPositiveInt(raw.verifiedBy) ||
+      !isNonNegativeInt(raw.verifiedAtMs) ||
+      (raw.evidenceRef !== null && typeof raw.evidenceRef !== "string") ||
+      raw.status !== "verified"
+    ) {
+      throw invalidResponse("Baris QRIS pada laporan tidak valid.");
+    }
+    return {
+      saleId: raw.saleId,
+      saleNo: raw.saleNo,
+      committedAtMs: raw.committedAtMs,
+      totalRp: raw.totalRp,
+      cashierUsername: raw.cashierUsername as string | null,
+      verifiedBy: raw.verifiedBy,
+      verifiedAtMs: raw.verifiedAtMs,
+      evidenceRef: raw.evidenceRef as string | null,
+      status: "verified" as const,
+    };
+  });
+  return {
+    cash: { totalRp: value.cash.totalRp, count: value.cash.count },
+    qrisManual: {
+      totalRp: value.qrisManual.totalRp,
+      count: value.qrisManual.count,
+      verifiedCount: value.qrisManual.verifiedCount,
+    },
+    totalRp: value.totalRp,
+    qrisSales,
+  };
 }
 
 export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDataSource {
@@ -794,7 +889,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
       typeof input.attemptKey !== "string" ||
       input.attemptKey.trim().length === 0 ||
       !isPositiveInt(input.shiftId) ||
-      input.paymentMethod !== "CASH" ||
+      (input.paymentMethod !== "CASH" && input.paymentMethod !== "QRIS_MANUAL") ||
       !Array.isArray(input.items) ||
       input.items.length === 0
     ) {
@@ -817,14 +912,19 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
 
   async function commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult> {
     const activeToken = requireToken();
-    if (
-      typeof input.attemptKey !== "string" ||
-      input.attemptKey.trim().length === 0 ||
-      typeof input.requestHash !== "string" ||
-      !/^[0-9a-f]{64}$/.test(input.requestHash) ||
-      input.paymentConfirmation?.method !== "CASH" ||
-      !isNonNegativeInt(input.paymentConfirmation?.cashReceivedRp)
-    ) {
+    const confirmation = input.paymentConfirmation;
+    const isValid =
+      typeof input.attemptKey === "string" &&
+      input.attemptKey.trim().length > 0 &&
+      typeof input.requestHash === "string" &&
+      /^[0-9a-f]{64}$/.test(input.requestHash) &&
+      (confirmation?.method === "CASH"
+        ? isNonNegativeInt(confirmation.cashReceivedRp)
+        : confirmation?.method === "QRIS_MANUAL" &&
+          confirmation.merchantConfirmed === true &&
+          isNonNegativeInt(confirmation.confirmedAmountRp) &&
+          (confirmation.evidenceRef === null || typeof confirmation.evidenceRef === "string"));
+    if (!isValid) {
       throw new ApiError(422, "VALIDATION_ERROR", "Data commit checkout tidak valid dari UI.");
     }
     return toCommitResult(
@@ -840,6 +940,10 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     return toCheckoutStatus(
       await request("GET", `/checkouts/${encodeURIComponent(attemptKey)}`, undefined, activeToken),
     );
+  }
+
+  async function getPaymentReport(): Promise<PaymentReport> {
+    return toPaymentReport(await request("GET", "/reports/payments", undefined, requireToken()));
   }
 
   return {
@@ -871,5 +975,6 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     prepareCheckout,
     commitCheckout,
     getCheckoutStatus,
+    getPaymentReport,
   };
 }

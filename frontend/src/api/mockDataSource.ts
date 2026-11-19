@@ -31,6 +31,7 @@ import type {
   CreateAccountInput,
   CreateProductInput,
   LoginResult,
+  PaymentReport,
   PosDataSource,
   PrepareCheckoutInput,
   PrepareCheckoutResult,
@@ -349,6 +350,31 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
         "DEMO_UNSUPPORTED",
         "Mode DEMO tidak menyimpan status upaya. Jalankan backend lokal untuk checkout.",
       );
+    },
+
+    async getPaymentReport(): Promise<PaymentReport> {
+      callLog.push({ operation: "getPaymentReport", isMutation: false });
+      await delay();
+      // Angka sintetis untuk pratinjau UI; bukan data transaksi nyata.
+      return {
+        cash: { totalRp: 125_000, count: 5 },
+        // Ringkasan harus cocok dengan satu baris rincian DEMO di bawah.
+        qrisManual: { totalRp: 25_000, count: 1, verifiedCount: 1 },
+        totalRp: 150_000,
+        qrisSales: [
+          {
+            saleId: 9001,
+            saleNo: "DEMO-QRIS-001",
+            committedAtMs: 1_700_000_000_000,
+            totalRp: 25_000,
+            cashierUsername: "kasir.demo",
+            verifiedBy: 2,
+            verifiedAtMs: 1_700_000_000_000,
+            evidenceRef: null,
+            status: "verified",
+          },
+        ],
+      };
     },
   };
 }

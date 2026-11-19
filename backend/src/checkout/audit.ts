@@ -1,10 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 
-const ALLOWED_CHECKOUT_AUDIT_ACTIONS = new Set<string>(["CHECKOUT_COMMITTED"]);
+const ALLOWED_CHECKOUT_AUDIT_ACTIONS = new Set<string>([
+  "CHECKOUT_COMMITTED",
+  "QRIS_MANUAL_CONFIRMED",
+]);
 
 export type CheckoutAuditEntry = {
   actorId: number;
-  action: "CHECKOUT_COMMITTED";
+  action: "CHECKOUT_COMMITTED" | "QRIS_MANUAL_CONFIRMED";
   entityType: "sales";
   entityId: number;
   details: Record<string, unknown>;

@@ -10,6 +10,7 @@ import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ProductsPage } from "./pages/ProductsPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { ShiftDemoPage } from "./pages/ShiftDemoPage";
 
 interface AppProps {
@@ -33,12 +34,11 @@ const PAGE_LABEL: Record<PageId, string> = {
 
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
 
-const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift">, { title: string; reason: string }> = {
+const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift" | "reports">, { title: string; reason: string }> = {
   history: { title: "Riwayat/Struk", reason: "Menunggu penjualan tersimpan dan cetak (TASK-016, TASK-021)." },
   dashboard: { title: "Dashboard", reason: "Menunggu query laporan (TASK-026, TASK-040). Tidak ada angka palsu." },
   receiving: { title: "Penerimaan", reason: "Menunggu TASK-025/TASK-027." },
   "stock-adjustment": { title: "Koreksi Stok", reason: "Menunggu TASK-039 dan kunci idempotensi (TASK-001 K-11)." },
-  reports: { title: "Laporan", reason: "Menunggu TASK-026/TASK-027." },
   backup: { title: "Backup", reason: "Menunggu TASK-028." },
 };
 
@@ -178,6 +178,15 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     if (activePage === "accounts") {
       return (
         <AccountsPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={handleSessionExpired}
+        />
+      );
+    }
+    if (activePage === "reports") {
+      return (
+        <ReportsPage
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}

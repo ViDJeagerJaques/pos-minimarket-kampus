@@ -41,6 +41,10 @@ export type CommitCheckoutInput = {
   paymentConfirmation?: unknown;
 };
 
+export type QrisVerification =
+  | { status: "pending" }
+  | { status: "verified"; verifiedBy: number; verifiedAtMs: number };
+
 export type CommittedPaymentSummary = {
   method: CheckoutPaymentMethod;
   amountRp: number;
@@ -48,6 +52,8 @@ export type CommittedPaymentSummary = {
   changeRp: number | null;
   verifiedBy: number | null;
   verifiedAtMs: number | null;
+  /** Referensi bukti opsional dari kasir; bukan data rekening/kredensial bank. */
+  evidenceRef: string | null;
 };
 
 export type CommitCheckoutResult = {
@@ -59,6 +65,8 @@ export type CommitCheckoutResult = {
   totalRp: number;
   committedAtMs: number;
   payment: CommittedPaymentSummary;
+  /** Hanya diisi untuk QRIS_MANUAL: status verifikasi dari sesi/jam backend. */
+  qrisVerification?: QrisVerification;
 };
 
 export type CheckoutStatusResult =
@@ -67,6 +75,7 @@ export type CheckoutStatusResult =
       requestHash: string;
       status: "PREPARED";
       quote: CheckoutQuote | null;
+      qrisVerification?: QrisVerification;
     }
   | {
       attemptKey: string;

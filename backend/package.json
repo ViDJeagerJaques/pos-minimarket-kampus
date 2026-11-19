@@ -16,7 +16,7 @@
     "auth:bootstrap-admin": "node src/auth/cli.ts bootstrap-admin",
     "start": "node src/http/cli.ts serve",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test db/test/migrate.test.ts db/test/constraints.test.ts db/test/seed.test.ts db/test/failure.test.ts db/test/safety.test.ts qa/qa_fixtures.test.ts src/auth/password.test.ts src/auth/service.test.ts src/http/app.test.ts src/catalog/service.test.ts src/inventory/ledger.test.ts src/inventory/openingFixture.test.ts src/shift/shift.test.ts src/http/shift.test.ts src/checkout/service.test.ts src/http/checkout.test.ts src/http/checkoutRecovery.test.ts src/shift/closing.test.ts src/http/shiftClosing.test.ts"
+    "test": "node --test db/test/migrate.test.ts db/test/constraints.test.ts db/test/seed.test.ts db/test/failure.test.ts db/test/safety.test.ts qa/qa_fixtures.test.ts src/auth/password.test.ts src/auth/service.test.ts src/http/app.test.ts src/catalog/service.test.ts src/inventory/ledger.test.ts src/inventory/openingFixture.test.ts src/shift/shift.test.ts src/http/shift.test.ts src/checkout/service.test.ts src/http/checkout.test.ts src/http/checkoutRecovery.test.ts src/http/qris.test.ts src/shift/closing.test.ts src/http/shiftClosing.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

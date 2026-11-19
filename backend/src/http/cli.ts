@@ -7,6 +7,7 @@ import { createCatalogService } from "../catalog/service.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { createShiftService } from "../shift/service.ts";
 import { createCheckoutService } from "../checkout/service.ts";
+import { createReportService } from "../reports/service.ts";
 import { startHttpServer } from "./app.ts";
 
 /**
@@ -28,6 +29,22 @@ type Options = {
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const MIN_SESSION_TTL_MS = 5 * 60 * 1000;
 const MAX_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function parsePort(value: string | undefined, fallback: number): number {
+  if (value === undefined) {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Port tidak valid: nilai kosong");
+  }
+  const parsed = Number(trimmed);
+  // 0 = minta OS memilih port bebas; dipakai skrip E2E agar tidak ada race.
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 65535) {
+    throw new Error(`Port tidak valid: ${value}`);
+  }
+  return parsed;
+}
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined) {
@@ -58,7 +75,7 @@ export function parseArgs(argv: string[]): Options {
       options.dbPath = value;
       index += 1;
     } else if (arg === "--port") {
-      options.port = parsePositiveInt(rest[index + 1], 0);
+      options.port = parsePort(rest[index + 1], 0);
       index += 1;
     } else if (arg === "--session-ttl-ms") {
       options.sessionTtlMs = parsePositiveInt(
@@ -111,6 +128,7 @@ async function main(argv: string[]): Promise<number> {
     const catalog = createCatalogService(db);
     const shift = createShiftService(db);
     const checkout = createCheckoutService(db);
+    const reports = createReportService(db);
     const running = await startHttpServer({
       auth,
       sessions,
@@ -118,6 +136,7 @@ async function main(argv: string[]): Promise<number> {
       catalog,
       shift,
       checkout,
+      reports,
       port: options.port,
     });
     process.stdout.write(

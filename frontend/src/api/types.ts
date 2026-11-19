@@ -96,8 +96,8 @@ export interface ShiftClosing {
   declaredCashRp: number | null; varianceRp: number | null;
   totals: { cashRp: number; qrisManualRp: number; totalSalesRp: number; saleCount: number };
 }
-/** Metode bayar yang sudah disahkan untuk TASK-017. QRIS manual menunggu TASK-002/DEC. */
-export type CheckoutPaymentMethod = "CASH";
+/** Metode bayar yang didukung: tunai dan QRIS manual (DEC-016 masih PENDING untuk SOP). */
+export type CheckoutPaymentMethod = "CASH" | "QRIS_MANUAL";
 
 export interface CheckoutQuoteItem {
   productId: number;
@@ -132,13 +132,30 @@ export interface PrepareCheckoutResult {
   quote: CheckoutQuote;
 }
 
+export type PaymentConfirmation =
+  | { method: "CASH"; cashReceivedRp: number }
+  | {
+      method: "QRIS_MANUAL";
+      /** Kasir sudah memeriksa transaksi di aplikasi merchant di luar POS. */
+      merchantConfirmed: true;
+      /** Nominal yang terlihat di merchant; backend menyamakan dengan quote total. */
+      confirmedAmountRp: number;
+      /** Referensi opsional, bukan kredensial/data rekening. */
+      evidenceRef: string | null;
+    };
+
+export type PendingQrisVerification = { status: "pending" };
+export type VerifiedQrisVerification = {
+  status: "verified";
+  verifiedBy: number;
+  verifiedAtMs: number;
+};
+export type QrisVerification = PendingQrisVerification | VerifiedQrisVerification;
+
 export interface CommitCheckoutInput {
   attemptKey: string;
   requestHash: string;
-  paymentConfirmation: {
-    method: CheckoutPaymentMethod;
-    cashReceivedRp: number;
-  };
+  paymentConfirmation: PaymentConfirmation;
 }
 
 export interface CommitCheckoutResult {
@@ -156,7 +173,10 @@ export interface CommitCheckoutResult {
     changeRp: number | null;
     verifiedBy: number | null;
     verifiedAtMs: number | null;
+    evidenceRef: string | null;
   };
+  /** Hanya tersedia untuk QRIS_MANUAL yang COMMITTED. */
+  qrisVerification?: VerifiedQrisVerification;
 }
 
 export type CheckoutStatusResult =
@@ -165,9 +185,29 @@ export type CheckoutStatusResult =
       requestHash: string;
       status: "PREPARED";
       quote: CheckoutQuote | null;
+      /** Lookup PREPARED hanya boleh membawa status pending. */
+      qrisVerification?: PendingQrisVerification;
     }
   | { attemptKey: string; requestHash: string; status: "ABANDONED"; abandonedAtMs: number }
   | CommitCheckoutResult;
+
+/** Laporan pembayaran TASK-037: QRIS tidak dicampur ke kas fisik. */
+export interface PaymentReport {
+  cash: { totalRp: number; count: number };
+  qrisManual: { totalRp: number; count: number; verifiedCount: number };
+  totalRp: number;
+  qrisSales: Array<{
+    saleId: number;
+    saleNo: string;
+    committedAtMs: number;
+    totalRp: number;
+    cashierUsername: string | null;
+    verifiedBy: number;
+    verifiedAtMs: number;
+    evidenceRef: string | null;
+    status: "verified";
+  }>;
+}
 
 /** `GET /users` TASK-009. Tidak pernah memuat hash/kata sandi. */
 export interface AccountSummary {
@@ -224,8 +264,10 @@ export interface PosDataSource {
   getShiftClosePreview(shiftId: number): Promise<ShiftClosePreview>;
   getShiftClosing(shiftId: number): Promise<ShiftClosing>;
   closeShift(shiftId: number, input: { closeKey: string; declaredCashRp: number }): Promise<ShiftClosing>;
-  /** Checkout dua fase TASK-016. Hanya CASH di TASK-017. */
+  /** Checkout dua fase TASK-016, dengan CASH dan QRIS_MANUAL (TASK-037). */
   prepareCheckout(input: PrepareCheckoutInput): Promise<PrepareCheckoutResult>;
   commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult>;
   getCheckoutStatus(attemptKey: string): Promise<CheckoutStatusResult>;
+  /** Laporan ADMIN: omzet CASH dan QRIS dipisah (TASK-037). */
+  getPaymentReport(): Promise<PaymentReport>;
 }
