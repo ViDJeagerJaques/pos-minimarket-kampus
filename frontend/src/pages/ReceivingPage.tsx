@@ -247,7 +247,7 @@ export function ReceivingPage({
       return;
     }
     clearLocalDraft();
-    if (attempt?.status === "COMMITTED") onClearAttempt();
+    if (attempt?.status === "COMMITTED" || attempt?.status === "REJECTED") onClearAttempt();
     setStatus({ tone: "info", text: "Draft dibatalkan. Tidak ada penerimaan atau perubahan stok." });
   }
 
@@ -308,6 +308,20 @@ export function ReceivingPage({
           </p>
           <Button variant="primary" disabled={attempt?.status === "PENDING"} onClick={onRetryAttempt}>
             Periksa ulang dengan kunci yang sama
+          </Button>
+        </div>
+      )}
+
+      {attempt?.status === "REJECTED" && (
+        <div className="receipt-panel" aria-label="Penerimaan ditolak">
+          <h2 className="section-title">Penerimaan ditolak — tidak ada penerimaan tersimpan</h2>
+          {attempt.error && <p className="field-error" role="alert">{attempt.error}</p>}
+          <p className="muted">
+            Tolakan ini bersifat pasti; tidak ada stok yang berubah. Koreksi draft lalu kirim
+            kembali, atau batalkan draft.
+          </p>
+          <Button variant="secondary" onClick={onClearAttempt}>
+            Tutup dan koreksi draft
           </Button>
         </div>
       )}

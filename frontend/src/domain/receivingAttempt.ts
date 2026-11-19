@@ -4,7 +4,7 @@ import type { ReceiveGoodsInput, ReceiptResult } from "../api/types";
  * Upaya penerimaan dimiliki sesi (App), bukan halaman: berpindah halaman atau
  * unmount tidak boleh membuang receiptKey/payload saat hasil belum pasti.
  */
-export type ReceiptAttemptStatus = "PENDING" | "UNKNOWN" | "COMMITTED";
+export type ReceiptAttemptStatus = "PENDING" | "UNKNOWN" | "COMMITTED" | "REJECTED";
 
 export type ReceiptAttempt = {
   /** Identitas upaya yang tidak berubah sampai upaya selesai. */
@@ -24,6 +24,11 @@ export function newReceiptKey(): string {
   return `rcv_${random}`;
 }
 
+/**
+ * Upaya yang hasilnya belum pasti: jangan dibuang atau diganti kuncinya.
+ * REJECTED sengaja tidak termasuk — tolakan terkonfirmasi (mis. DEMO_UNSUPPORTED)
+ * menjamin tidak ada penerimaan yang tersimpan, sehingga draft boleh dikoreksi.
+ */
 export function isUnresolvedReceipt(attempt: ReceiptAttempt | null): boolean {
-  return attempt !== null && attempt.status !== "COMMITTED";
+  return attempt !== null && (attempt.status === "PENDING" || attempt.status === "UNKNOWN");
 }

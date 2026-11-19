@@ -57,6 +57,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   // Upaya penerimaan dimiliki App agar tidak hilang saat halaman dibongkar.
   const [receiptAttempt, setReceiptAttemptState] = useState<ReceiptAttempt | null>(null);
   const receiptAttemptRef = useRef<ReceiptAttempt | null>(null);
+  // Upaya UNKNOWN disimpan di luar sesi agar bisa dipulihkan oleh user yang sama.
+  const recoveredReceiptRef = useRef<{ userId: number; attempt: ReceiptAttempt } | null>(null);
   const setReceiptAttempt = useCallback((next: ReceiptAttempt | null) => {
     receiptAttemptRef.current = next;
     setReceiptAttemptState(next);
@@ -89,7 +91,10 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
-    setReceiptAttempt(null);
+    // Pulihkan hanya untuk user yang sama; user lain tidak boleh melihat upayanya.
+    const recovered = recoveredReceiptRef.current;
+    setReceiptAttempt(recovered && recovered.userId === nextUser.userId ? recovered.attempt : null);
+    recoveredReceiptRef.current = null;
     setNotice(null);
     setUser(nextUser);
     const pending = nextUser.role === "CASHIER" && dataSource.authMode !== "DEMO" && hasPendingClose(nextUser.userId);
@@ -105,13 +110,21 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
+    // Pertahankan kunci/payload UNKNOWN untuk pemulihan oleh user yang sama,
+    // tetapi jangan tampilkan di UI saat sesi tidak terautentikasi.
+    const current = receiptAttemptRef.current;
+    if (current && current.status === "UNKNOWN" && user) {
+      recoveredReceiptRef.current = { userId: user.userId, attempt: current };
+    } else {
+      recoveredReceiptRef.current = null;
+    }
     setReceiptAttempt(null);
     setUser(null);
     setPage("cashier");
     setNotice("Sesi berakhir atau tidak lagi valid. Silakan masuk kembali.");
     // Bersihkan token di memori klien; kegagalan revoke server ditangani TTL backend.
     void dataSource.logout();
-  }, [dataSource, sessionEpoch, setReceiptAttempt]);
+  }, [dataSource, sessionEpoch, setReceiptAttempt, user]);
 
   const submitReceipt = useCallback(
     async (payload: ReceiveGoodsInput) => {
@@ -133,12 +146,20 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       } catch (error) {
         if (epoch !== sessionEpochRef.current) return;
         if (error instanceof ApiError && error.isSessionExpired) {
+          // Hasil 401 bisa saja terjadi setelah commit; simpan sebagai UNKNOWN
+          // sebelum sesi dibersihkan agar same-user recovery menyimpan kuncinya.
+          setReceiptAttempt({ ...attempt, status: "UNKNOWN", result: null, error: error.message });
           handleSessionExpired();
           return;
         }
+        // DEMO_UNSUPPORTED adalah tolakan tegas: tidak ada penerimaan yang
+        // disimpan, jadi draft boleh dikoreksi/dibatalkan (tidak dikunci).
+        // Semua kegagalan lain tetap UNKNOWN dengan kunci/payload asli.
+        const confirmedRejection =
+          error instanceof ApiError && error.code === "DEMO_UNSUPPORTED";
         setReceiptAttempt({
           ...attempt,
-          status: "UNKNOWN",
+          status: confirmedRejection ? "REJECTED" : "UNKNOWN",
           result: null,
           error: error instanceof ApiError ? error.message : "Penerimaan gagal disimpan.",
         });

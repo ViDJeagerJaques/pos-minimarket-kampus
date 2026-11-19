@@ -194,6 +194,29 @@ describe("TASK-027 ReceivingPage — draft, upaya, riwayat", () => {
     expect(onClearAttempt).not.toHaveBeenCalled();
   });
 
+  it("upaya REJECTED tidak mengunci halaman dan dapat dibatalkan", async () => {
+    const onClearAttempt = vi.fn();
+    const onSubmitAttempt = vi.fn();
+    const { source } = makeSource();
+    renderPage(source, {
+      attempt: {
+        receiptKey: "rcv_no",
+        payload: { receiptKey: "rcv_no", supplierId: 1, items: [{ productId: 1, quantity: 1 }], supplierRef: null },
+        status: "REJECTED",
+        result: null,
+        error: "Mode DEMO tidak menyimpan penerimaan.",
+      },
+      onClearAttempt,
+      onSubmitAttempt,
+    });
+    const user = userEvent.setup();
+
+    expect(screen.getByRole("alert").textContent).toContain("Mode DEMO tidak menyimpan");
+    expect((screen.getByLabelText("Produk") as HTMLSelectElement).disabled).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Tutup dan koreksi draft" }));
+    expect(onClearAttempt).toHaveBeenCalledTimes(1);
+  });
+
   it("upaya UNKNOWN menampilkan error dan retry memakai kunci/payload asli", async () => {
     const payload: ReceiveGoodsInput = {
       receiptKey: "rcv_same",

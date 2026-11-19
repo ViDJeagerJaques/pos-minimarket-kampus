@@ -70,3 +70,9 @@ Branch `task/p24-027` dari `845173d`. Commit dan PR dicantumkan setelah perintah
 Semua 9 temuan masih valid di kode dan diperbaiki: BUG-082 (decoder adjustment menerima safe integer negatif), BUG-083 (upaya penerimaan dipindah ke state App; pindah halaman/logout diblokir saat belum selesai), BUG-084 (`exclusiveEndMs` memakai kalender lokal, aman DST 23/25 jam), BUG-085 (kasir null → "Kasir tidak diketahui"), BUG-086 (pencarian produk aktif via `searchActiveProducts`, bukan daftar 100 pertama), BUG-087 (flag `movementsTruncated` mencegah pesan kosong definitif), BUG-088 (batal hanya API-free untuk draft belum dikirim), BUG-089 (retry memakai payload snapshot dan receiptKey asli), BUG-090 (saldo produk dan riwayat dimuat ulang setelah COMMITTED).
 
 Tes setelah perbaikan: `npm run typecheck` PASS; `npm test -- --run --testTimeout=30000` PASS 177/177; `npm run build` PASS (49 modul). Timeout 30 s dipakai karena 17 worker jsdom membutuhkan waktu startup lebih lama di mesin ini; dengan timeout bawaan 5 s beberapa tes lama mengalami timeout lingkungan, bukan kegagalan logika.
+
+## 8. Perbaikan CodeRabbit ronde 2
+
+BUG-091: upaya UNKNOWN kini disimpan di ref sesi App sebelum sesi dibersihkan dan dipulihkan hanya bila user yang sama login lagi; user lain tidak melihatnya. Kegagalan 401 saat submit juga ditandai UNKNOWN sebelum sesi berakhir. Epoch check terhadap completion lama tetap dipertahankan. BUG-092: `DEMO_UNSUPPORTED` (tolakan tegas, tanpa commit) kini menghasilkan status `REJECTED` yang tidak mengunci halaman — draft bisa dikoreksi/dibatalkan; jaringan dan kegagalan lain tetap `UNKNOWN` dengan kunci/payload terkunci.
+
+Tes setelah perbaikan: `npm run typecheck` PASS; `npm test -- --run --testTimeout=30000` PASS 181/181; `npm run build` PASS (49 modul).
