@@ -9,6 +9,7 @@ import { createShiftService } from "../shift/service.ts";
 import { createCheckoutService } from "../checkout/service.ts";
 import { createPrintService } from "../print/service.ts";
 import { createReportService } from "../reports/service.ts";
+import { createReceivingService } from "../receiving/service.ts";
 import { startHttpServer } from "./app.ts";
 
 /**
@@ -130,6 +131,7 @@ async function main(argv: string[]): Promise<number> {
     const shift = createShiftService(db);
     const checkout = createCheckoutService(db);
     const reports = createReportService(db);
+    const receiving = createReceivingService(db);
     // DEMO: adapter virtual (pratinjau), bukan printer fisik/ESC-POS.
     const print = createPrintService(db);
     const running = await startHttpServer({
@@ -140,6 +142,7 @@ async function main(argv: string[]): Promise<number> {
       shift,
       checkout,
       reports,
+      receiving,
       print,
       port: options.port,
     });

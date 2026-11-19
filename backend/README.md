@@ -331,5 +331,23 @@ mengubah kode yang sudah lulus tes.
 - Kasir lain → 403 tanpa `saleNo`/`quote`/hash; ADMIN → ringkasan; kunci tak
   dikenal → 404 generik; tanpa sesi → 401.
 
+## 14. Penerimaan barang (TASK-025)
+
+Status: **DEMO**, backend saja; SOP pembelian/setoran belum disahkan.
+
+- `POST /api/v1/goods-receipts` hanya ADMIN, dengan `receiptKey`, `supplierId`,
+  `items[{productId, quantity}]`, dan `supplierRef` opsional.
+- Tidak ada tabel draft; draft adalah niat di klien. Membatalkan draft tidak
+  memanggil API sehingga stok tidak berubah.
+- Backend menghitung `request_hash` kanonis dari isi penerimaan; actor
+  (`received_by`) berasal dari sesi. `receiptKey` yang sama + isi sama → hasil
+  lama; isi berbeda → 409 `IDEMPOTENCY_CONFLICT`.
+- Satu transaksi SQLite menulis `goods_receipts`, `receipt_items`, mutasi
+  `RECEIPT` (satu per item, `receipt_item_id` mengikat sumber), dan audit
+  `GOODS_RECEIPT_COMMITTED` (AUD-03).
+- Penerimaan hanya menambah stok di ledger; tidak membuat pembayaran, utang,
+  atau pembelian berbayar. SOP supplier/ekspor menunggu pengelola.
+
+
 
 
