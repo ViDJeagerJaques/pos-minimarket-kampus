@@ -256,6 +256,106 @@ export interface PaymentReport {
   }>;
 }
 
+/**
+ * Penerimaan barang TASK-025/027: draft hanya ada di klien dan dibatalkan
+ * tanpa API. `receiptKey` adalah identitas upaya idempoten yang dihitung
+ * ulang oleh backend dari isi (bukan dipercaya dari klien).
+ */
+export interface ReceiveGoodsInput {
+  receiptKey: string;
+  supplierId: number;
+  items: Array<{ productId: number; quantity: number }>;
+  supplierRef?: string | null;
+}
+
+export interface ReceiptResultItem {
+  receiptItemId: number;
+  productId: number;
+  sku: string;
+  name: string;
+  quantity: number;
+  movementId: number;
+}
+
+export interface ReceiptResult {
+  receiptId: number;
+  receiptKey: string;
+  requestHash: string;
+  supplierId: number;
+  supplierRef: string | null;
+  committedAtMs: number;
+  totalQuantity: number;
+  items: ReceiptResultItem[];
+  /** true bila respons berasal dari penerimaan yang sudah tersimpan (retry identik). */
+  duplicate: boolean;
+}
+
+/** Laporan harian TASK-026: filter `[startMs,endMs)` epoch ms, shift opsional. */
+export interface DailyReportFilter {
+  startMs: number;
+  endMs: number;
+  shiftId?: number | null;
+}
+
+export interface DailySaleRow {
+  saleId: number;
+  saleNo: string;
+  committedAtMs: number;
+  shiftId: number;
+  cashierUsername: string | null;
+  method: CheckoutPaymentMethod;
+  amountRp: number;
+}
+
+export interface DailyReport {
+  startMs: number;
+  endMs: number;
+  shiftId: number | null;
+  cash: { totalRp: number; count: number };
+  qrisManual: { totalRp: number; count: number; verifiedCount: number };
+  totalRp: number;
+  saleCount: number;
+  sales: DailySaleRow[];
+  salesTruncated: boolean;
+  generatedAtMs: number;
+}
+
+/** Laporan stok TASK-026: saldo dan mutasi dari ledger, bukan saldo cache. */
+export interface StockMovementEntry {
+  id: number;
+  kind: "OPENING" | "SALE" | "RECEIPT" | "ADJUSTMENT";
+  delta: number;
+  createdAtMs: number;
+  actorId: number;
+  sourceType: string | null;
+  sourceId: number | null;
+  sourceRef: string | null;
+  sourceQuantity: number | null;
+  adjustmentReason: string | null;
+}
+
+export interface ProductStockReport {
+  productId: number;
+  sku: string;
+  name: string;
+  onHand: number;
+  opening: number;
+  receipt: number;
+  sale: number;
+  adjustment: number;
+  matched: boolean;
+  low: boolean;
+  zero: boolean;
+  movements: StockMovementEntry[];
+  movementsTruncated: boolean;
+}
+
+export interface StockReport {
+  generatedAtMs: number;
+  lowStockThreshold: number;
+  products: ProductStockReport[];
+}
+
 /** `GET /users` TASK-009. Tidak pernah memuat hash/kata sandi. */
 export interface AccountSummary {
   id: number;
@@ -320,4 +420,9 @@ export interface PosDataSource {
   printSaleReceipt(saleId: number): Promise<PrintResult>;
   /** Laporan ADMIN: omzet CASH dan QRIS dipisah (TASK-037). */
   getPaymentReport(): Promise<PaymentReport>;
+  /** Penerimaan ADMIN (TASK-025). Draft dibatalkan di UI tanpa memanggil ini. */
+  receiveGoods(input: ReceiveGoodsInput): Promise<ReceiptResult>;
+  /** Laporan harian per tanggal/shift dan stok dari ledger (TASK-026). */
+  getDailyReport(filter: DailyReportFilter): Promise<DailyReport>;
+  getStockReport(filter?: { lowStockThreshold?: number }): Promise<StockReport>;
 }

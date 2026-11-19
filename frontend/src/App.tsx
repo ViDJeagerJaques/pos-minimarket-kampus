@@ -1,8 +1,11 @@
 import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import type { PosDataSource, SessionUser } from "./api/types";
+import { ApiError } from "./api/errors";
+import type { PosDataSource, ReceiveGoodsInput, SessionUser } from "./api/types";
 import { defaultPage, isPageAllowed, NAV_BY_ROLE, type PageId } from "./app/navigation";
 import { AppShell } from "./components/AppShell";
+import { StatusMessage } from "./components/StatusMessage";
 import type { CartLine } from "./domain/cart";
+import { isUnresolvedReceipt, type ReceiptAttempt } from "./domain/receivingAttempt";
 import { hasPendingClose } from "./domain/shiftCloseRecovery";
 import { AccountsPage } from "./pages/AccountsPage";
 import { CashierPage } from "./pages/CashierPage";
@@ -11,6 +14,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { ReceiptPage } from "./pages/ReceiptPage";
+import { ReceivingPage } from "./pages/ReceivingPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { ShiftDemoPage } from "./pages/ShiftDemoPage";
 
@@ -35,9 +39,8 @@ const PAGE_LABEL: Record<PageId, string> = {
 
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
 
-const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift" | "reports" | "history">, { title: string; reason: string }> = {
+const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift" | "reports" | "history" | "receiving">, { title: string; reason: string }> = {
   dashboard: { title: "Dashboard", reason: "Menunggu query laporan (TASK-026, TASK-040). Tidak ada angka palsu." },
-  receiving: { title: "Penerimaan", reason: "Menunggu TASK-025/TASK-027." },
   "stock-adjustment": { title: "Koreksi Stok", reason: "Menunggu TASK-039 dan kunci idempotensi (TASK-001 K-11)." },
   backup: { title: "Backup", reason: "Menunggu TASK-028." },
 };
@@ -51,6 +54,15 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   const [page, setPage] = useState<PageId>("cashier");
   const [notice, setNotice] = useState<string | null>(null);
   const [closePending, setClosePending] = useState(false);
+  // Upaya penerimaan dimiliki App agar tidak hilang saat halaman dibongkar.
+  const [receiptAttempt, setReceiptAttemptState] = useState<ReceiptAttempt | null>(null);
+  const receiptAttemptRef = useRef<ReceiptAttempt | null>(null);
+  // Recovery terpisah per pemilik agar pergantian user tidak membuang upaya user lain.
+  const recoveredReceiptRef = useRef(new Map<number, ReceiptAttempt>());
+  const setReceiptAttempt = useCallback((next: ReceiptAttempt | null) => {
+    receiptAttemptRef.current = next;
+    setReceiptAttemptState(next);
+  }, []);
   // Draft keranjang disimpan di App agar tidak hilang saat berpindah halaman.
   const [draft, setDraft] = useState(() => ({ id: newDraftId(), lines: [] as CartLine[] }));
   const setDraftLines: Dispatch<SetStateAction<CartLine[]>> = (update) => {
@@ -79,6 +91,10 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
+    // Pulihkan hanya untuk user yang sama; user lain tidak boleh melihat upayanya.
+    const recovered = recoveredReceiptRef.current.get(nextUser.userId);
+    setReceiptAttempt(recovered ?? null);
+    recoveredReceiptRef.current.delete(nextUser.userId);
     setNotice(null);
     setUser(nextUser);
     const pending = nextUser.role === "CASHIER" && dataSource.authMode !== "DEMO" && hasPendingClose(nextUser.userId);
@@ -94,27 +110,90 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
+    // Pertahankan kunci/payload PENDING maupun UNKNOWN untuk pemiliknya,
+    // tetapi jangan tampilkan di UI saat sesi tidak terautentikasi.
+    const current = receiptAttemptRef.current;
+    if (current && isUnresolvedReceipt(current) && user) {
+      recoveredReceiptRef.current.set(user.userId, { ...current, status: "UNKNOWN" });
+    }
+    setReceiptAttempt(null);
     setUser(null);
     setPage("cashier");
     setNotice("Sesi berakhir atau tidak lagi valid. Silakan masuk kembali.");
     // Bersihkan token di memori klien; kegagalan revoke server ditangani TTL backend.
     void dataSource.logout();
-  }, [dataSource, sessionEpoch]);
+  }, [dataSource, sessionEpoch, setReceiptAttempt, user]);
+
+  const submitReceipt = useCallback(
+    async (payload: ReceiveGoodsInput) => {
+      const current = receiptAttemptRef.current;
+      if (current && current.status === "PENDING") return;
+      const epoch = sessionEpochRef.current;
+      const attempt: ReceiptAttempt = {
+        receiptKey: payload.receiptKey,
+        payload,
+        status: "PENDING",
+        result: null,
+        error: null,
+      };
+      setReceiptAttempt(attempt);
+      try {
+        const result = await dataSource.receiveGoods(payload);
+        if (epoch !== sessionEpochRef.current) return;
+        setReceiptAttempt({ ...attempt, status: "COMMITTED", result, error: null });
+      } catch (error) {
+        if (epoch !== sessionEpochRef.current) return;
+        if (error instanceof ApiError && error.isSessionExpired) {
+          // Hasil 401 bisa saja terjadi setelah commit; simpan sebagai UNKNOWN
+          // sebelum sesi dibersihkan agar same-user recovery menyimpan kuncinya.
+          setReceiptAttempt({ ...attempt, status: "UNKNOWN", result: null, error: error.message });
+          handleSessionExpired();
+          return;
+        }
+        // DEMO_UNSUPPORTED adalah tolakan tegas: tidak ada penerimaan yang
+        // disimpan, jadi draft boleh dikoreksi/dibatalkan (tidak dikunci).
+        // Semua kegagalan lain tetap UNKNOWN dengan kunci/payload asli.
+        const confirmedRejection =
+          error instanceof ApiError && error.code === "DEMO_UNSUPPORTED";
+        setReceiptAttempt({
+          ...attempt,
+          status: confirmedRejection ? "REJECTED" : "UNKNOWN",
+          result: null,
+          error: error instanceof ApiError ? error.message : "Penerimaan gagal disimpan.",
+        });
+      }
+    },
+    [dataSource, handleSessionExpired, setReceiptAttempt],
+  );
+
+  const retryReceipt = useCallback(() => {
+    const current = receiptAttemptRef.current;
+    // Retry memakai payload snapshot yang sama, bukan draft yang sudah diubah.
+    if (current) void submitReceipt(current.payload);
+  }, [submitReceipt]);
+
+  const clearReceiptAttempt = useCallback(() => setReceiptAttempt(null), [setReceiptAttempt]);
 
   async function handleLogout() {
+    if (isUnresolvedReceipt(receiptAttempt)) {
+      setNotice("Penerimaan belum selesai atau hasilnya belum pasti. Periksa ulang dengan receiptKey yang sama sebelum keluar.");
+      return;
+    }
     const logoutEpoch = sessionEpochRef.current + 1;
     sessionEpochRef.current = logoutEpoch;
     setSessionEpoch(logoutEpoch);
     // Sembunyikan halaman terlindungi dan bersihkan state klien seketika
     // tanpa menunggu respons backend.
     setDraft({ id: newDraftId(), lines: [] });
+    setReceiptAttempt(null);
     setUser(null);
     setPage("cashier");
     setNotice(null);
     try {
       await dataSource.logout();
     } finally {
-      if (sessionEpochRef.current === logoutEpoch) {
+      // Reload akan membuang recovery milik user lain yang masih berada di memori.
+      if (sessionEpochRef.current === logoutEpoch && recoveredReceiptRef.current.size === 0) {
         onAfterLogout();
       }
     }
@@ -139,13 +218,24 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
         <ForbiddenPage
           attemptedLabel={PAGE_LABEL[page]}
           roleLabel={ROLE_LABEL[currentUser.role]}
-          onBack={() => setPage(defaultPage(currentUser.role))}
+          onBack={() => navigateTo(defaultPage(currentUser.role))}
         />
       </AppShell>
     );
   }
 
   const activePage = page;
+
+  function navigateTo(next: PageId): void {
+    if (isUnresolvedReceipt(receiptAttempt) && next !== "receiving") {
+      setNotice(
+        "Penerimaan belum selesai atau hasilnya belum pasti. Periksa ulang dengan receiptKey yang sama sebelum pindah halaman.",
+      );
+      return;
+    }
+    setNotice(null);
+    setPage(next);
+  }
 
   function renderPage() {
     if (activePage === "cashier") {
@@ -196,6 +286,19 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     if (activePage === "history") {
       return <ReceiptPage dataSource={dataSource} onSessionExpired={handleSessionExpired} />;
     }
+    if (activePage === "receiving") {
+      return (
+        <ReceivingPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={handleSessionExpired}
+          attempt={receiptAttempt}
+          onSubmitAttempt={(payload) => void submitReceipt(payload)}
+          onRetryAttempt={retryReceipt}
+          onClearAttempt={clearReceiptAttempt}
+        />
+      );
+    }
     const info = PLACEHOLDER_REASON[activePage];
     return <PlaceholderPage title={info.title} reason={info.reason} />;
   }
@@ -206,9 +309,10 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       authMode={dataSource.authMode}
       navItems={NAV_BY_ROLE[currentUser.role]}
       activePage={activePage}
-      onNavigate={(next) => { if (!closePending || next === "shift") setPage(next); }}
+      onNavigate={(next) => { if (!closePending || next === "shift") navigateTo(next); }}
       onLogout={handleLogout}
     >
+      {notice && <StatusMessage tone="warning" text={notice} />}
       {renderPage()}
     </AppShell>
   );

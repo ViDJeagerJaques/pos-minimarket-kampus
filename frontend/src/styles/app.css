@@ -797,3 +797,34 @@ body {
   max-width: 240px;
 }
 
+/* TASK-027 — penerimaan dan laporan */
+.receiving-form,
+.report-filter {
+  align-items: flex-end;
+  margin-bottom: var(--space-4);
+}
+.receiving-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.report-panel {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+.report-filter .input {
+  max-width: 260px;
+}
+.stock-movements {
+  margin: var(--space-3) 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.stock-movements summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+

@@ -916,6 +916,132 @@ describe("TASK-021 klien struk & cetak ulang", () => {
     expect((error as ApiError).message).toContain("Printer mati");
   });
 
+  it("TASK-027: terima barang memakai POST /goods-receipts dengan receiptKey", async () => {
+    const result = {
+      receiptId: 11,
+      receiptKey: "rcv_1",
+      requestHash: "a".repeat(64),
+      supplierId: 1,
+      supplierRef: "SJ-1",
+      committedAtMs: 1_700_000_000_000,
+      totalQuantity: 5,
+      items: [
+        { receiptItemId: 21, productId: 1, sku: "FX-1", name: "Barang A", quantity: 5, movementId: 31 },
+      ],
+      duplicate: false,
+    };
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 201, body: { data: result } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const received = await dataSource.receiveGoods({
+      receiptKey: "rcv_1",
+      supplierId: 1,
+      items: [{ productId: 1, quantity: 5 }],
+      supplierRef: "SJ-1",
+    });
+    expect(received.receiptId).toBe(11);
+    expect(received.duplicate).toBe(false);
+    expect(calls[2]?.url).toBe("/api/v1/goods-receipts");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({
+      receiptKey: "rcv_1",
+      supplierId: 1,
+      items: [{ productId: 1, quantity: 5 }],
+      supplierRef: "SJ-1",
+    });
+  });
+
+  it("TASK-027: laporan harian mengirim start/end/shiftId sebagai query", async () => {
+    const daily = {
+      startMs: 1_700_000_000_000,
+      endMs: 1_700_086_400_000,
+      shiftId: 7,
+      cash: { totalRp: 125_000, count: 5 },
+      qrisManual: { totalRp: 25_000, count: 1, verifiedCount: 1 },
+      totalRp: 150_000,
+      saleCount: 6,
+      sales: [
+        {
+          saleId: 1,
+          saleNo: "S-000001",
+          committedAtMs: 1_700_000_010_000,
+          shiftId: 7,
+          cashierUsername: "kasir.demo",
+          method: "CASH",
+          amountRp: 125_000,
+        },
+      ],
+      salesTruncated: true,
+      generatedAtMs: 1_700_086_400_000,
+    };
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: daily } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const report = await dataSource.getDailyReport({
+      startMs: 1_700_000_000_000,
+      endMs: 1_700_086_400_000,
+      shiftId: 7,
+    });
+    expect(report.totalRp).toBe(150_000);
+    expect(report.sales[0]?.saleNo).toBe("S-000001");
+    expect(calls[2]?.url).toBe(
+      "/api/v1/reports/daily?start=1700000000000&end=1700086400000&shiftId=7",
+    );
+  });
+
+  it("TASK-027: laporan stok mengirim ambang dan memetakan saldo/mutasi", async () => {
+    const stock = {
+      generatedAtMs: 1_700_000_000_000,
+      lowStockThreshold: 5,
+      products: [
+        {
+          productId: 1,
+          sku: "FX-1",
+          name: "Barang A",
+          onHand: 7,
+          opening: 2,
+          receipt: 5,
+          sale: 0,
+          adjustment: -2,
+          matched: true,
+          low: false,
+          zero: false,
+          movements: [
+            {
+              id: 9,
+              kind: "RECEIPT",
+              delta: 5,
+              createdAtMs: 1_700_000_000_000,
+              actorId: 1,
+              sourceType: "RECEIPT_ITEM",
+              sourceId: 1,
+              sourceRef: "rcv_hist_1",
+              sourceQuantity: 5,
+              adjustmentReason: null,
+            },
+          ],
+          movementsTruncated: false,
+        },
+      ],
+    };
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: stock } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const report = await dataSource.getStockReport({ lowStockThreshold: 5 });
+    expect(report.products[0]?.onHand).toBe(7);
+    expect(report.products[0]?.adjustment).toBe(-2);
+    expect(report.products[0]?.movements[0]?.sourceRef).toBe("rcv_hist_1");
+    expect(calls[2]?.url).toBe("/api/v1/reports/stock?lowStockThreshold=5");
+  });
+
   it("BUG-078: pesan 403 bersifat netral peran (cetak itu CASHIER own, bukan ADMIN)", async () => {
     const { fetchImpl } = stubFetch([
       loginEnvelope(),

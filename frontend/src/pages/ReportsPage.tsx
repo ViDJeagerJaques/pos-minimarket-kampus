@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../api/errors";
 import type { PaymentReport, PosDataSource, SessionUser } from "../api/types";
 import { Button } from "../components/Button";
+import { DailyReportPanel } from "../components/DailyReportPanel";
 import { MoneyText } from "../components/MoneyText";
+import { StockReportPanel } from "../components/StockReportPanel";
 import { StatusMessage } from "../components/StatusMessage";
 
 interface ReportsPageProps {
@@ -157,6 +159,9 @@ export function ReportsPage({ dataSource, currentUser, onSessionExpired }: Repor
           </p>
         </>
       )}
+
+      <DailyReportPanel dataSource={dataSource} onSessionExpired={onSessionExpired} />
+      <StockReportPanel dataSource={dataSource} onSessionExpired={onSessionExpired} />
     </section>
   );
 }
