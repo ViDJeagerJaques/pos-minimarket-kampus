@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -198,7 +198,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     });
     const source = buildSource({ prepare, commit });
     const user = userEvent.setup();
-    render(<Harness source={source} />);
+    const view = render(<Harness source={source} />);
     await openQrisPayment(user);
 
     await user.click(screen.getByRole("checkbox", { name: /sudah memeriksa transaksi/ }));
@@ -209,6 +209,13 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     expect(screen.queryByRole("dialog", { name: "Transaksi tersimpan" })).toBeNull();
     expect(prepareCalls).toBe(2);
     expect(screen.getByText(/co_qris_2/)).toBeTruthy();
+
+    view.unmount();
+    render(<Harness source={source} />);
+    expect(await screen.findByRole("dialog", { name: "Konfirmasi QRIS manual" })).toBeTruthy();
+    expect(screen.getByText(/co_qris_2/)).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: /Transfer lama tidak dipakai/ })).toBeTruthy();
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_qris_1")).not.toBeNull();
 
     // Tombol commit tetap terkunci sampai kasir menyatakan transfer lama tidak dipakai.
     const commitButton = screen.getByRole("button", { name: "Ya, commit pembayaran" }) as HTMLButtonElement;
@@ -231,6 +238,97 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
       key.startsWith("pos.checkout.recovery."),
     );
     expect(recoveryKeys).toEqual([]);
+  });
+
+
+  it.each([false, true])("commit recovery legacy membersihkan key asli, kegagalan hapus=%s", async (failDelete) => {
+    localStorage.setItem("pos.checkout.recovery.2", JSON.stringify({
+      attempt: PREPARED_QRIS, cashReceivedRp: 5000, snapshot: [LINE],
+    }));
+    const source = buildSource();
+    const user = userEvent.setup();
+    const remove = failDelete
+      ? vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("storage"); })
+      : null;
+    try {
+      const view = render(<Harness source={source} />);
+      await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+      expect(await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).toBeTruthy();
+      if (failDelete) {
+        expect(screen.getByText(/Rekaman pemulihan tidak dapat dihapus/)).toBeTruthy();
+      } else {
+        expect(localStorage.getItem("pos.checkout.recovery.2")).toBeNull();
+        view.unmount();
+        render(<Harness source={source} />);
+        expect(screen.queryByRole("dialog")).toBeNull();
+      }
+    } finally {
+      remove?.mockRestore();
+    }
+  });
+
+  it("reload kegagalan pengganti mempertahankan retry dan mengunci lookup serta keluar saat prepare", async () => {
+    const confirmation = { method: "QRIS_MANUAL", merchantConfirmed: true,
+      confirmedAmountRp: 5000, evidenceRef: "TRANSFER-ASLI" };
+    localStorage.setItem("pos.checkout.recovery.2.co_qris_1", JSON.stringify({
+      attempt: PREPARED_QRIS, cashReceivedRp: 5000, snapshot: [LINE],
+      paymentConfirmation: confirmation,
+    }));
+    let resolvePrepare!: (result: PrepareCheckoutResult) => void;
+    let resolveStatus!: (result: CheckoutStatusResult) => void;
+    const prepare = vi.fn<PosDataSource["prepareCheckout"]>()
+      .mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR", "offline"))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolvePrepare = resolve; }));
+    const status = vi.fn<PosDataSource["getCheckoutStatus"]>()
+      .mockResolvedValueOnce(PREPARED_QRIS)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveStatus = resolve; }));
+    const source = buildSource({ prepare, status, commit: vi.fn(async () => {
+      throw new ApiError(422, "VALIDATION_ERROR", "Konfirmasi ditolak");
+    }) });
+    const user = userEvent.setup();
+    const view = render(<Harness source={source} />);
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    expect(await screen.findByRole("button", { name: "Coba upaya pengganti" })).toBeTruthy();
+    view.unmount();
+    render(<Harness source={source} />);
+    const retry = screen.getByRole("button", { name: "Coba upaya pengganti" }) as HTMLButtonElement;
+    await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
+    expect(retry.disabled).toBe(true);
+    await user.click(retry);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    await act(async () => resolveStatus(PREPARED_QRIS));
+    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
+    await user.click(retry);
+    const lookup = screen.getByRole("button", { name: "Cek status upaya" }) as HTMLButtonElement;
+    const exit = screen.getByRole("button", { name: /Selesai rekonsiliasi/ }) as HTMLButtonElement;
+    expect(lookup.disabled).toBe(true);
+    expect(exit.disabled).toBe(true);
+    await user.click(lookup);
+    await user.click(exit);
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_qris_1")).not.toBeNull();
+    await act(async () => resolvePrepare({ ...PREPARED_QRIS, attemptKey: "co_qris_2" }));
+    expect(await screen.findByRole("dialog", { name: "Konfirmasi QRIS manual" })).toBeTruthy();
+    expect(screen.getByText(/co_qris_2/)).toBeTruthy();
+  });
+
+  it.each(["co_aaa", "co_zzz"])("reload memilih pengganti %s terlepas urutan key", async (replacementKey) => {
+    const confirmation = { method: "QRIS_MANUAL", merchantConfirmed: true,
+      confirmedAmountRp: 5000, evidenceRef: "TRANSFER-ASLI" };
+    localStorage.setItem("pos.checkout.recovery.2.co_qris_1", JSON.stringify({
+      attempt: PREPARED_QRIS, cashReceivedRp: 5000, snapshot: [LINE], noReplay: true,
+      paymentConfirmation: confirmation,
+    }));
+    localStorage.setItem(`pos.checkout.recovery.2.${replacementKey}`, JSON.stringify({
+      attempt: { ...PREPARED_QRIS, attemptKey: replacementKey },
+      cashReceivedRp: 0, snapshot: [LINE], paymentState: "UNSUBMITTED",
+      replacesAttemptKey: "co_qris_1", originalQrisConfirmation: confirmation,
+    }));
+    render(<Harness source={buildSource()} />);
+    expect(screen.getByRole("dialog", { name: "Konfirmasi QRIS manual" })).toBeTruthy();
+    expect(screen.getByText(new RegExp(replacementKey))).toBeTruthy();
+    expect(screen.getByText(/TRANSFER-ASLI/)).toBeTruthy();
   });
 
   it("SHIFT_NOT_ACTIVE QRIS tidak membuka replay attempt yang PREPARED", async () => {
@@ -260,6 +358,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     await waitFor(() => expect(screen.getByText(/Status: PENDING/)).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
     expect(screen.getByRole("button", { name: /Selesai rekonsiliasi/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Coba upaya pengganti" })).toBeNull();
   });
 
   it("timeout QRIS mengarahkan ke lookup dan memakai upaya yang sama saat lanjut", async () => {

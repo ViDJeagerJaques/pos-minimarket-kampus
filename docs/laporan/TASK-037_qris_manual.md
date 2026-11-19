@@ -137,3 +137,52 @@ dan masih valid. Perbaikan diterapkan di branch yang sama, tanpa PR baru:
    sampai TASK-025/027.
 3. David/Rahmat: tinjau dan tambahkan endpoint/laporan QRIS ke `API_CONTRACT.md` lewat review.
 4. Validasi SOP merchant, nominal, bukti, dan cutover dengan pengelola sebelum GO-LIVE.
+
+## 7. Perbaikan PR #34 ronde 3 — BUG-070–BUG-075
+
+Status: REVIEW. Keenam temuan valid dan diperbaiki; tidak ada yang dilewati.
+Branch: `task/p20-037`. PR: https://github.com/ViDJeagerJaques/pos-minimarket-kampus/pull/34.
+
+- BUG-070: commit sukses menghapus key recovery aktif yang cocok, termasuk key legacy;
+  kegagalan hapus tetap menampilkan peringatan, tanpa membatalkan status COMMITTED.
+- BUG-071: pembacaan recovery mengikuti `replacesAttemptKey`, bukan urutan key;
+  pendahulu tetap disimpan untuk rekonsiliasi dan diblokir replay sejak ditolak validasi.
+- BUG-072: `replacementReason` disimpan/dipulihkan bersama `noReplay`; retry pengganti
+  tersedia sesudah reload kegagalan prepare. SHIFT_NOT_ACTIVE tetap tanpa retry pengganti.
+- BUG-073/074: lookup, persiapan pengganti, dan keluar recovery saling dikunci melalui
+  guard handler dan tombol disabled selama request berjalan.
+- BUG-075: tes remount sebelum commit kedua, memeriksa form pengganti dan transfer lama,
+  lalu membuktikan recovery kosong sesudah commit sukses.
+
+File implementasi/tes: `frontend/src/pages/CashierPage.tsx` dan
+`frontend/src/pages/CashierPage.qris.test.tsx`. Tidak mengubah backend, skema, atau kontrak.
+Ketertelusuran: POS-04.01–03, DEC-013 (baseline PROPOSED), DEC-016 (QRIS manual ACCEPTED;
+SOP merchant/rekonsiliasi PENDING).
+
+Verifikasi aktual lokal (Windows, data sintetis):
+
+| Direktori | Perintah | Hasil |
+| --- | --- | --- |
+| backend | `npm run typecheck` | PASS |
+| backend | `npm test` | PASS 111/111 |
+| frontend | `npm run typecheck` | PASS |
+| frontend | `npm test -- --run --testTimeout=15000` | PASS 140/140, 11 file |
+| frontend | `npm run build` | PASS |
+| root | `node scripts/task-037_qris_e2e.mjs` | PASS 9/9, server loopback dan SQLite sementara |
+| root | `git diff --check` | PASS |
+
+Log lokal (tidak di-commit): `.git/task037-round3-logs/` berisi backend-typecheck.log,
+backend-test.log, frontend-typecheck.log, frontend-test.log, frontend-build.log, e2e.log.
+Tes QRIS terarah juga lulus 10/10 sebelum regresi penuh. Tes tambahan mencakup kedua
+urutan key pengganti, kegagalan penghapusan legacy, remount, dan promise request tertunda.
+
+CodeRabbit CLI: BLOCKED. `coderabbit --version` gagal karena CLI tidak ditemukan;
+percobaan installer lewat `bash` gagal karena WSL melaporkan
+`HCS_E_HYPERV_NOT_INSTALLED` (virtualisasi tidak tersedia). Review CLI memerlukan
+lingkungan WSL yang berfungsi serta instalasi/autentikasi CodeRabbit.
+Tidak mengklaim hasil review CodeRabbit lokal. CI/review remote menunggu Badouka.
+
+Belum diuji: browser nyata untuk skenario ronde 3, perangkat kasir/printer tujuan,
+merchant QRIS/uang nyata, dan GO-LIVE. UI diuji dengan Vitest/jsdom; E2E adalah API
+nyata dengan data sintetis. SOP merchant tetap perlu validasi pengelola.
+Langkah berikutnya: Badouka memeriksa diff, CI dan CodeRabbit PR #34; tim menentukan merge.

@@ -145,7 +145,14 @@ export function CashierPage({
         .filter((key): key is string => key !== null && key !== excludeKey &&
           (key === storagePrefix || key.startsWith(`${storagePrefix}.`)))
         .sort();
-      const key = keys[0];
+      const records = keys.map((key) => ({ key, saved: JSON.parse(localStorage.getItem(key) ?? "null") }));
+      const replacedKeys = new Set(records.map(({ saved }) => saved?.replacesAttemptKey)
+        .filter((key): key is string => typeof key === "string"));
+      // Pilih ujung rantai pengganti, terlepas dari urutan key localStorage.
+      const key = records.find(({ saved }) => !replacedKeys.has(saved?.attempt?.attemptKey))?.key;
+      if (records.length > 0 && !key) {
+        return { phase: { kind: "recoveryError" }, key: null, snapshot: [], draftId: null };
+      }
       if (!key) return { phase: { kind: "idle" }, key: null, snapshot: [], draftId: null };
       const saved = JSON.parse(localStorage.getItem(key) ?? "null");
       if (saved?.attempt?.status === "PREPARED" && typeof saved.attempt.attemptKey === "string" &&
@@ -196,7 +203,9 @@ export function CashierPage({
           };
         }
         const noReplay = saved.noReplay === true;
-        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp, paymentConfirmation, noReplay }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
+        const replacementReason = noReplay && typeof saved.replacementReason === "string"
+          ? saved.replacementReason : undefined;
+        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp, paymentConfirmation, noReplay, replacementReason }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
       }
       return { phase: { kind: "recoveryError" }, key, snapshot: [], draftId: null };
     } catch {
@@ -281,13 +290,17 @@ export function CashierPage({
   }
 
   /** Simpan keputusan noReplay pada rekaman attempt agar tetap berlaku setelah reload. */
-  function persistNoReplay(attemptKey: string): void {
-    const key = `${storagePrefix}.${encodeURIComponent(attemptKey)}`;
+  function persistNoReplay(attemptKey: string, replacementReason?: string): void {
     try {
+      const attemptKeyStorage = `${storagePrefix}.${encodeURIComponent(attemptKey)}`;
+      const activeKey = recoveryKeyRef.current;
+      const active = activeKey === null ? null : JSON.parse(localStorage.getItem(activeKey) ?? "null");
+      const key = active?.attempt?.attemptKey === attemptKey ? activeKey! : attemptKeyStorage;
       const raw = localStorage.getItem(key);
       if (raw === null) return;
       const saved = JSON.parse(raw) as Record<string, unknown>;
       saved.noReplay = true;
+      saved.replacementReason = replacementReason;
       localStorage.setItem(key, JSON.stringify(saved));
     } catch {
       setStorageWarning("Keputusan blokir replay tidak tersimpan; periksa status upaya secara manual.");
@@ -609,11 +622,15 @@ export function CashierPage({
     // Pengganti sukses: pensiunkan pendahulu yang sedang direkonsiliasi.
     retireReplacedRecords(result.attemptKey);
     try {
+      const activeKey = recoveryKeyRef.current;
+      if (activeKey !== null) {
+        const saved = JSON.parse(localStorage.getItem(activeKey) ?? "null");
+        if (saved?.attempt?.attemptKey === result.attemptKey) removeRecovery();
+      }
       localStorage.removeItem(`${storagePrefix}.${encodeURIComponent(result.attemptKey)}`);
     } catch {
-      // Abaikan kegagalan penyimpanan; status COMMITTED tetap tampil.
+      setStorageWarning("Rekaman pemulihan tidak dapat dihapus. Catatan tetap tersimpan dan dapat muncul kembali setelah halaman dibuka ulang.");
     }
-    recoveryKeyRef.current = null;
     recoveryEpochRef.current += 1;
     setPhase({ kind: "success", result });
     setPriorQrisConfirmation(null);
@@ -681,9 +698,10 @@ export function CashierPage({
     paymentConfirmation: PaymentConfirmation,
     reason: string,
   ): Promise<void> {
-    if (replacementLockRef.current) return;
+    if (replacementLockRef.current || isCheckingStatus) return;
     replacementLockRef.current = true;
     setIsRetryingReplacement(true);
+    persistNoReplay(attempt.attemptKey, reason);
     try {
       if (snapshotLinesRef.current.length === 0) throw new Error("Snapshot kosong");
       const fresh = await runPrepare(
@@ -730,7 +748,7 @@ export function CashierPage({
       setPhase({ kind: "payment", attempt: fresh });
     } catch {
       // Jangan buka payment dengan kunci yang sudah ditolak; arahkan ke recovery.
-      persistNoReplay(attempt.attemptKey);
+      persistNoReplay(attempt.attemptKey, reason);
       setPhase({
         kind: "timeout",
         attempt,
@@ -907,7 +925,7 @@ export function CashierPage({
   }
 
   async function checkAttemptStatus(): Promise<void> {
-    if (isCheckingStatus || phase.kind !== "timeout") return;
+    if (isCheckingStatus || replacementLockRef.current || phase.kind !== "timeout") return;
     const { attempt } = phase;
     const epoch = sessionEpochRef.current;
     const recoveryEpoch = recoveryEpochRef.current;
@@ -938,7 +956,7 @@ export function CashierPage({
 
   function startNewDraft(): void {
     // Jangan biarkan lookup yang masih berjalan menimpa draft baru.
-    if (isCheckingStatus) return;
+    if (isCheckingStatus || replacementLockRef.current) return;
     recoveryEpochRef.current += 1;
     // Tidak ada API dipanggil; ini hanya membersihkan UI setelah status ABANDONED.
     const failedKey = removeRecovery();
@@ -1373,13 +1391,13 @@ export function CashierPage({
               </p>
             )}
             <div className="dialog__actions">
-              <Button variant="secondary" disabled={isCheckingStatus} onClick={() => void checkAttemptStatus()}>
+              <Button variant="secondary" disabled={isCheckingStatus || isRetryingReplacement} onClick={() => void checkAttemptStatus()}>
                 {isCheckingStatus ? "Mengecek…" : "Cek status upaya"}
               </Button>
               {phase.known === "PREPARED" && canResumeTimeout && !phase.noReplay && (
                 <Button
                   variant="primary"
-                  disabled={isCheckingStatus}
+                  disabled={isCheckingStatus || isRetryingReplacement}
                   onClick={() => void resumeSameAttempt(
                     phase.attempt,
                     timeoutConfirmation as PaymentConfirmation,
@@ -1397,7 +1415,7 @@ export function CashierPage({
               {phase.replacementReason !== undefined && (
                 <Button
                   variant="primary"
-                  disabled={isRetryingReplacement}
+                  disabled={isRetryingReplacement || isCheckingStatus}
                   onClick={() => void retryValidationWithNewAttempt(
                     phase.attempt,
                     phase.paymentConfirmation ?? {
@@ -1411,12 +1429,12 @@ export function CashierPage({
                 </Button>
               )}
               {phase.noReplay && (
-                <Button variant="secondary" disabled={isCheckingStatus} onClick={startNewDraft}>
+                <Button variant="secondary" disabled={isCheckingStatus || isRetryingReplacement} onClick={startNewDraft}>
                   Selesai rekonsiliasi, draft baru
                 </Button>
               )}
               {phase.known === "ABANDONED" && (
-                <Button variant="primary" disabled={isCheckingStatus} onClick={startNewDraft}>Buat draft baru</Button>
+                <Button variant="primary" disabled={isCheckingStatus || isRetryingReplacement} onClick={startNewDraft}>Buat draft baru</Button>
               )}
             </div>
           </div>
