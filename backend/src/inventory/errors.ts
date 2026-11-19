@@ -1,6 +1,7 @@
 export type InventoryErrorCode =
   | "VALIDATION_ERROR"
   | "NOT_FOUND"
+  | "IDEMPOTENCY_CONFLICT"
   | "CONFLICT"
   | "INSUFFICIENT_STOCK";
 

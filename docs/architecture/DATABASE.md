@@ -490,3 +490,16 @@ DDL v0.2.0 **mengadopsi opsi A sebagai desain teknis yang diusulkan**: `payments
 - Nama produk dan barcode tidak diubah pada transaksi historis; perubahan katalog memakai snapshot penjualan.
 - Barcode tanpa data pada migrasi butuh alur pencarian manual yang telah diuji; jangan membuat barcode palsu untuk meloloskan impor.
 - `DATABASE.md` ini **belum menggantikan migrasi SQL yang diuji**. Penentuan opsi verifikasi QRIS adalah blocking design decision sebelum coding checkout.
+
+
+## TASK-039 — migrasi aditif 0003 (DEMO, K-11)
+
+Rancangan implementasi: `inventory_adjustments(adjustment_key TEXT PRIMARY KEY,
+request_hash BLOB[32], movement_id INTEGER UNIQUE REFERENCES inventory_movements,
+previous_on_hand INTEGER, on_hand INTEGER)` menyimpan identitas retry dan snapshot
+saldo. Produk, actor, alasan, delta dan waktu berasal dari mutasi ADJUSTMENT terkait.
+Tidak ada kolom saldo baru di products; stock_balances tetap agregat ledger.
+Service ADMIN memakai transaksi penulis untuk cek saldo, insert mutasi, identitas
+retry, dan audit. Migrasi 0001/0002 tidak diubah. Runner membuat backup pramigrasi
+untuk database berisi data. Upgrade versi 2 dan rollback kegagalan diuji pada fixture
+sintetis terpisah; penggunaan operasional menunggu review PR dan validasi pengelola.

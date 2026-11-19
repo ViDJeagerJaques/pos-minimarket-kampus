@@ -30,12 +30,12 @@ function schemaSignature(dbPath: string): string {
   }
 }
 
-test("migrasi dari database kosong membuat skema versi 1 dan lulus integrity check", () => {
+test("migrasi dari database kosong membuat skema terbaru dan lulus integrity check", () => {
   const database = createTempDatabase();
   try {
     const result = migrateFresh(database);
-    assert.equal(result.schemaVersion, 2);
-    assert.deepEqual(result.appliedVersions, [1, 2]);
+    assert.equal(result.schemaVersion, 3);
+    assert.deepEqual(result.appliedVersions, [1, 2, 3]);
     assert.equal(result.integrity.integrity, "ok");
     assert.equal(result.integrity.foreignKeyViolations, 0);
     assert.ok(result.tables.includes("users"));
@@ -46,13 +46,13 @@ test("migrasi dari database kosong membuat skema versi 1 dan lulus integrity che
     assert.deepEqual(result.views, ["stock_balances"]);
 
     const report = inspectDatabase(database.dbPath);
-    assert.equal(report.userVersion, 2);
+    assert.equal(report.userVersion, 3);
     assert.equal(report.foreignKeysOn, true);
     assert.equal(report.journalMode, "wal");
     assert.equal(report.synchronous, 2);
     assert.deepEqual(
       report.appliedMigrations.map((row) => row.version),
-      [1, 2],
+      [1, 2, 3],
     );
   } finally {
     database.cleanup();
@@ -68,8 +68,8 @@ test("migrasi kedua tidak menggandakan tabel, indeks, maupun baris metadata", ()
     const after = schemaSignature(database.dbPath);
 
     assert.deepEqual(second.appliedVersions, []);
-    assert.deepEqual(second.skippedVersions, [1, 2]);
-    assert.equal(second.schemaVersion, 2);
+    assert.deepEqual(second.skippedVersions, [1, 2, 3]);
+    assert.equal(second.schemaVersion, 3);
     assert.equal(before, after);
     assert.equal(second.integrity.integrity, "ok");
   } finally {
@@ -149,7 +149,7 @@ test("migrasi baru pada database berisi data membuat cadangan pramigrasi yang va
     db.close();
 
     writeFileSync(
-      path.join(migrationsDir, "0003_tabel_uji.sql"),
+      path.join(migrationsDir, "0004_tabel_uji.sql"),
       "CREATE TABLE tabel_uji_cadangan (id INTEGER PRIMARY KEY) STRICT;\n",
       "utf8",
     );
@@ -160,14 +160,14 @@ test("migrasi baru pada database berisi data membuat cadangan pramigrasi yang va
       now: () => 1_762_992_000_000,
     });
 
-    assert.deepEqual(result.appliedVersions, [3]);
+    assert.deepEqual(result.appliedVersions, [4]);
     assert.ok(result.backupPath);
-    assert.equal(result.schemaVersion, 3);
+    assert.equal(result.schemaVersion, 4);
     assert.ok(existsSync(result.backupPath));
     const backup = inspectBackup(result.backupPath);
     assert.equal(backup.integrity, "ok");
     assert.equal(backup.foreignKeyViolations, 0);
-    assert.equal(backup.userVersion, 2);
+    assert.equal(backup.userVersion, 3);
   } finally {
     database.cleanup();
   }

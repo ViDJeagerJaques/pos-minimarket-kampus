@@ -6,7 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
  * kontrak** karena DATABASE.md §13 memerintahkan audit "impor stok". Usulan
  * ini dicatat untuk review David/Naazmi, bukan disahkan diam-diam.
  */
-export const INVENTORY_AUDIT_ACTIONS = ["STOCK_OPENING_IMPORTED"] as const;
+export const INVENTORY_AUDIT_ACTIONS = ["STOCK_OPENING_IMPORTED", "INVENTORY_ADJUSTED"] as const;
 
 export type InventoryAuditAction = (typeof INVENTORY_AUDIT_ACTIONS)[number];
 export type InventoryAuditValue = string | number | boolean | null;
@@ -45,7 +45,7 @@ export type InventoryAuditEntry = {
   nowMs: number;
 };
 
-/** Audit impor saldo awal ditulis dalam transaksi fixture yang sama. */
+/** Audit inventaris ditulis dalam transaksi yang sama dengan mutasinya. */
 export function writeInventoryAudit(db: DatabaseSync, entry: InventoryAuditEntry): void {
   if (!INVENTORY_AUDIT_ACTIONS.includes(entry.action)) {
     throw new Error(`Event audit inventaris tidak terdaftar: ${entry.action}`);

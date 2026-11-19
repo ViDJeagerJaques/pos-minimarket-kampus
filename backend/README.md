@@ -366,7 +366,29 @@ Status: **DEMO**, backend saja; zona operasional belum disahkan.
 - Batas zona lokal dan ambang "stok menipis" menunggu keputusan pengelola;
   filter menerima epoch ms eksplisit, bukan menebak timezone PC.
 
+## 16. Koreksi stok ADMIN (TASK-039)
 
+Status **DEMO**, backend saja; SOP opname/koreksi menunggu pengelola (DEC-018).
+Jalankan migrasi lokal melalui `npm run db:migrate` sebelum server: migrasi
+`0003_inventory_adjustments.sql` menambahkan penyimpanan identitas retry.
+Runner membuat backup pramigrasi untuk database berisi data; jangan edit 0001/0002.
 
+`POST /api/v1/inventory/adjustments` memerlukan sesi ADMIN aktif dan body:
 
+```json
+{"adjustmentKey":"adj-demo-1","productId":1,"expectedOnHand":5,"targetOnHand":3,"reason":"DEMO hitung fisik"}
+```
 
+Hasil 201 memuat `movementId`, `delta: -2`, `previousOnHand: 5`, `onHand: 3`,
+actor/waktu backend dan `duplicate`. Saldo tetap berasal dari ledger.
+Saldo awal yang tidak cocok menghasilkan 409; saldo negatif, delta nol dan
+alasan kosong menghasilkan 422. CASHIER ditolak 403 sebelum mutasi.
+Retry setelah timeout harus memakai key/payload identik; hasil tersimpan
+kembali tanpa audit/mutasi tambahan, meskipun saldo kemudian berubah.
+Key sama dengan isi/actor berbeda ditolak 409 IDEMPOTENCY_CONFLICT.
+
+Mutasi ADJUSTMENT + identitas retry + audit INVENTORY_ADJUSTED satu transaksi
+SQLite `BEGIN IMMEDIATE`; tidak ada jalur edit saldo langsung. Lihat detail
+validasi/DTO di API_CONTRACT.md bagian TASK-039. Tes service/API dan upgrade
+v2 ada di `src/inventory/adjustments.test.ts` dan `src/http/adjustments.test.ts`.
+Tidak menambah layar frontend.
