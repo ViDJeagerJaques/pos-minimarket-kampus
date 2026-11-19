@@ -481,6 +481,32 @@ function createReportRoutes(reports: ReportService): Route[] {
       roles: ["ADMIN"],
       handler: (ctx) => ({ data: reports.getPaymentReport(ctx.actor as SessionUser) }),
     },
+    {
+      method: "GET",
+      pattern: /^\/reports\/daily$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => {
+        const rawStart = ctx.searchParams.get("start");
+        const rawEnd = ctx.searchParams.get("end");
+        return {
+          data: reports.getDailyReport(ctx.actor as SessionUser, {
+            startMs: rawStart === null ? null : Number(rawStart),
+            endMs: rawEnd === null ? null : Number(rawEnd),
+            shiftId: ctx.searchParams.get("shiftId") ?? undefined,
+          }),
+        };
+      },
+    },
+    {
+      method: "GET",
+      pattern: /^\/reports\/stock$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        data: reports.getStockReport(ctx.actor as SessionUser, {
+          lowStockThreshold: ctx.searchParams.get("lowStockThreshold") ?? undefined,
+        }),
+      }),
+    },
   ];
 }
 

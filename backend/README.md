@@ -348,6 +348,25 @@ Status: **DEMO**, backend saja; SOP pembelian/setoran belum disahkan.
 - Penerimaan hanya menambah stok di ledger; tidak membuat pembayaran, utang,
   atau pembelian berbayar. SOP supplier/ekspor menunggu pengelola.
 
+## 15. Query laporan dasar (TASK-026)
+
+Status: **DEMO**, backend saja; zona operasional belum disahkan.
+
+- `GET /api/v1/reports/daily?start=<ms>&end=<ms>[&shiftId=<id>]` — ADMIN.
+  Filter epoch ms UTC setengah terbuka `[start, end)`; hanya baris `sales`
+  (COMMITTED) yang dihitung. Satu penjualan dihitung sekali lewat satu
+  pembayaran utama.
+- `GET /api/v1/reports/stock[?lowStockThreshold=<n>]` — ADMIN. Saldo dan
+  komponen (OPENING/RECEIPT/SALE/ADJUSTMENT) berasal dari ledger; rincian
+  mutasi menyertakan sumber (`sale_no`/`receipt_key`/batch), jumlah, waktu,
+  dan actor.
+- Total CASH dan QRIS_MANUAL dipisah; QRIS tidak masuk kas laci.
+- Response memakai envelope `{ data, requestId }` API_CONTRACT §5; tidak ada
+  hash password/token maupun data pembayaran sensitif di laporan.
+- Batas zona lokal dan ambang "stok menipis" menunggu keputusan pengelola;
+  filter menerima epoch ms eksplisit, bukan menebak timezone PC.
+
+
 
 
 
