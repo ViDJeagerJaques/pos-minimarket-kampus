@@ -30,6 +30,7 @@ import type {
   CommitCheckoutResult,
   CreateAccountInput,
   CreateProductInput,
+  DailyReport,
   LoginResult,
   PaymentReport,
   PosDataSource,
@@ -38,6 +39,7 @@ import type {
   ProductSummary,
   SessionUser,
   ShiftSummary,
+  StockReport,
   SupplierSummary,
   UpdateProductInput,
 } from "./types";
@@ -392,6 +394,111 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
             verifiedAtMs: 1_700_000_000_000,
             evidenceRef: null,
             status: "verified",
+          },
+        ],
+      };
+    },
+
+    async receiveGoods() {
+      callLog.push({ operation: "receiveGoods", isMutation: true });
+      await delay();
+      // MODE DEMO tidak menyimpan penerimaan/mutasi; jangan mengubah stok sintetis.
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO tidak menyimpan penerimaan. Jalankan backend lokal untuk menambah stok.",
+      );
+    },
+
+    async getDailyReport(): Promise<DailyReport> {
+      callLog.push({ operation: "getDailyReport", isMutation: false });
+      await delay();
+      // Angka sintetis untuk pratinjau UI; bukan data transaksi nyata.
+      const now = 1_700_000_000_000;
+      return {
+        startMs: now - 86_400_000,
+        endMs: now,
+        shiftId: null,
+        cash: { totalRp: 125_000, count: 5 },
+        qrisManual: { totalRp: 25_000, count: 1, verifiedCount: 1 },
+        totalRp: 150_000,
+        saleCount: 6,
+        sales: [
+          {
+            saleId: 9001,
+            saleNo: "DEMO-DAILY-001",
+            committedAtMs: now - 1000,
+            shiftId: 7,
+            cashierUsername: "kasir.demo",
+            method: "CASH",
+            amountRp: 125_000,
+          },
+        ],
+        salesTruncated: true,
+        generatedAtMs: now,
+      };
+    },
+
+    async getStockReport(): Promise<StockReport> {
+      callLog.push({ operation: "getStockReport", isMutation: false });
+      await delay();
+      // Saldo dan mutasi sintetis untuk pratinjau UI, bukan data nyata.
+      const now = 1_700_000_000_000;
+      return {
+        generatedAtMs: now,
+        lowStockThreshold: 0,
+        products: [
+          {
+            productId: 1,
+            sku: "DEMO-001",
+            name: "Barang DEMO",
+            onHand: 7,
+            opening: 10,
+            receipt: 5,
+            sale: 8,
+            adjustment: 0,
+            matched: true,
+            low: false,
+            zero: false,
+            movements: [
+              {
+                id: 1,
+                kind: "OPENING",
+                delta: 10,
+                createdAtMs: now - 300_000,
+                actorId: 1,
+                sourceType: "OPENING",
+                sourceId: null,
+                sourceRef: "DEMO-OPEN-1",
+                sourceQuantity: null,
+                adjustmentReason: null,
+              },
+              {
+                id: 2,
+                kind: "RECEIPT",
+                delta: 5,
+                createdAtMs: now - 200_000,
+                actorId: 1,
+                sourceType: "RECEIPT_ITEM",
+                sourceId: 2,
+                sourceRef: "rcv_demo_1",
+                sourceQuantity: 5,
+                adjustmentReason: null,
+              },
+              {
+                id: 3,
+                kind: "SALE",
+                delta: -8,
+                createdAtMs: now - 100_000,
+                actorId: 2,
+                sourceType: "SALE_ITEM",
+                sourceId: 3,
+                sourceRef: "S-000001",
+                sourceQuantity: 8,
+                adjustmentReason: null,
+              },
+            ],
+            movementsTruncated: false,
           },
         ],
       };

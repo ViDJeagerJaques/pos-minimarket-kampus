@@ -66,6 +66,8 @@ describe("TASK-007 Kerangka layar lokal (MODE DEMO)", () => {
     expect(screen.getByRole("button", { name: "Shift" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Barang/Stok" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Penerimaan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Laporan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Akun" })).toBeNull();
 
     const payButton = screen.getByRole("button", { name: "Lanjut pembayaran" }) as HTMLButtonElement;

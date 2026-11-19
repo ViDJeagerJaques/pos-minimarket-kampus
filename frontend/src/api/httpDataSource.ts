@@ -17,6 +17,9 @@ import type {
   CatalogQuery,
   CategorySummary,
   CheckoutPaymentMethod,
+  DailyReport,
+  DailyReportFilter,
+  DailySaleRow,
   CheckoutQuote,
   CheckoutQuoteItem,
   CheckoutStatusResult,
@@ -32,14 +35,20 @@ import type {
   PendingQrisVerification,
   PrintResult,
   ProductSummary,
+  ProductStockReport,
   Receipt,
+  ReceiptResult,
+  ReceiptResultItem,
   ReceiptView,
+  ReceiveGoodsInput,
   Role,
   SessionUser,
   VerifiedQrisVerification,
   ShiftSummary,
   ShiftClosePreview,
   ShiftClosing,
+  StockMovementEntry,
+  StockReport,
   SupplierSummary,
   UpdateProductInput,
 } from "./types";
@@ -575,6 +584,195 @@ function toPrintResult(value: unknown): PrintResult {
   };
 }
 
+function toReceiptResult(value: unknown): ReceiptResult {
+  if (
+    !isRecord(value) ||
+    !isPositiveInt(value.receiptId) ||
+    typeof value.receiptKey !== "string" ||
+    value.receiptKey.length === 0 ||
+    typeof value.requestHash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.requestHash) ||
+    !isPositiveInt(value.supplierId) ||
+    (value.supplierRef !== null && typeof value.supplierRef !== "string") ||
+    !isNonNegativeInt(value.committedAtMs) ||
+    !isNonNegativeInt(value.totalQuantity) ||
+    !Array.isArray(value.items) ||
+    typeof value.duplicate !== "boolean"
+  ) {
+    throw invalidResponse("Hasil penerimaan dari backend tidak valid.");
+  }
+  const items: ReceiptResultItem[] = value.items.map((raw) => {
+    if (
+      !isRecord(raw) ||
+      !isPositiveInt(raw.receiptItemId) ||
+      !isPositiveInt(raw.productId) ||
+      typeof raw.sku !== "string" ||
+      typeof raw.name !== "string" ||
+      !isPositiveInt(raw.quantity) ||
+      !isPositiveInt(raw.movementId)
+    ) {
+      throw invalidResponse("Item penerimaan dari backend tidak valid.");
+    }
+    return {
+      receiptItemId: raw.receiptItemId,
+      productId: raw.productId,
+      sku: raw.sku,
+      name: raw.name,
+      quantity: raw.quantity,
+      movementId: raw.movementId,
+    };
+  });
+  return {
+    receiptId: value.receiptId,
+    receiptKey: value.receiptKey,
+    requestHash: value.requestHash,
+    supplierId: value.supplierId,
+    supplierRef: value.supplierRef as string | null,
+    committedAtMs: value.committedAtMs,
+    totalQuantity: value.totalQuantity,
+    items,
+    duplicate: value.duplicate,
+  };
+}
+
+function toDailyReport(value: unknown): DailyReport {
+  if (
+    !isRecord(value) ||
+    !isNonNegativeInt(value.startMs) ||
+    !isNonNegativeInt(value.endMs) ||
+    (value.shiftId !== null && !isPositiveInt(value.shiftId)) ||
+    !isRecord(value.cash) || !isNonNegativeInt(value.cash.totalRp) || !isNonNegativeInt(value.cash.count) ||
+    !isRecord(value.qrisManual) || !isNonNegativeInt(value.qrisManual.totalRp) ||
+    !isNonNegativeInt(value.qrisManual.count) || !isNonNegativeInt(value.qrisManual.verifiedCount) ||
+    !isNonNegativeInt(value.totalRp) ||
+    !isNonNegativeInt(value.saleCount) ||
+    !Array.isArray(value.sales) ||
+    typeof value.salesTruncated !== "boolean" ||
+    !isNonNegativeInt(value.generatedAtMs)
+  ) {
+    throw invalidResponse("Laporan harian dari backend tidak valid.");
+  }
+  const sales: DailySaleRow[] = value.sales.map((raw) => {
+    if (
+      !isRecord(raw) ||
+      !isPositiveInt(raw.saleId) ||
+      typeof raw.saleNo !== "string" ||
+      !isNonNegativeInt(raw.committedAtMs) ||
+      !isPositiveInt(raw.shiftId) ||
+      (raw.cashierUsername !== null && typeof raw.cashierUsername !== "string") ||
+      (raw.method !== "CASH" && raw.method !== "QRIS_MANUAL") ||
+      !isNonNegativeInt(raw.amountRp)
+    ) {
+      throw invalidResponse("Baris penjualan pada laporan tidak valid.");
+    }
+    return {
+      saleId: raw.saleId,
+      saleNo: raw.saleNo,
+      committedAtMs: raw.committedAtMs,
+      shiftId: raw.shiftId,
+      cashierUsername: raw.cashierUsername as string | null,
+      method: raw.method,
+      amountRp: raw.amountRp,
+    };
+  });
+  return {
+    startMs: value.startMs,
+    endMs: value.endMs,
+    shiftId: value.shiftId as number | null,
+    cash: { totalRp: value.cash.totalRp, count: value.cash.count },
+    qrisManual: {
+      totalRp: value.qrisManual.totalRp,
+      count: value.qrisManual.count,
+      verifiedCount: value.qrisManual.verifiedCount,
+    },
+    totalRp: value.totalRp,
+    saleCount: value.saleCount,
+    sales,
+    salesTruncated: value.salesTruncated,
+    generatedAtMs: value.generatedAtMs,
+  };
+}
+
+function toStockReport(value: unknown): StockReport {
+  if (
+    !isRecord(value) ||
+    !isNonNegativeInt(value.generatedAtMs) ||
+    !isNonNegativeInt(value.lowStockThreshold) ||
+    !Array.isArray(value.products)
+  ) {
+    throw invalidResponse("Laporan stok dari backend tidak valid.");
+  }
+  const products: ProductStockReport[] = value.products.map((raw) => {
+    if (
+      !isRecord(raw) ||
+      !isPositiveInt(raw.productId) ||
+      typeof raw.sku !== "string" ||
+      typeof raw.name !== "string" ||
+      !isNonNegativeInt(raw.onHand) ||
+      !isNonNegativeInt(raw.opening) ||
+      !isNonNegativeInt(raw.receipt) ||
+      !isNonNegativeInt(raw.sale) ||
+      !isNonNegativeInt(raw.adjustment) ||
+      typeof raw.matched !== "boolean" ||
+      typeof raw.low !== "boolean" ||
+      typeof raw.zero !== "boolean" ||
+      !Array.isArray(raw.movements) ||
+      typeof raw.movementsTruncated !== "boolean"
+    ) {
+      throw invalidResponse("Produk pada laporan stok tidak valid.");
+    }
+    const movements: StockMovementEntry[] = raw.movements.map((entry) => {
+      if (
+        !isRecord(entry) ||
+        !isPositiveInt(entry.id) ||
+        (entry.kind !== "OPENING" && entry.kind !== "SALE" && entry.kind !== "RECEIPT" && entry.kind !== "ADJUSTMENT") ||
+        typeof entry.delta !== "number" || !Number.isSafeInteger(entry.delta) ||
+        !isNonNegativeInt(entry.createdAtMs) ||
+        !isPositiveInt(entry.actorId) ||
+        (entry.sourceType !== null && typeof entry.sourceType !== "string") ||
+        (entry.sourceId !== null && !isPositiveInt(entry.sourceId)) ||
+        (entry.sourceRef !== null && typeof entry.sourceRef !== "string") ||
+        (entry.sourceQuantity !== null && !isPositiveInt(entry.sourceQuantity)) ||
+        (entry.adjustmentReason !== null && typeof entry.adjustmentReason !== "string")
+      ) {
+        throw invalidResponse("Mutasi pada laporan stok tidak valid.");
+      }
+      return {
+        id: entry.id,
+        kind: entry.kind,
+        delta: entry.delta,
+        createdAtMs: entry.createdAtMs,
+        actorId: entry.actorId,
+        sourceType: entry.sourceType as string | null,
+        sourceId: entry.sourceId as number | null,
+        sourceRef: entry.sourceRef as string | null,
+        sourceQuantity: entry.sourceQuantity as number | null,
+        adjustmentReason: entry.adjustmentReason as string | null,
+      };
+    });
+    return {
+      productId: raw.productId,
+      sku: raw.sku,
+      name: raw.name,
+      onHand: raw.onHand,
+      opening: raw.opening,
+      receipt: raw.receipt,
+      sale: raw.sale,
+      adjustment: raw.adjustment,
+      matched: raw.matched,
+      low: raw.low,
+      zero: raw.zero,
+      movements,
+      movementsTruncated: raw.movementsTruncated,
+    };
+  });
+  return {
+    generatedAtMs: value.generatedAtMs,
+    lowStockThreshold: value.lowStockThreshold,
+    products,
+  };
+}
+
 function toPaymentReport(value: unknown): PaymentReport {
   if (
     !isRecord(value) ||
@@ -1060,6 +1258,62 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     );
   }
 
+  async function receiveGoods(input: ReceiveGoodsInput): Promise<ReceiptResult> {
+    const receiptKey = typeof input?.receiptKey === "string" ? input.receiptKey.trim() : "";
+    const valid =
+      receiptKey.length > 0 &&
+      receiptKey.length <= 128 &&
+      isPositiveInt(input?.supplierId) &&
+      Array.isArray(input?.items) &&
+      input.items.length > 0 &&
+      input.items.every(
+        (item) => isRecord(item) && isPositiveInt(item.productId) && isPositiveInt(item.quantity),
+      ) &&
+      (input.supplierRef === undefined ||
+        input.supplierRef === null ||
+        typeof input.supplierRef === "string");
+    if (!valid) {
+      throw new ApiError(422, "VALIDATION_ERROR", "Data penerimaan tidak valid dari UI.");
+    }
+    return toReceiptResult(
+      await request("POST", "/goods-receipts", input, requireToken()),
+    );
+  }
+
+  async function getDailyReport(filter: DailyReportFilter): Promise<DailyReport> {
+    if (
+      !isNonNegativeInt(filter?.startMs) ||
+      !isNonNegativeInt(filter?.endMs) ||
+      filter.startMs >= filter.endMs ||
+      (filter.shiftId !== undefined && filter.shiftId !== null && !isPositiveInt(filter.shiftId))
+    ) {
+      throw new ApiError(422, "VALIDATION_ERROR", "Filter tanggal/shift tidak valid.");
+    }
+    const params = new URLSearchParams();
+    params.set("start", String(filter.startMs));
+    params.set("end", String(filter.endMs));
+    if (filter.shiftId !== undefined && filter.shiftId !== null) {
+      params.set("shiftId", String(filter.shiftId));
+    }
+    return toDailyReport(
+      await request("GET", `/reports/daily?${params.toString()}`, undefined, requireToken()),
+    );
+  }
+
+  async function getStockReport(filter: { lowStockThreshold?: number } = {}): Promise<StockReport> {
+    if (
+      filter.lowStockThreshold !== undefined &&
+      !isNonNegativeInt(filter.lowStockThreshold)
+    ) {
+      throw new ApiError(422, "VALIDATION_ERROR", "Ambang stok menipis tidak valid.");
+    }
+    const suffix =
+      filter.lowStockThreshold === undefined ? "" : `?lowStockThreshold=${filter.lowStockThreshold}`;
+    return toStockReport(
+      await request("GET", `/reports/stock${suffix}`, undefined, requireToken()),
+    );
+  }
+
   async function getPaymentReport(): Promise<PaymentReport> {
     return toPaymentReport(await request("GET", "/reports/payments", undefined, requireToken()));
   }
@@ -1096,5 +1350,8 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     getSaleReceipt,
     printSaleReceipt,
     getPaymentReport,
+    receiveGoods,
+    getDailyReport,
+    getStockReport,
   };
 }
