@@ -8,10 +8,12 @@ import type { PosDataSource, ReceiveGoodsInput, ReceiptResult } from "./api/type
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 const RESULT: ReceiptResult = {
@@ -129,4 +131,94 @@ describe("TASK-027 App — upaya penerimaan dimiliki sesi (BUG-083)", () => {
     expect(await screen.findByText(/Upaya penerimaan belum selesai/)).toBeTruthy();
     expect(screen.getByText(receiptKey)).toBeTruthy();
   });
+
+  it("BUG-093: dua pemilik mempertahankan recovery masing-masing setelah pergantian login", async () => {
+    const base = createMockDataSource({ latencyMs: 0 });
+    let owner = 1;
+    const login: PosDataSource["login"] = async (...args) => {
+      const result = await base.login(...args);
+      return result.ok ? { ...result, user: { ...result.user, userId: owner } } : result;
+    };
+    const receiveGoods = vi.fn<PosDataSource["receiveGoods"]>()
+      .mockRejectedValueOnce(new ApiError(401, "AUTH_REQUIRED", "Sesi berakhir."))
+      .mockRejectedValueOnce(new ApiError(401, "AUTH_REQUIRED", "Sesi berakhir."))
+      .mockImplementation(async (payload) => ({ ...RESULT, receiptKey: payload.receiptKey, duplicate: true }));
+    render(<App dataSource={{ ...base, login, receiveGoods }} onAfterLogout={vi.fn()} />);
+    const user = userEvent.setup();
+    await loginAdmin(user);
+    await submitDraft(user);
+    await screen.findByRole("button", { name: "Masuk" });
+    const first = receiveGoods.mock.calls[0]![0];
+
+    owner = 2;
+    await loginAdmin(user);
+    await user.click(screen.getByRole("button", { name: "Penerimaan" }));
+    expect(screen.queryByText(first.receiptKey)).toBeNull();
+    expect(screen.queryByText(/Upaya penerimaan belum selesai/)).toBeNull();
+    await submitDraft(user);
+    await screen.findByRole("button", { name: "Masuk" });
+    const second = receiveGoods.mock.calls[1]![0];
+
+    for (const [id, payload] of [[1, first], [2, second]] as const) {
+      owner = id;
+      await loginAdmin(user);
+      await user.click(screen.getByRole("button", { name: "Penerimaan" }));
+      expect(await screen.findByText(payload.receiptKey)).toBeTruthy();
+      expect(screen.queryByText(id === 1 ? second.receiptKey : first.receiptKey)).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Periksa ulang dengan kunci yang sama" }));
+      await screen.findByText(/sudah tercatat sebelumnya/);
+      expect(receiveGoods.mock.lastCall?.[0]).toEqual(payload);
+      await user.click(screen.getByRole("button", { name: "Keluar" }));
+      await screen.findByRole("button", { name: "Masuk" });
+    }
+    owner = 1;
+    await loginAdmin(user);
+    await user.click(screen.getByRole("button", { name: "Penerimaan" }));
+    expect(screen.queryByText(/Upaya penerimaan belum selesai/)).toBeNull();
+  });
+
+  it("BUG-094: 401 riwayat saat PENDING menyimpan UNKNOWN dan mengabaikan hasil sesi lama", async () => {
+    const base = createMockDataSource({ latencyMs: 0 });
+    const history = createDeferred<Awaited<ReturnType<PosDataSource["getStockReport"]>>>();
+    const pending = createDeferred<ReceiptResult>();
+    const getStockReport = vi.fn<PosDataSource["getStockReport"]>()
+      .mockImplementationOnce(() => history.promise)
+      .mockImplementation(base.getStockReport);
+    const receiveGoods = vi.fn<PosDataSource["receiveGoods"]>()
+      .mockImplementationOnce(() => pending.promise)
+      .mockImplementation(async (payload) => ({ ...RESULT, receiptKey: payload.receiptKey, duplicate: true }));
+    render(<App dataSource={{ ...base, getStockReport, receiveGoods }} onAfterLogout={vi.fn()} />);
+    const user = userEvent.setup();
+    await loginAdmin(user);
+    await submitDraft(user);
+    const payload = receiveGoods.mock.calls[0]![0];
+    await act(async () => history.reject(new ApiError(401, "AUTH_REQUIRED", "Sesi berakhir.")));
+    await screen.findByRole("button", { name: "Masuk" });
+    await loginAdmin(user);
+    await user.click(screen.getByRole("button", { name: "Penerimaan" }));
+    expect(await screen.findByText(payload.receiptKey)).toBeTruthy();
+    const retry = screen.getByRole("button", { name: "Periksa ulang dengan kunci yang sama" });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => pending.resolve({ ...RESULT, receiptKey: payload.receiptKey }));
+    expect(screen.getByText(/Upaya penerimaan belum selesai/)).toBeTruthy();
+    expect(screen.queryByText(/Saldo produk telah dimuat ulang/)).toBeNull();
+    await user.click(retry);
+    await screen.findByText(/sudah tercatat sebelumnya/);
+    expect(receiveGoods).toHaveBeenCalledTimes(2);
+    expect(receiveGoods.mock.calls[1]![0]).toEqual(payload);
+  });
+
 });
+
+
+async function submitDraft(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Penerimaan" }));
+  await user.selectOptions(await screen.findByLabelText(/Supplier/), "1");
+  await user.type(screen.getByLabelText(/Cari produk aktif/), "Roti");
+  await waitFor(() => expect(screen.getByRole("option", { name: /Roti/ })).toBeTruthy());
+  await user.selectOptions(screen.getByLabelText("Produk"), "1");
+  await user.type(screen.getByLabelText(/Jumlah diterima/), "1");
+  await user.click(screen.getByRole("button", { name: "Tambah ke draft" }));
+  await user.click(screen.getByRole("button", { name: "Konfirmasi penerimaan" }));
+  await user.click(screen.getByRole("button", { name: "Ya, simpan penerimaan" }));
+}

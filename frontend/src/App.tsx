@@ -57,8 +57,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   // Upaya penerimaan dimiliki App agar tidak hilang saat halaman dibongkar.
   const [receiptAttempt, setReceiptAttemptState] = useState<ReceiptAttempt | null>(null);
   const receiptAttemptRef = useRef<ReceiptAttempt | null>(null);
-  // Upaya UNKNOWN disimpan di luar sesi agar bisa dipulihkan oleh user yang sama.
-  const recoveredReceiptRef = useRef<{ userId: number; attempt: ReceiptAttempt } | null>(null);
+  // Recovery terpisah per pemilik agar pergantian user tidak membuang upaya user lain.
+  const recoveredReceiptRef = useRef(new Map<number, ReceiptAttempt>());
   const setReceiptAttempt = useCallback((next: ReceiptAttempt | null) => {
     receiptAttemptRef.current = next;
     setReceiptAttemptState(next);
@@ -92,9 +92,9 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
     // Pulihkan hanya untuk user yang sama; user lain tidak boleh melihat upayanya.
-    const recovered = recoveredReceiptRef.current;
-    setReceiptAttempt(recovered && recovered.userId === nextUser.userId ? recovered.attempt : null);
-    recoveredReceiptRef.current = null;
+    const recovered = recoveredReceiptRef.current.get(nextUser.userId);
+    setReceiptAttempt(recovered ?? null);
+    recoveredReceiptRef.current.delete(nextUser.userId);
     setNotice(null);
     setUser(nextUser);
     const pending = nextUser.role === "CASHIER" && dataSource.authMode !== "DEMO" && hasPendingClose(nextUser.userId);
@@ -110,13 +110,11 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
     sessionEpochRef.current = nextEpoch;
     setSessionEpoch(nextEpoch);
     setDraft({ id: newDraftId(), lines: [] });
-    // Pertahankan kunci/payload UNKNOWN untuk pemulihan oleh user yang sama,
+    // Pertahankan kunci/payload PENDING maupun UNKNOWN untuk pemiliknya,
     // tetapi jangan tampilkan di UI saat sesi tidak terautentikasi.
     const current = receiptAttemptRef.current;
-    if (current && current.status === "UNKNOWN" && user) {
-      recoveredReceiptRef.current = { userId: user.userId, attempt: current };
-    } else {
-      recoveredReceiptRef.current = null;
+    if (current && isUnresolvedReceipt(current) && user) {
+      recoveredReceiptRef.current.set(user.userId, { ...current, status: "UNKNOWN" });
     }
     setReceiptAttempt(null);
     setUser(null);
