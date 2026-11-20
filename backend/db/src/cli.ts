@@ -1,5 +1,6 @@
 import { inspectDatabase } from "./db.ts";
 import { inspectBackup } from "./backup.ts";
+import { createBackup, restoreBackupToTestCopy, verifyBackup } from "../../src/backup/service.ts";
 import { runMigrations } from "./migrate.ts";
 import { defaultDataDir, resolveDatabasePath } from "./paths.ts";
 import { seedDemo } from "./seed.ts";
@@ -11,6 +12,8 @@ type Options = {
   migrationsDir: string | undefined;
   demo: boolean;
   backup: "auto" | "off";
+  directory: string | undefined;
+  backupPath: string | undefined;
   json: boolean;
 };
 
@@ -23,6 +26,8 @@ function parseArgs(argv: string[]): Options {
     migrationsDir: undefined,
     demo: false,
     backup: "auto",
+    directory: undefined,
+    backupPath: undefined,
     json: false,
   };
 
@@ -47,6 +52,20 @@ function parseArgs(argv: string[]): Options {
       options.demo = true;
     } else if (arg === "--no-backup") {
       options.backup = "off";
+    } else if (arg === "--dir") {
+      const value = rest[index + 1];
+      if (!value) {
+        throw new Error("--dir memerlukan path direktori.");
+      }
+      options.directory = value;
+      index += 1;
+    } else if (arg === "--backup") {
+      const value = rest[index + 1];
+      if (!value) {
+        throw new Error("--backup memerlukan path file cadangan.");
+      }
+      options.backupPath = value;
+      index += 1;
     } else if (arg === "--json") {
       options.json = true;
     } else {
@@ -68,6 +87,8 @@ function usage(): string {
     "  node db/src/cli.ts verify  [--db <file>] [--json]",
     "  node db/src/cli.ts seed --demo [--db <file>] [--json]",
     "  node db/src/cli.ts inspect-backup --db <file> [--json]",
+    "  node db/src/cli.ts backup [--db <file>] [--dir <backup-root>] [--json]",
+    "  node db/src/cli.ts restore-test --backup <file> [--dir <restore-root>] [--json]",
     "",
     `Default data dir: ${defaultDataDir()}`,
     "Override lokasi: POS_DB_PATH atau POS_DATA_DIR (wajib di luar source tree).",
@@ -166,6 +187,42 @@ function main(argv: string[]): number {
         );
       }
       return report.integrity === "ok" && report.foreignKeyViolations === 0 ? 0 : 1;
+    }
+    case "backup": {
+      const report = createBackup({
+        dbPath: options.dbPath,
+        destinationDir: options.directory,
+      });
+      if (options.json) {
+        printJson(report);
+      } else {
+        process.stdout.write(
+          `Backup tersimpan: ${report.destinationPath}\n` +
+            `ukuran=${report.sizeBytes} byte · sha256=${report.sha256}\n` +
+            `integrity=${report.integrity} · foreign_key=${report.foreignKeyViolations} · skema=${report.schemaVersion}\n`,
+        );
+      }
+      return 0;
+    }
+    case "restore-test": {
+      if (!options.backupPath) {
+        throw new Error("restore-test memerlukan --backup <file-cadangan>.");
+      }
+      verifyBackup(options.backupPath);
+      const report = restoreBackupToTestCopy({
+        backupPath: options.backupPath,
+        destinationDir: options.directory,
+      });
+      if (options.json) {
+        printJson(report);
+      } else {
+        process.stdout.write(
+          `Pulihkan ke salinan uji: ${report.destinationPath}\n` +
+            `sumber=${report.backupPath} · integrity=${report.report.integrity}\n` +
+            "Database operasional TIDAK diubah. Restore produksi tetap memakai runbook & persetujuan.\n",
+        );
+      }
+      return 0;
     }
     case "":
     case "help":

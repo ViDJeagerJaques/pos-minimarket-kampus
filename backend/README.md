@@ -392,3 +392,28 @@ SQLite `BEGIN IMMEDIATE`; tidak ada jalur edit saldo langsung. Lihat detail
 validasi/DTO di API_CONTRACT.md bagian TASK-039. Tes service/API dan upgrade
 v2 ada di `src/inventory/adjustments.test.ts` dan `src/http/adjustments.test.ts`.
 Tidak menambah layar frontend.
+
+## 16. Backup dan restore uji (TASK-028)
+
+Status: **DEMO**, operator/backend; restore produksi masih runbook manual.
+
+```powershell
+node db/src/cli.ts backup --db <file.sqlite> [--dir <backup-root>] [--json]
+node db/src/cli.ts restore-test --backup <file-cadangan> [--dir <restore-root>] [--json]
+```
+
+- Backup memakai `VACUUM INTO` ke file sementara, diverifikasi
+  (`integrity_check`, `foreign_key_check`, `user_version`, tabel penting,
+  jumlah baris, SHA-256, ukuran, waktu), lalu di-rename atomik. File yang sudah
+  ada tidak ditimpa; kegagalan tidak menghapus backup baik.
+- Direktori dibatasi backend: default `<direktori DB>/backups`, atau
+  `POS_BACKUP_DIR` yang harus berada di luar source tree. Manifest JSON
+  berisi metadata (tanpa password/token).
+- `restore-test` memverifikasi sumber lalu menyalin hanya ke direktori uji
+  terpisah (default `%LOCALAPPDATA%/PosMinimarketKampus/data/restore-test`
+  atau `POS_RESTORE_TEST_DIR`), dengan `COPYFILE_EXCL`. Tidak ada restore ke DB
+  operasional lewat perintah ini.
+- File rusak ditolak sebelum penyalinan; database aktif dan backup baik tetap
+  utuh. Salinan di media fisik lain, RPO/RTO, dan persetujuan pengelola belum
+  ada.
+
