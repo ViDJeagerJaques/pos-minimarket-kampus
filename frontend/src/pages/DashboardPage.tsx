@@ -30,15 +30,20 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
     setLoading(true);
     setSnapshot(null);
     setError(null);
+    // Setiap laporan harus memproses 401, meskipun laporan lain sudah gagal.
+    function handleReportFailure(failure: unknown): never {
+      if (active && failure instanceof ApiError && failure.isSessionExpired) onSessionExpired();
+      throw failure;
+    }
     Promise.all([
-      dataSource.getDailyReport({ startMs: parseDay(request.date)!, endMs: exclusiveEndMs(request.date)! }),
-      dataSource.getStockReport({ lowStockThreshold: request.threshold }),
+      dataSource.getDailyReport({ startMs: parseDay(request.date)!, endMs: exclusiveEndMs(request.date)! }).catch(handleReportFailure),
+      dataSource.getStockReport({ lowStockThreshold: request.threshold }).catch(handleReportFailure),
     ]).then(([daily, stock]) => {
       if (active) setSnapshot({ daily, stock });
     }).catch((failure: unknown) => {
       if (!active) return;
-      if (failure instanceof ApiError && failure.isSessionExpired) onSessionExpired();
-      else setError(failure instanceof ApiError ? failure.message : "Dashboard gagal dimuat. Coba lagi.");
+      if (failure instanceof ApiError && failure.isSessionExpired) return;
+      setError(failure instanceof ApiError ? failure.message : "Dashboard gagal dimuat. Coba lagi.");
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [dataSource, isAdmin, currentUser.userId, onSessionExpired, request]);

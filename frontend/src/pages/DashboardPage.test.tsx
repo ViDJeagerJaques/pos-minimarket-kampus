@@ -110,6 +110,36 @@ describe("TASK-040 Dashboard ADMIN", () => {
     await waitFor(() => expect(onSessionExpired).toHaveBeenCalledTimes(1));
   });
 
+  it.each(["daily", "stock"] as const)("BUG-096: 401 %s tetap mengakhiri sesi setelah laporan lain gagal", async (lateReport) => {
+    let rejectLate!: (error: unknown) => void;
+    const late = new Promise<never>((_, reject) => { rejectLate = reject; });
+    const firstFailure = async () => { throw new ApiError(500, "INTERNAL_ERROR", "Laporan gagal duluan"); };
+    const api = source({
+      getDailyReport: vi.fn(lateReport === "daily" ? () => late : firstFailure),
+      getStockReport: vi.fn(lateReport === "stock" ? () => late : firstFailure),
+    });
+    const { onSessionExpired } = show(api);
+    expect(await screen.findByText("Laporan gagal duluan")).toBeTruthy();
+    expect(onSessionExpired).not.toHaveBeenCalled();
+    await act(async () => rejectLate(new ApiError(401, "AUTH_REQUIRED", "Sesi habis")));
+    expect(onSessionExpired).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("article", { name: "Omzet" })).toBeNull();
+  });
+
+  it.each(["daily", "stock"] as const)("BUG-096: 401 %s setelah unmount tidak mengakhiri sesi berikutnya", async (lateReport) => {
+    let rejectLate!: (error: unknown) => void;
+    const late = new Promise<never>((_, reject) => { rejectLate = reject; });
+    const firstFailure = async () => { throw new ApiError(500, "INTERNAL_ERROR", "Laporan gagal duluan"); };
+    const view = show(source({
+      getDailyReport: vi.fn(lateReport === "daily" ? () => late : firstFailure),
+      getStockReport: vi.fn(lateReport === "stock" ? () => late : firstFailure),
+    }));
+    await screen.findByText("Laporan gagal duluan");
+    view.unmount();
+    await act(async () => rejectLate(new ApiError(401, "AUTH_REQUIRED", "Sesi habis")));
+    expect(view.onSessionExpired).not.toHaveBeenCalled();
+  });
+
   it("CASHIER tidak merender dashboard atau memanggil laporan", () => {
     const api = source(); show(api, { ...ADMIN, role: "CASHIER" });
     expect(screen.getByRole("alert").textContent).toContain("hanya dapat diakses ADMIN");
