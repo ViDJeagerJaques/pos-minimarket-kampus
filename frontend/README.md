@@ -96,3 +96,24 @@ browser berdasarkan akun. Setelah timeout atau login ulang, cek hasil tersimpan;
 404 belum membuktikan POST gagal. Retry memakai `closeKey` dan nominal yang sama.
 Jika hasil milik upaya lain atau penyimpanan lokal tidak dapat dibaca, hentikan
 dan lakukan rekonsiliasi. Mode mock berlabel DEMO tidak menutup shift.
+
+## Dashboard ADMIN (TASK-040)
+
+Dashboard memuat otomatis `GET /reports/daily` dan `GET /reports/stock` dari
+backend lokal. Penjualan CASH dan QRIS_MANUAL dipisahkan; nominal CASH adalah
+penjualan tunai, bukan saldo laci. Draft/gagal tidak masuk laporan committed.
+Tanggal default hari ini memakai zona PC dan rentang awal hari sampai awal hari
+berikutnya (akhir eksklusif); ambang awal 5 unit berlabel DEMO dan dapat diubah.
+Stok merupakan snapshot saat dimuat, bukan stok historis tanggal penjualan.
+
+Ringkasan penjualan shift menggunakan rincian committed hanya bila lengkap.
+Saat `salesTruncated=true`, ringkasan shift disembunyikan dengan penjelasan;
+kartu total tetap memakai agregasi backend. Untuk shift tertentu gunakan menu
+Laporan dan filter ID shift. Tidak memanggil endpoint penutupan shift milik kasir
+atau mengasumsikan status aktif/tutup; shift tanpa penjualan tidak tercantum.
+Laporan penjualan dan stok memiliki waktu pembaruan terpisah.
+
+Mode mock berlabel DEMO memakai angka sintetis. Akses CASHIER diblokir di menu
+serta komponen; otorisasi API laporan tetap tanggung jawab backend yang sudah ada.
+Tema memakai token hijau/oranye lokal tanpa CDN. Refresh dikunci selama loading;
+error menyembunyikan angka lama, 401 kembali ke login dan 403 tetap error.
