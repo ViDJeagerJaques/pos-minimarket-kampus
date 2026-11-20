@@ -234,6 +234,7 @@ describe("TASK-027 App — upaya penerimaan dimiliki sesi (BUG-083)", () => {
     const history = createDeferred<Awaited<ReturnType<PosDataSource["getStockReport"]>>>();
     const pending = createDeferred<ReceiptResult>();
     const getStockReport = vi.fn<PosDataSource["getStockReport"]>()
+      .mockImplementationOnce(base.getStockReport)
       .mockImplementationOnce(() => history.promise)
       .mockImplementation(base.getStockReport);
     const receiveGoods = vi.fn<PosDataSource["receiveGoods"]>()

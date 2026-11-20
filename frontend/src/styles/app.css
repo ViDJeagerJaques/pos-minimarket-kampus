@@ -828,3 +828,15 @@ body {
   font-weight: 600;
 }
 
+
+
+/* TASK-040: token hijau–oranye lokal, tanpa font/aset eksternal. */
+.dashboard__filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); align-items: end; }
+.dashboard__cards { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-block: var(--space-6); }
+.dashboard__primary { border-top: 4px solid var(--color-primary); background: var(--color-primary-soft); }
+.dashboard__accent { border-top: 4px solid var(--color-accent); background: var(--color-accent-soft); }
+.dashboard .money--total { overflow-wrap: anywhere; }
+
+@media (max-width: 720px) {
+  .dashboard__filters, .dashboard__cards { grid-template-columns: 1fr; }
+}

@@ -410,43 +410,35 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       );
     },
 
-    async getDailyReport(): Promise<DailyReport> {
+    async getDailyReport(filter): Promise<DailyReport> {
       callLog.push({ operation: "getDailyReport", isMutation: false });
       await delay();
-      // Angka sintetis untuk pratinjau UI; bukan data transaksi nyata.
-      const now = 1_700_000_000_000;
+      // Dua shift sintetis, mengikuti rentang yang diminta; bukan transaksi nyata.
+      const sales: DailyReport["sales"] = [
+        { saleId: 9001, saleNo: "DEMO-DAILY-001", committedAtMs: filter.startMs,
+          shiftId: 7, cashierUsername: "kasir.demo", method: "CASH", amountRp: 125_000 },
+        { saleId: 9002, saleNo: "DEMO-DAILY-002", committedAtMs: filter.startMs,
+          shiftId: 8, cashierUsername: "kasir.demo2", method: "QRIS_MANUAL", amountRp: 25_000 },
+      ].filter((sale) => filter.shiftId == null || sale.shiftId === filter.shiftId) as DailyReport["sales"];
+      const cash = sales.filter((sale) => sale.method === "CASH");
+      const qris = sales.filter((sale) => sale.method === "QRIS_MANUAL");
       return {
-        startMs: now - 86_400_000,
-        endMs: now,
-        shiftId: null,
-        cash: { totalRp: 125_000, count: 5 },
-        qrisManual: { totalRp: 25_000, count: 1, verifiedCount: 1 },
-        totalRp: 150_000,
-        saleCount: 6,
-        sales: [
-          {
-            saleId: 9001,
-            saleNo: "DEMO-DAILY-001",
-            committedAtMs: now - 1000,
-            shiftId: 7,
-            cashierUsername: "kasir.demo",
-            method: "CASH",
-            amountRp: 125_000,
-          },
-        ],
-        salesTruncated: true,
-        generatedAtMs: now,
+        startMs: filter.startMs, endMs: filter.endMs, shiftId: filter.shiftId ?? null,
+        cash: { totalRp: cash.reduce((sum, sale) => sum + sale.amountRp, 0), count: cash.length },
+        qrisManual: { totalRp: qris.reduce((sum, sale) => sum + sale.amountRp, 0), count: qris.length, verifiedCount: qris.length },
+        totalRp: sales.reduce((sum, sale) => sum + sale.amountRp, 0), saleCount: sales.length,
+        sales, salesTruncated: false, generatedAtMs: Date.now(),
       };
     },
 
-    async getStockReport(): Promise<StockReport> {
+    async getStockReport(filter = {}): Promise<StockReport> {
       callLog.push({ operation: "getStockReport", isMutation: false });
       await delay();
       // Saldo dan mutasi sintetis untuk pratinjau UI, bukan data nyata.
       const now = 1_700_000_000_000;
       return {
         generatedAtMs: now,
-        lowStockThreshold: 0,
+        lowStockThreshold: filter.lowStockThreshold ?? 0,
         products: [
           {
             productId: 1,
@@ -458,7 +450,7 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
             sale: 8,
             adjustment: 0,
             matched: true,
-            low: false,
+            low: 7 <= (filter.lowStockThreshold ?? 0),
             zero: false,
             movements: [
               {

@@ -9,7 +9,7 @@ interface DailyReportPanelProps {
   onSessionExpired: () => void;
 }
 
-function toDateInputValue(date: Date): string {
+export function toDateInputValue(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -30,7 +30,7 @@ function parseCalendarDate(raw: string): Date | null {
   return date;
 }
 
-function parseDay(raw: string): number | null {
+export function parseDay(raw: string): number | null {
   return parseCalendarDate(raw)?.getTime() ?? null;
 }
 

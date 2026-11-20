@@ -9,6 +9,7 @@ import { isUnresolvedReceipt, type ReceiptAttempt } from "./domain/receivingAtte
 import { hasPendingClose } from "./domain/shiftCloseRecovery";
 import { AccountsPage } from "./pages/AccountsPage";
 import { CashierPage } from "./pages/CashierPage";
+import { DashboardPage } from "./pages/DashboardPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
@@ -39,8 +40,7 @@ const PAGE_LABEL: Record<PageId, string> = {
 
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
 
-const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift" | "reports" | "history" | "receiving">, { title: string; reason: string }> = {
-  dashboard: { title: "Dashboard", reason: "Menunggu query laporan (TASK-026, TASK-040). Tidak ada angka palsu." },
+const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift" | "reports" | "history" | "receiving" | "dashboard">, { title: string; reason: string }> = {
   "stock-adjustment": { title: "Koreksi Stok", reason: "Menunggu TASK-039 dan kunci idempotensi (TASK-001 K-11)." },
   backup: { title: "Backup", reason: "Menunggu TASK-028." },
 };
@@ -238,6 +238,9 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   }
 
   function renderPage() {
+    if (activePage === "dashboard") {
+      return <DashboardPage dataSource={dataSource} currentUser={currentUser} onSessionExpired={handleSessionExpired} />;
+    }
     if (activePage === "cashier") {
       return (
         <CashierPage
