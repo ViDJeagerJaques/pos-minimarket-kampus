@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -15,6 +16,7 @@ import { randomBytes } from "node:crypto";
 import { createSqliteSnapshot } from "../../db/src/backup.ts";
 import { inspectDatabase, openDatabase } from "../../db/src/db.ts";
 import {
+  REPO_ROOT,
   assertOutsideSourceTree,
   defaultDataDir,
   ensureParentDirectory,
@@ -83,27 +85,65 @@ function isInside(root: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+/**
+ * Kanonicalisasi mengikuti symlink pada bagian path yang sudah ada; bagian
+ * yang belum dibuat ditambahkan secara leksikal di atasnya. Ini mencegah
+ * symlink di root cadangan mengarahkan tulisan ke dalam repository atau ke
+ * direktori di luar root yang diizinkan.
+ */
+function canonicalizePath(pathname: string): string {
+  let current = path.resolve(pathname);
+  const missing: string[] = [];
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      break;
+    }
+    missing.unshift(path.basename(current));
+    current = parent;
+  }
+  try {
+    current = realpathSync(current);
+  } catch {
+    // Path yang sudah ada tetapi gagal di-realpath tetap dipakai apa adanya.
+  }
+  return missing.length === 0 ? current : path.join(current, ...missing);
+}
+
+function assertNotInsideRepo(candidate: string): void {
+  if (isInside(canonicalizePath(REPO_ROOT), candidate)) {
+    throw new Error("Direktori ditolak: berada di dalam repository.");
+  }
+}
+
 export function backupRootFor(dbPath: string, env: Env = process.env): string {
   const configured = env.POS_BACKUP_DIR;
-  const root = configured && configured.trim().length > 0
-    ? path.resolve(configured)
-    : path.join(path.dirname(path.resolve(dbPath)), "backups");
+  const root = canonicalizePath(
+    configured && configured.trim().length > 0
+      ? path.resolve(configured)
+      : path.join(path.dirname(path.resolve(dbPath)), "backups"),
+  );
   assertOutsideSourceTree(root);
+  assertNotInsideRepo(root);
   return root;
 }
 
 export function restoreTestRootFor(env: Env = process.env): string {
   const configured = env.POS_RESTORE_TEST_DIR;
-  const root = configured && configured.trim().length > 0
-    ? path.resolve(configured)
-    : path.join(defaultDataDir(env), "restore-test");
+  const root = canonicalizePath(
+    configured && configured.trim().length > 0
+      ? path.resolve(configured)
+      : path.join(defaultDataDir(env), "restore-test"),
+  );
   assertOutsideSourceTree(root);
+  assertNotInsideRepo(root);
   return root;
 }
 
 function resolveAllowedDirectory(candidate: string | undefined, root: string): string {
-  const resolved = candidate === undefined ? path.resolve(root) : path.resolve(candidate);
+  const resolved = canonicalizePath(candidate === undefined ? root : path.resolve(candidate));
   assertOutsideSourceTree(resolved);
+  assertNotInsideRepo(resolved);
   if (!isInside(root, resolved)) {
     throw new Error("Direktori ditolak: harus berada di root cadangan/pemulihan uji yang dikonfigurasi backend.");
   }
@@ -198,6 +238,8 @@ export function createBackup(options: BackupServiceOptions): BackupReport & { de
     const report = verifySnapshot(tempPath, createdAtMs);
     renameSync(tempPath, finalPath);
     promoted = true;
+    // Laporan dan manifest memakai nama file publik, bukan nama sementara.
+    report.fileName = path.basename(finalPath);
 
     let manifestPath: string | null = null;
     try {
@@ -282,13 +324,23 @@ export function restoreBackupToTestCopy(options: RestoreTestOptions): RestoreTes
     copyFileSync(backupPath, destinationPath, fsConstants.COPYFILE_EXCL);
     copied = true;
     const restoredReport = verifyBackup(destinationPath, sourceReport.sha256, now);
+    for (const table of REQUIRED_BACKUP_TABLES) {
+      if (restoredReport.counts[table] !== sourceReport.counts[table]) {
+        throw new Error(
+          `Salinan uji tidak cocok: tabel ${table} memiliki ${restoredReport.counts[table]} baris, ` +
+            `sumber ${sourceReport.counts[table]} baris.`,
+        );
+      }
+    }
     return { backupPath, destinationPath, report: restoredReport };
   } catch (error) {
     if (copied) {
-      try {
-        unlinkSync(destinationPath);
-      } catch {
-        // Abaikan.
+      for (const candidate of [destinationPath, `${destinationPath}-wal`, `${destinationPath}-shm`]) {
+        try {
+          unlinkSync(candidate);
+        } catch {
+          // Abaikan berkas yang tidak pernah dibuat.
+        }
       }
     }
     throw error;

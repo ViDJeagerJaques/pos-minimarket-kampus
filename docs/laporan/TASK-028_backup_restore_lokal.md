@@ -41,8 +41,8 @@ Aturan:
 | Perintah | Hasil |
 |---|---|
 | `npm run typecheck` | **PASS**, exit 0 |
-| `npm test` | **PASS 156/156**, 0 fail, ±30,3 s |
-| `node db/src/cli.ts backup ...` + `restore-test ...` (manual, DB temp) | **PASS** — backup `integrity=ok`, restore salinan uji hash sama |
+| `npm test` | **PASS 158/158**, 0 fail, ±38,0 s |
+| `node --test src/backup/service.test.ts` | **PASS 6/6** |
 
 Bukti: backup dari DB dengan 1 sale/1 item/1 payment/1 shift/3 mutasi menghasilkan
 laporan `integrity=ok`, FK 0, hash 64 hex, manifest ada; restore ke DB terpisah
@@ -53,6 +53,10 @@ sama, tidak ada salinan uji. Root di luar konfigurasi → ditolak.
 
 ## 3. Risiko / belum diuji
 
+- BUG-097/098/099 sudah diperbaiki: root dan tujuan dinormalisasi mengikuti
+  symlink sebelum uji containment, laporan/manifest memakai nama file final,
+  dan restore membandingkan jumlah baris tiap tabel (termasuk baris di WAL
+  sidecar) sebelum diterima; salinan gagal dibersihkan lengkap dengan sidecar.
 - Salinan di media fisik berbeda (USB/drive), jadwal/retensi, RPO/RTO, dan
   pemegang media **belum disetujui** (BACKUP_RECOVERY.md §8).
 - Restore ke database operasional sengaja tidak diimplementasikan; masih

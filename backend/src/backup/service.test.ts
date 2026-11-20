@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
@@ -10,6 +18,7 @@ import {
   migrateFresh,
 } from "../../db/test/helpers.ts";
 import { openDatabase } from "../../db/src/db.ts";
+import { REPO_ROOT } from "../../db/src/paths.ts";
 import {
   createBackup,
   restoreBackupToTestCopy,
@@ -95,6 +104,12 @@ test("AC-09.01/09.02: backup konsisten dan restore ke salinan uji menghasilkan d
   const { database, options } = setup();
   try {
     const backup = createBackup(options);
+    assert.equal(backup.fileName, path.basename(backup.destinationPath));
+    assert.equal(backup.fileName.startsWith("pos_"), true);
+    const manifest = JSON.parse(readFileSync(backup.manifestPath as string, "utf8")) as {
+      fileName: string;
+    };
+    assert.equal(manifest.fileName, backup.fileName);
     assert.equal(backup.integrity, "ok");
     assert.equal(backup.foreignKeyViolations, 0);
     assert.ok(backup.sizeBytes > 0);
@@ -215,6 +230,72 @@ test("Root cadangan/restore dibatasi backend", () => {
     );
     const backups = readdirCount(options.env!.POS_BACKUP_DIR!);
     assert.equal(backups >= 1, true);
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-097: symlink di root tidak boleh mengarahkan tulisan keluar root atau ke repo", () => {
+  const { database, options } = setup();
+  try {
+    const backup = createBackup(options);
+    const root = options.env!.POS_BACKUP_DIR!;
+    const outside = path.join(database.dir, "outside");
+    mkdirSync(outside, { recursive: true });
+    const escapeOutside = path.join(root, "escape-outside");
+    const escapeRepo = path.join(root, "escape-repo");
+    symlinkSync(outside, escapeOutside, "junction");
+    symlinkSync(REPO_ROOT, escapeRepo, "junction");
+
+    assert.throws(
+      () => createBackup({ ...options, destinationDir: escapeOutside }),
+      /Direktori ditolak/,
+    );
+    assert.throws(
+      () => createBackup({ ...options, destinationDir: escapeRepo }),
+      /repository|Direktori ditolak/,
+    );
+    assert.throws(
+      () =>
+        restoreBackupToTestCopy({
+          backupPath: backup.destinationPath,
+          env: options.env,
+          destinationDir: escapeOutside,
+        }),
+      /Direktori ditolak/,
+    );
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-099: baris di WAL sidecar tidak boleh hilang saat restore salinan uji", () => {
+  const { database, options } = setup();
+  try {
+    const writer = openDatabase(database.dbPath);
+    writer
+      .prepare(
+        `INSERT INTO users (username, password_hash, role, active, created_at_ms)
+         VALUES ('wal.extra', 'x', 'CASHIER', 1, ?)`,
+      )
+      .run(FIXED_NOW);
+    const sidecarBackup = path.join(database.dir, "dengan-wal.sqlite");
+    copyFileSync(database.dbPath, sidecarBackup);
+    for (const suffix of ["-wal", "-shm"]) {
+      const sidecar = `${database.dbPath}${suffix}`;
+      if (existsSync(sidecar)) {
+        copyFileSync(sidecar, `${sidecarBackup}${suffix}`);
+      }
+    }
+    const sourceReport = verifyBackup(sidecarBackup);
+    assert.equal(sourceReport.counts.users, 4, "WAL ikut diverifikasi pada sumber");
+    writer.close();
+
+    assert.throws(
+      () => restoreBackupToTestCopy({ backupPath: sidecarBackup, env: options.env }),
+      /Salinan uji tidak cocok/,
+    );
+    assert.equal(readdirCount(options.env!.POS_RESTORE_TEST_DIR!), 0);
   } finally {
     database.cleanup();
   }
