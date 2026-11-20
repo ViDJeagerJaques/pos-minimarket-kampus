@@ -9,7 +9,7 @@
 
 ## 1. Status
 
-REVIEW. Regresi lulus semua, pengecekan terminal lulus semua, skenario layar 1, 2, 3 PASS, checkout kasir manual PASS, tutup shift PASS, tetapi dashboard FAIL (BUG-100) dan cari struk FAIL (BUG-101). Transaksi dekat tengah malam, media fisik, dan uji tujuan backup gagal belum terbukti.
+REVIEW. Regresi lulus semua, pengecekan terminal lulus semua, skenario layar 1 dan 3 PASS, skenario 2 PASS lewat API tetapi layarnya BLOCKED, checkout kasir manual PASS, tutup shift PASS, tetapi dashboard FAIL (BUG-100) dan cari struk FAIL (BUG-101). Transaksi dekat tengah malam, media fisik, dan uji tujuan backup gagal belum terbukti.
 
 ## 2. Apa yang selesai
 
