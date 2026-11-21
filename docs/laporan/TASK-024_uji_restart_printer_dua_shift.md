@@ -75,11 +75,11 @@ Status **FAIL: tidak ada**; **BLOCKED: tidak ada** dalam cakupan yang dijalankan
 | `saleTotalRp` = `paymentTotalRp` | Rp20.000 |
 | `inventory_movements` | 5 (OPENING +10, SALE −4) |
 | Stok akhir | 6 (= 10 − 4) |
-| `shifts` / `shift_closings` | 5 / 5 (activeShifts 0) |
-| `audit_log` | 20 entri |
+| `shifts` / `shift_closings` | 7 / 7 (activeShifts 0) |
+| `audit_log` | 24 entri |
 | `integrity_check` / `foreign_key_check` | `ok` / 0 |
 
-Semua `reconciled === true` pada setiap titik before/after.
+Semua `reconciled === true` pada setiap titik before/after. Seluruh baris tabel ini diverifikasi terhadap snapshot akhir `tests[ac=REKONSILIASI].final` di `docs/laporan/evidence/TASK-024/task024-evidence.json` (BUG-118).
 
 ## 6. Perintah yang benar-benar dijalankan
 
@@ -125,6 +125,7 @@ Semua 15 temuan diverifikasi terhadap kode saat ini dan ditangani di harness/lap
 | BUG-115 | Laporan menyatakan keterbatasan crash-saat-prepare (§7) |
 | BUG-116 | Tes #2 juga menjalankan buka bersamaan A/A/B → satu 200, dua 409, satu baris shift aktif; identitas pemilik dipakai untuk reset fixture |
 | BUG-117 (R2) | Race close vs checkout: `raceClose.data.totals` divalidasi lawan hasil — commit menang → `saleCount=1`, `cashRp=5000`; commit ditolak → `saleCount=0`, `cashRp=0`; assertion jumlah penutupan & sale lama dipertahankan |
+| BUG-118 (R3) | Tabel rekonsiliasi §5 diselaraskan dengan snapshot akhir evidence: `shifts`/`shift_closings` 5/5 → 7/7, `audit_log` 20 → 24; tujuh baris lainnya sudah cocok dan tetap dipertahankan |
 
 ## 7. Temuan, risiko, dan yang belum terbukti
 
