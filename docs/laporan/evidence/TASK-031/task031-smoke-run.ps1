@@ -52,7 +52,7 @@ if($ready){
   & "$nodeDir\node.exe" "scripts\task-031_catalog_bench.mjs" *>&1 | Out-File $benchLog -Encoding utf8
   Pop-Location
   $smokeOk = Select-String -Path $smokeLog -Pattern 'PASS total 8' -Quiet
-  if ($smokeOk) { $smokeTail = (Get-Content $smokeLog -Tail 12 -ErrorAction SilentlyContinue) -join ' | ' }
+  if (Test-Path $smokeLog) { $smokeTail = (Get-Content $smokeLog -Tail 12 -ErrorAction SilentlyContinue) -join ' | ' }
   if (Test-Path $benchLog) { $catalogBench = (Get-Content $benchLog -Raw -ErrorAction SilentlyContinue) }
 }
 $after = Get-TreeWS $p.Id

@@ -234,8 +234,12 @@ app.on("window-all-closed", () => {
 // BUG-121: renderer menunggu endpoint yang benar-benar dipilih main process,
 // bukan nilai build-time VITE_API_BASE_URL.
 ipcMain.handle("pos:get-api-base-url", async () => apiUrlReady);
+let retryStartup = null;
 ipcMain.handle("pos:retry-startup", async () => {
-  await runStartup();
+  if (!retryStartup) {
+    retryStartup = runStartup().finally(() => { retryStartup = null; });
+  }
+  await retryStartup;
   return true;
 });
 ipcMain.handle("pos:exit-app", () => {
