@@ -1,0 +1,11 @@
+﻿{
+  "skuCount": 1000,
+  "scanCount": 100,
+  "success": 100,
+  "failed": 0,
+  "minMs": 3.14,
+  "medianMs": 5.26,
+  "p95Ms": 9.68,
+  "maxMs": 14.68,
+  "externalRefs": []
+}

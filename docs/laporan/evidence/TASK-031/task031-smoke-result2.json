@@ -1,0 +1,9 @@
+{
+  "ready": true,
+  "readyWallMs": 5698.3,
+  "idleRamMB": 393.1,
+  "afterCheckoutRamMB": 404.8,
+  "smokeOk": true,
+  "smokeTail": "PASS 1. Electron userData DB dapat dibuka | PASS 2. Bootstrap ADMIN sintetis di DB userData | PASS 3. Login ADMIN & CASHIER lewat backend Electron | PASS 4. Stok awal sintetis +5 ditulis ke DB userData | PASS 5. Scan barcode 000321 menemukan produk & harga dari backend | PASS 6. Checkout dummy CASH Rp5.000 COMMITTED via backend Electron | PASS 7. Struk dibaca & dicetak (adapter VIRTUAL) dengan nomor yang sama | PASS 8. SQLite akhir: 1 sale, 1 payment, stok 4, integrity ok, FK 0 |  | PASS total 8 smoke Electron TASK-031.",
+  "bench": "POS_BENCH backend_ready=2563.4ms | POS_BENCH app_ready=2567.3ms | POS_BENCH window_loaded=4778.1ms"
+}
