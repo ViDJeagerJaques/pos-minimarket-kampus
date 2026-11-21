@@ -116,6 +116,12 @@ function snapshot() {
       byKind[row.kind] = Number(row.total);
     }
     const stock = Number(db.prepare("SELECT on_hand FROM stock_balances WHERE product_id = ?").get(productId)?.on_hand ?? 0);
+    // BUG-110: saldo harus cocok dengan OPENING (10) + seluruh mutasi (−4) = 6.
+    const expectedStock = Number(
+      db
+        .prepare("SELECT COALESCE(SUM(delta), 0) AS total FROM inventory_movements WHERE product_id = ?")
+        .get(productId).total,
+    );
     const saleTotal = Number(db.prepare("SELECT COALESCE(SUM(total_rp),0) AS total FROM sales").get().total);
     const paymentTotal = Number(db.prepare("SELECT COALESCE(SUM(amount_rp),0) AS total FROM payments").get().total);
     const integrity = db.prepare("PRAGMA integrity_check").all().map((r) => r.integrity_check).join("; ");
@@ -128,13 +134,19 @@ function snapshot() {
         activeShifts: Number(db.prepare("SELECT COUNT(*) AS total FROM shifts WHERE closed_at_ms IS NULL").get().total),
       },
       stock,
+      expectedStock,
       saleTotalRp: saleTotal,
       paymentTotalRp: paymentTotal,
       saleNos: db.prepare("SELECT sale_no FROM sales ORDER BY id").all().map((r) => r.sale_no),
       ledger: byKind,
       integrity,
       fk,
-      reconciled: integrity === "ok" && fk === 0 && saleTotal === paymentTotal && stock >= 0,
+      // BUG-110: integritas, FK, uang, DAN saldo vs ledger harus cocok.
+      reconciled:
+        integrity === "ok" &&
+        fk === 0 &&
+        saleTotal === paymentTotal &&
+        stock === expectedStock,
     };
   } finally {
     db.close();
@@ -212,12 +224,33 @@ async function startChild(port) {
   return waitForServerStart(server);
 }
 
+/**
+ * BUG-113/105: anggap exitCode ATAU signalCode sebagai tanda anak sudah keluar;
+ * jangan mengirim sinyal ke proses yang sudah mati. Setelah SIGKILL, tunggu
+ * konfirmasi exit sebelum proses pengganti boleh start. Di Windows `kill()`
+ * bukan shutdown graceful — ini murni penggantian proses, bukan klaim graceful.
+ */
 async function stopChild(hard = false) {
-  if (!server || server.exitCode !== null) return;
+  if (!server) return;
+  const isExited = () => server.exitCode !== null || server.signalCode !== null;
+  if (isExited()) return;
   const exited = once(server, "exit").catch(() => undefined);
-  server.kill(hard ? "SIGKILL" : undefined);
+  try {
+    server.kill(hard ? "SIGKILL" : undefined);
+  } catch {
+    // Proses bisa saja keluar di antara pengecekan dan kill.
+  }
   await Promise.race([exited, new Promise((r) => setTimeout(r, 3000))]);
-  if (server.exitCode === null) server.kill("SIGKILL");
+  if (!isExited()) {
+    try { server.kill("SIGKILL"); } catch { /* sudah keluar */ }
+    await Promise.race([
+      exited,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Anak tidak keluar dalam 3 detik setelah SIGKILL.")), 3000)),
+    ]);
+  }
+  if (!isExited()) {
+    throw new Error("Gagal mengonfirmasi child process keluar; hentikan uji.");
+  }
 }
 
 async function startInProcess(printerKind) {
@@ -226,17 +259,25 @@ async function startInProcess(printerKind) {
   const securityLog = createSecurityLogger({ sink: () => {} });
   const auth = createAuthService(db, { sessions, securityLog });
   const printer = printerKind === "fail" ? createFailingPrinterAdapter("T24-PRINTER-MATI-SIMULASI") : createVirtualPrinterAdapter();
-  const running = await startHttpServer({
-    auth, sessions, securityLog,
-    catalog: createCatalogService(db),
-    shift: createShiftService(db),
-    checkout: createCheckoutService(db),
-    reports: createReportService(db),
-    receiving: createReceivingService(db),
-    adjustments: createAdjustmentService(db),
-    print: createPrintService(db, { printer }),
-    port: await freeLoopbackPort(),
-  });
+  let running;
+  try {
+    running = await startHttpServer({
+      auth, sessions, securityLog,
+      catalog: createCatalogService(db),
+      shift: createShiftService(db),
+      checkout: createCheckoutService(db),
+      reports: createReportService(db),
+      receiving: createReceivingService(db),
+      adjustments: createAdjustmentService(db),
+      print: createPrintService(db, { printer }),
+      port: await freeLoopbackPort(),
+    });
+  } catch (error) {
+    // BUG-109: jangan bocorkan koneksi DB bila server gagal start.
+    try { db.close(); } catch { /* sudah tertutup */ }
+    throw error;
+  }
+  // BUG-109: kepemilikan hanya diserahkan ke stopInProcess setelah start sukses.
   inProcess = { running, db };
   return running.url;
 }
@@ -336,6 +377,27 @@ async function main() {
   // -------------------------------------------------------------------------
   let tokenA = await login(base, cashierAUser, passA, "login kasir A");
   const tokenB = await login(base, cashierBUser, passB, "login kasir B");
+
+  // BUG-116: uji juga kasir B yang mencoba buka bersamaan (A, A, B).
+  const beforeThreeWay = snapshot();
+  const threeWay = await Promise.all([
+    call(base, "/shifts/open", { method: "POST", token: tokenA, body: {}, label: "3-way A-1" }),
+    call(base, "/shifts/open", { method: "POST", token: tokenA, body: {}, label: "3-way A-2" }),
+    call(base, "/shifts/open", { method: "POST", token: tokenB, body: {}, label: "3-way B" }),
+  ]);
+  assert.equal(threeWay.filter((r) => r.status === 200).length, 1, "3-way: tepat satu 200");
+  assert.equal(threeWay.filter((r) => r.status === 409).length, 2, "3-way: dua 409");
+  assert.equal(snapshot().counts.activeShifts, 1, "3-way: tepat satu baris shift aktif");
+  const winnerToken = threeWay.find((r) => r.status === 200) === threeWay[2] ? tokenB : tokenA;
+  const winnerCurrent = await call(base, "/shifts/current", { token: winnerToken, label: "pemilik 3-way" });
+  assertCall(winnerCurrent, 200, "pemilik 3-way");
+  const closeThreeWay = await call(base, `/shifts/${winnerCurrent.data.id}/close`, {
+    method: "POST", token: winnerToken, body: { closeKey: key("close-3way"), declaredCashRp: null }, label: "tutup shift 3-way",
+  });
+  assertCall(closeThreeWay, 200, "tutup shift 3-way");
+  assert.deepEqual(deltaOf(beforeThreeWay, snapshot()), NO_CHANGE);
+  const threeWayEvidence = { statuses: threeWay.map((r) => r.status), activeShifts: 1, winner: winnerToken === tokenA ? cashierAUser : cashierBUser };
+
   const beforeOpen = snapshot();
   const [open1, open2] = await Promise.all([
     call(base, "/shifts/open", { method: "POST", token: tokenA, body: { openingCashRp: 100000 }, label: "buka shift paralel 1" }),
@@ -352,7 +414,9 @@ async function main() {
   assert.equal(currentB.data, null);
   const adminOpen = await call(base, "/shifts/open", { method: "POST", token: adminToken, body: {}, label: "ADMIN buka shift" });
   assertCall(adminOpen, 403, "ADMIN buka shift");
-  record("AC-05.01", "Dua buka paralel → tepat satu shift aktif; kasir B null; ADMIN 403", beforeOpen, snapshot(), NO_CHANGE, { shiftA1, openedAtMs });
+  record("AC-05.01", "Dua buka paralel → tepat satu shift aktif; kasir B null; ADMIN 403; juga A/A/B 3-way → satu 200, dua 409", beforeOpen, snapshot(), NO_CHANGE, {
+    shiftA1, openedAtMs, threeWay: threeWayEvidence,
+  });
 
   // -------------------------------------------------------------------------
   // 2. AC-05.02/04.01 — logout lalu login owner; restart child; shift utuh.
@@ -367,7 +431,7 @@ async function main() {
   assert.equal(afterRelogin.data.id, shiftA1);
   assert.equal(afterRelogin.data.openedAtMs, openedAtMs);
 
-  await stopChild(false); // restart terkendali
+  await stopChild(false); // penggantian proses (bukan klaim graceful shutdown)
   port = await freeLoopbackPort();
   base = await startChild(port);
   tokenA = await login(base, cashierAUser, passA, "login ulang setelah restart child");
@@ -380,10 +444,13 @@ async function main() {
   });
   assertCall(otherAfter, 200, "shift B setelah restart");
   assert.equal(otherAfter.data, null);
-  record("AC-05.02", "Logout→login ulang owner & restart child: shift ID/waktu tetap; token lama 401; kasir B tetap null", beforeRestarts, snapshot(), NO_CHANGE);
+  record("AC-05.02", "Logout→login ulang owner & penggantian proses child: shift ID/waktu tetap; token lama 401; kasir B tetap null (bukan uji graceful shutdown)", beforeRestarts, snapshot(), NO_CHANGE);
 
   // -------------------------------------------------------------------------
-  // 3. AC-04.02 — SIGKILL sebelum commit (child sungguhan).
+  // 3. AC-04.02 — SIGKILL setelah prepare SELESAI diterima (belum commit).
+  // BUG-111: tidak ada fault injection di tengah tulis DB; cakupan dipersempit
+  // jujur ke "prepare response completed → crash → recovery", bukan crash
+  // saat DB sedang menulis.
   // -------------------------------------------------------------------------
   const beforeKillA = snapshot();
   const pending = await prepare(base, tokenA, shiftA1, 1, "mati-sebelum-commit");
@@ -400,12 +467,16 @@ async function main() {
   assert.equal(statusPrepared.data.status, "PREPARED");
   const resumed = await commit(base, tokenA, pending.attemptKey, pending.result.data.requestHash, { method: "CASH", cashReceivedRp: 5000 }, "lanjut-setelah-SIGKILL");
   assertCall(resumed, 200, "lanjut commit setelah SIGKILL");
-  record("AC-04.02", "SIGKILL sebelum commit: 0 data parsial; upaya PREPARED ditemukan; commit niat sama → 1 sale", beforeKillA, snapshot(), ONE_SALE, {
+  record("AC-04.02", "Prepare response selesai lalu SIGKILL sebelum commit: 0 data parsial; upaya PREPARED ditemukan; commit niat sama → 1 sale", beforeKillA, snapshot(), ONE_SALE, {
     attemptKey: pending.attemptKey, statusAfterRestart: statusPrepared.data.status,
+    cakupan: "crash terjadi setelah respons prepare diterima, bukan saat backend menulis DB",
   });
 
   // -------------------------------------------------------------------------
-  // 4. AC-04.02 — SIGKILL sesudah commit sebelum hasil tampil.
+  // 4. AC-04.02 — SIGKILL setelah respons commit selesai diterima.
+  // BUG-111: tidak dapat menyisipkan kegagalan antara persist dan pengiriman
+  // hasil tanpa mengubah kode produk; yang dibuktikan adalah pemulihan dari
+  // respons commit yang sudah lengkap (lihat GET /checkouts/:attemptKey).
   // -------------------------------------------------------------------------
   const beforeKillB = snapshot();
   const done = await prepare(base, tokenA, shiftA1, 1, "mati-sesudah-commit");
@@ -422,8 +493,9 @@ async function main() {
   assert.equal(statusCommitted.data.status, "COMMITTED");
   assert.equal(statusCommitted.data.saleId, committed.data.saleId);
   assert.deepEqual(core(snapshot()), core(afterDone), "restart tidak boleh menambah sale");
-  record("AC-04.02", "SIGKILL setelah commit: status COMMITTED & saleId sama ditemukan; tanpa penagihan/penjualan ulang", beforeKillB, snapshot(), ONE_SALE, {
+  record("AC-04.02", "Respons commit lengkap lalu SIGKILL: status COMMITTED & saleId sama ditemukan; tanpa penagihan/penjualan ulang", beforeKillB, snapshot(), ONE_SALE, {
     attemptKey: done.attemptKey, saleId: committed.data.saleId, saleNo: committed.data.saleNo,
+    cakupan: "crash setelah respons commit diterima penuh, bukan antara commit DB dan pengiriman respons",
   });
 
   // -------------------------------------------------------------------------
@@ -450,6 +522,11 @@ async function main() {
   assertCall(print2, 200, "cetak ulang 2");
   assert.equal(print1.data.saleNo, print2.data.saleNo);
   assert.equal(print1.data.saleNo, committed.data.saleNo);
+  // BUG-104: teks kosong pada kedua respons tidak boleh lolos hanya karena sama.
+  assert.equal(typeof print1.data.text, "string");
+  assert.equal(typeof print2.data.text, "string");
+  assert.ok(print1.data.text.trim().length > 0, "teks struk cetak ulang 1 tidak boleh kosong");
+  assert.ok(print2.data.text.trim().length > 0, "teks struk cetak ulang 2 tidak boleh kosong");
   assert.equal(print1.data.text, print2.data.text);
   const afterPrint = snapshot();
   assert.deepEqual(core(afterPrint), core(beforePrint), "cetak ulang tidak boleh menambah sale/mutasi");
@@ -479,7 +556,16 @@ async function main() {
   assert.ok(close1.data.totals.totalSalesRp > 0);
   const closeRetry = await call(base, `/shifts/${shiftA1}/close`, { method: "POST", token: tokenA, body: closeBody, label: "retry close identik" });
   assertCall(closeRetry, 200, "retry close identik");
-  assert.equal(closeRetry.data.closeKey, close1.data.closeKey);
+  // BUG-106: bandingkan hasil penutupan stabil, bukan hanya closeKey.
+  const stableClose = (result) => ({
+    closeKey: result.data.closeKey,
+    shiftId: result.data.shiftId,
+    totals: result.data.totals,
+    varianceRp: result.data.varianceRp,
+    declaredCashRp: result.data.declaredCashRp,
+    expectedCashRp: result.data.expectedCashRp,
+  });
+  assert.deepEqual(stableClose(closeRetry), stableClose(close1), "retry harus mengembalikan totals & selisih asli");
   const closeConflict = await call(base, `/shifts/${shiftA1}/close`, {
     method: "POST", token: tokenA, body: { closeKey: closeBody.closeKey, declaredCashRp: 0 }, label: "close key sama isi beda",
   });
@@ -493,7 +579,7 @@ async function main() {
   assertCall(currentAfterClose, 200, "shift setelah tutup");
   assert.equal(currentAfterClose.data, null);
   const afterClose1 = snapshot();
-  assert.equal(afterClose1.counts.closings, 1);
+  assert.equal(afterClose1.counts.closings, beforeClose1.counts.closings + 1, "tutup shift 1 menambah tepat satu penutupan");
   record("AC-06.01", "Tutup shift 1 dengan rekap & selisih 0; retry identik satu hasil; key sama isi beda 409; nominal invalid 422", beforeClose1, afterClose1, NO_CHANGE, {
     totals: close1.data.totals, varianceRp: close1.data.varianceRp,
   });
@@ -512,22 +598,46 @@ async function main() {
     call(base, `/shifts/${shiftA2}/close`, { method: "POST", token: tokenA, body: { closeKey: key("close-race"), declaredCashRp: null }, label: "close race" }),
     commit(base, tokenA, racePrep.attemptKey, racePrep.result.data.requestHash, { method: "CASH", cashReceivedRp: 5000 }, "commit race"),
   ]);
-  // Serial order: salah satu menang. Pastikan konsistensi, bukan asumsi siapa dulu.
+  // BUG-107: close HARUS sukses 200 dan tepat satu baris closing baru,
+  // berapapun urutan serial yang terjadi. BUG-108: 500 tidak boleh lolos.
   const sRace = snapshot();
   assert.equal(sRace.reconciled, true);
-  if (sRace.counts.closings === 2) {
-    // close menang → commit harus ditolak SHIFT_NOT_ACTIVE / 409
-    assert.ok([409, 500].includes(raceCommit.status), `commit setelah close harus ditolak, dapat ${raceCommit.status}`);
-    assert.equal(sRace.counts.sales, afterClose1.counts.sales, "close lebih dulu → tidak ada sale baru");
+  assertCall(raceClose, 200, "close race");
+  assert.equal(sRace.counts.closings, beforeRace.counts.closings + 1, "race harus menambah tepat satu penutupan");
+  if (raceCommit.status === 200) {
+    // commit menang → sale masuk rekap
+    assert.equal(sRace.counts.sales, afterClose1.counts.sales + 1, "commit lebih dulu → sale baru");
   } else {
-    // commit menang → close tetap tercatat, sale masuk rekap
-    assert.equal(raceCommit.status, 200);
-    assert.equal(sRace.counts.sales, afterClose1.counts.sales + 1);
+    // close menang → commit ditolak 409 SHIFT_NOT_ACTIVE, tanpa sale baru
+    assert.equal(raceCommit.status, 409, "commit setelah close harus 409, bukan 500");
+    assert.equal(raceCommit.errorCode, "SHIFT_NOT_ACTIVE");
+    assert.equal(sRace.counts.sales, afterClose1.counts.sales, "close lebih dulu → tidak ada sale baru");
   }
   const raceDelta = deltaOf(beforeRace, sRace);
-  pass("AC-06.02", `Close vs checkout bersamaan: SSTV konsisten — close=${raceClose.status}, commit=${raceCommit.status}, closings=${sRace.counts.closings}, sales delta=${raceDelta.sales}`, {
+  pass("AC-06.02", `Close vs checkout bersamaan: close=200, +1 penutupan, commit=${raceCommit.status} (${raceCommit.errorCode ?? "ok"}), sales delta=${raceDelta.sales}`, {
     before: beforeRace, after: sRace, delta: raceDelta, closeStatus: raceClose.status, commitStatus: raceCommit.status,
   });
+
+  // BUG-107: urutan TERPISAH — close lebih dulu, baru commit (deterministik).
+  const beforeCloseFirst = snapshot();
+  const openCFRace = await call(base, "/shifts/open", { method: "POST", token: tokenA, body: { openingCashRp: 100000 }, label: "buka shift close-dulu" });
+  assertCall(openCFRace, 200, "buka shift close-dulu");
+  const cfRacePrep = await prepare(base, tokenA, openCFRace.data.id, 1, "close-dulu");
+  assertCall(cfRacePrep.result, 200, "prepare close-dulu");
+  const closeFirst = await call(base, `/shifts/${openCFRace.data.id}/close`, {
+    method: "POST", token: tokenA, body: { closeKey: key("close-dulu"), declaredCashRp: null }, label: "close lebih dulu",
+  });
+  assertCall(closeFirst, 200, "close lebih dulu");
+  const commitAfterClose = await commit(base, tokenA, cfRacePrep.attemptKey, cfRacePrep.result.data.requestHash, { method: "CASH", cashReceivedRp: 5000 }, "commit-setelah-close");
+  assert.equal(commitAfterClose.status, 409, "commit setelah close harus 409, bukan 500");
+  assert.equal(commitAfterClose.errorCode, "SHIFT_NOT_ACTIVE");
+  const afterCloseFirst = snapshot();
+  assert.equal(afterCloseFirst.counts.closings, beforeCloseFirst.counts.closings + 1, "close-first: tepat satu penutupan baru");
+  assert.deepEqual(deltaOf(beforeCloseFirst, afterCloseFirst), NO_CHANGE, "close-first: tidak ada sale baru");
+  const closeFirstEvidence = {
+    before: beforeCloseFirst, after: afterCloseFirst, delta: deltaOf(beforeCloseFirst, afterCloseFirst),
+    closeStatus: closeFirst.status, commitStatus: commitAfterClose.status, commitCode: commitAfterClose.errorCode,
+  };
 
   // -------------------------------------------------------------------------
   // 8b. AC-04.01 — klik bayar ganda / commit paralel identik → satu sale;
@@ -548,15 +658,22 @@ async function main() {
   const replay = await commit(base, tokenA, idemPrep.attemptKey, idemPrep.result.data.requestHash, { method: "CASH", cashReceivedRp: 5000 }, "retry-identik");
   assertCall(replay, 200, "retry identik");
   assert.equal(replay.data.saleId, clickA.data.saleId);
-  const conflictCommit = await commit(base, tokenA, idemPrep.attemptKey, idemPrep.result.data.requestHash, { method: "CASH", cashReceivedRp: 9999 }, "kunci-sama-isi-beda");
-  // Nominal tunai bukan bagian dari niat; gunakan requestHash berbeda untuk memaksa konflik.
+  // BUG-112: nominal tunai bukan bagian dari niat; retry dengan nominal beda
+  // harus mengembalikan hasil asli (saleId & cashReceivedRp 5000), bukan konflik.
+  const replayTender = await commit(base, tokenA, idemPrep.attemptKey, idemPrep.result.data.requestHash, { method: "CASH", cashReceivedRp: 9999 }, "replay-tender-diubah");
+  assertCall(replayTender, 200, "replay tender diubah");
+  assert.equal(replayTender.data.saleId, clickA.data.saleId);
+  assert.equal(replayTender.data.payment.cashReceivedRp, 5000, "replay harus mempertahankan uang diterima asli");
+  // BUG-102: requestHash yang tidak cocok dengan niat tersimpan harus 409 IDEMPOTENCY_CONFLICT.
   const wrongHash = await commit(base, tokenA, idemPrep.attemptKey, "0".repeat(64), { method: "CASH", cashReceivedRp: 5000 }, "hash-salah");
-  assert.ok([409, 500].includes(wrongHash.status), `hash salah harus ditolak, dapat ${wrongHash.status}`);
+  assertCall(wrongHash, 409, "hash salah");
+  assert.equal(wrongHash.errorCode, "IDEMPOTENCY_CONFLICT");
   const afterIdem = snapshot();
   assert.deepEqual(deltaOf(beforeIdem, afterIdem), ONE_SALE, "klik ganda/retry tidak boleh menambah sale");
-  pass("AC-04.01", "Dua commit paralel identik & retry → satu saleId; hash/kunci berbeda ditolak tanpa mutasi", {
+  pass("AC-04.01", "Dua commit paralel identik & retry → satu saleId; replay tender beda mengembalikan uang asli Rp5.000; hash salah 409 IDEMPOTENCY_CONFLICT tanpa mutasi", {
     before: beforeIdem, after: afterIdem, delta: deltaOf(beforeIdem, afterIdem),
-    saleId: clickA.data.saleId, conflictStatus: conflictCommit.status, wrongHashStatus: wrongHash.status,
+    saleId: clickA.data.saleId, replayTenderStatus: replayTender.status,
+    replayCashReceivedRp: replayTender.data.payment.cashReceivedRp, wrongHashStatus: wrongHash.status, wrongHashCode: wrongHash.errorCode,
   });
   const closeIdem = await call(base, `/shifts/${openIdem.data.id}/close`, {
     method: "POST", token: tokenA, body: { closeKey: key("close-idem"), declaredCashRp: null }, label: "tutup shift idempotensi",
@@ -581,9 +698,10 @@ async function main() {
   assert.equal(cfClose.data.totals.cashRp, 5000);
   const afterCommitFirst = snapshot();
   assert.deepEqual(deltaOf(beforeCommitFirst, afterCommitFirst), { ...ONE_SALE, sales: 1 });
-  pass("AC-06.02", "Commit lebih dulu lalu close → sale Rp5.000 masuk rekap shift (saleCount=1, cashRp=5000)", {
+  assert.equal(afterCommitFirst.counts.closings, beforeCommitFirst.counts.closings + 1, "commit-first: tepat satu penutupan baru");
+  pass("AC-06.02", "Dua urutan close/commit: commit duluan → sale Rp5.000 masuk rekap (saleCount=1, cashRp=5000); close duluan → 409 SHIFT_NOT_ACTIVE. Keduanya +1 penutupan", {
     before: beforeCommitFirst, after: afterCommitFirst, delta: deltaOf(beforeCommitFirst, afterCommitFirst),
-    closeTotals: cfClose.data.totals,
+    closeTotals: cfClose.data.totals, closeFirstOrder: closeFirstEvidence,
   });
 
   // -------------------------------------------------------------------------
@@ -609,7 +727,7 @@ async function main() {
   tokenA = await login(base, cashierAUser, passA, "login untuk retry close setelah restart");
   const closeAfterRestart = await call(base, `/shifts/${openRetryClose.data.id}/close`, { method: "POST", token: tokenA, body: goodCloseBody, label: "retry close setelah restart" });
   assertCall(closeAfterRestart, 200, "retry close setelah restart");
-  assert.equal(closeAfterRestart.data.closeKey, goodClose.data.closeKey);
+  assert.deepEqual(stableClose(closeAfterRestart), stableClose(goodClose), "retry setelah restart harus mengembalikan totals & selisih asli");
   assert.equal(snapshot().counts.closings, closingsBeforeRestart, "retry tidak boleh menambah penutupan");
   pass("AC-06.03", "Close invalid 422 & shift tetap aktif; close sah; restart + retry closeKey sama → hasil asli, tanpa penutupan tambahan", {
     closeKey: goodClose.data.closeKey, closings: closingsBeforeRestart,
@@ -625,7 +743,10 @@ async function main() {
   assert.equal(closedShiftPrep.result.errorCode, "SHIFT_NOT_ACTIVE");
   const finalSnap = snapshot();
   assert.deepEqual(core(finalSnap), core(beforeFinal));
-  pass("REKONSILIASI", `Integritas akhir ok, FK 0, ${finalSnap.counts.sales} sale = ${finalSnap.counts.payments} payment, ${finalSnap.counts.closings} penutupan, stok ${finalSnap.stock}`, { final: finalSnap });
+  // BUG-103: keadaan akhir yang tidak rekonsiliasi tidak boleh dilaporkan PASS.
+  assert.equal(finalSnap.reconciled, true, `rekonsiliasi akhir gagal: ${JSON.stringify(finalSnap)}`);
+  assert.equal(finalSnap.stock, finalSnap.expectedStock, "stok akhir harus sama dengan saldo ledger");
+  pass("REKONSILIASI", `Integritas akhir ok, FK 0, ${finalSnap.counts.sales} sale = ${finalSnap.counts.payments} payment, ${finalSnap.counts.closings} penutupan, stok ${finalSnap.stock} (= ledger)`, { final: finalSnap });
 }
 
 function writeEvidence(status) {
@@ -660,10 +781,14 @@ try {
 } finally {
   await stopChild();
   await stopInProcess();
-  writeEvidence(finalStatus);
-  if (!keepTemp) {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* kunci Windows */ }
-  } else {
-    console.log(`\nTemp disimpan (--keep-temp): ${tempDir}`);
+  try {
+    writeEvidence(finalStatus);
+  } finally {
+    // BUG-114: cleanup tetap jalan walau writeEvidence melempar; error tetap propagate.
+    if (!keepTemp) {
+      try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* kunci Windows */ }
+    } else {
+      console.log(`\nTemp disimpan (--keep-temp): ${tempDir}`);
+    }
   }
 }

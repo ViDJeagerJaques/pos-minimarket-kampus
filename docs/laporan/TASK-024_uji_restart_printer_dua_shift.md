@@ -49,20 +49,20 @@ Dependensi coding dicek nyata di checkout: `backend/src/print/service.ts` + `pri
 | Cetak ulang | server in-process dengan `createVirtualPrinterAdapter()` → kanal `VIRTUAL` |
 | Akun | 1 ADMIN + 2 CASHIER sintetis (A pemilik shift, B bukan pemilik) |
 | Produk | SKU `T24-PROD`, Rp5.000, stok awal +10 (`OPENING` sintetis) |
-| Rekonsiliasi | `counts`, saldo ledger, uang, `integrity_check`, `foreign_key_check` sebelum/sesudah tiap skenario |
+| Rekonsiliasi | `counts`, saldo ledger, uang, `integrity_check`, `foreign_key_check` sebelum/sesudah tiap skenario; saldo produk juga dibandingkan dengan `OPENING 10 + Σ mutasi −4 = 6` |
 
 ## 4. Matriks AC (hasil nyata)
 
 | AC | Aksi nyata | Ekspektasi | Hasil aktual | Bukti | Status |
 |---|---|---|---|---|---|
-| AC-04.01 | Prepare 1×Rp5.000; dua commit paralel attemptKey+hash sama; replay identik; hash salah | Satu saleId untuk semua upaya identik; hash/kunci beda ditolak | Dua klik & retry → `saleId` sama; hash 64 nol ditolak; delta sale 1 | Tes #9 | **PASS** |
-| AC-04.02 | SIGKILL sebelum commit, restart, cek status, lanjut commit; SIGKILL sesudah commit, restart, cek status | Sebelum commit: nol parsial; PREPARED bisa dilanjut. Sesudah commit: COMMITTED & sale sama, tanpa dobel | Nol parsial; status `PREPARED` → commit sukses; status `COMMITTED` dengan `saleId=2`, `saleNo=S-000002`; tanpa sale tambahan | Tes #4–#5 | **PASS** |
+| AC-04.01 | Prepare 1×Rp5.000; dua commit paralel attemptKey+hash sama; replay identik; replay nominal tunai diubah; hash salah | Satu saleId untuk semua upaya identik; replay mengembalikan uang asli; hash beda ditolak 409 | Dua klik & retry → `saleId` sama; replay tender Rp9.999 → 200 dengan `cashReceivedRp=5000`; hash 64 nol → 409 `IDEMPOTENCY_CONFLICT`; delta sale 1 | Tes #9 | **PASS** |
+| AC-04.02 | Respons prepare selesai lalu SIGKILL, restart, cek status, lanjut commit; respons commit selesai lalu SIGKILL, restart, cek status | Nol parsial; PREPARED bisa dilanjut; COMMITTED & sale sama, tanpa dobel | Nol parsial; status `PREPARED` → commit sukses; status `COMMITTED` dengan `saleId=2`, `saleNo=S-000002`; tanpa sale tambahan | Tes #4–#5 | **PASS (terbatas, lihat §7)** |
 | AC-04.03 | Baca struk; cetak saat adapter gagal; cetak ulang 2× dengan adapter virtual; kasir B & ADMIN coba cetak | Gagal cetak 503 tanpa mutasi; reprint sama nomor/isi; non-owner 403 | 503 `PRINTER_UNAVAILABLE`, sale/stok utuh; `saleNo=S-000002` identik di dua reprint & teks sama; kasir B 403 | Tes #6 | **PASS (printer virtual)** — printer fisik **PENDING LAPANGAN** |
-| AC-05.01 | Dua `POST /shifts/open` paralel oleh kasir A; ADMIN coba buka | Satu shift aktif; ADMIN 403 | 200 + 409 `SHIFT_ALREADY_OPEN`; kasir B `null`; ADMIN 403 | Tes #2 | **PASS** |
-| AC-05.02 | Logout owner → token lama 401 → login ulang; restart child; login ulang; cek shift A & B | Shift ID/waktu sama; owner lanjut, kasir B tidak | ID & `openedAtMs` identik setelah logout/login dan restart; token lama 401; kasir B `null` | Tes #3 | **PASS (restart backend)** — restart frontend/PC mati **NOT RUN** |
+| AC-05.01 | Tiga `POST /shifts/open` bersamaan (A, A, B); lalu dua open paralel kasir A; ADMIN coba buka | Satu shift aktif; ADMIN 403 | 3-way: satu 200 + dua 409, tepat satu baris shift aktif; A/A: 200 + 409 `SHIFT_ALREADY_OPEN`; kasir B `null`; ADMIN 403 | Tes #2 | **PASS** |
+| AC-05.02 | Logout owner → token lama 401 → login ulang; ganti proses child; login ulang; cek shift A & B | Shift ID/waktu sama; owner lanjut, kasir B tidak | ID & `openedAtMs` identik setelah logout/login dan penggantian proses; token lama 401; kasir B `null`. Ini **bukan uji graceful shutdown** (Windows `kill()`) | Tes #3 | **PASS (penggantian proses backend)** — graceful shutdown, restart frontend & PC mati **NOT RUN** |
 | AC-06.01 | Preview tutup shift 1 dengan `declaredCashRp = expectedCashRp`; close | Rekap CASH/QRIS & selisih sesuai fixture DEMO | `varianceRp=0`, `totals.totalSalesRp>0`, rekap tersimpan; `GET /shifts/current` → null | Tes #7 | **PASS** |
-| AC-06.02 | (a) close & commit paralel; (b) commit lebih dulu lalu close; (c) checkout shift tertutup | Serial & konsisten: commit dulu masuk rekap, close dulu menolak checkout | (a) close=200, commit=409, sales delta 0; (b) commit=200, `saleCount=1`, `cashRp=5000`; (c) 409 `SHIFT_NOT_ACTIVE` | Tes #8, #10, final | **PASS** |
-| AC-06.03 | close nominal invalid; close sah; restart; retry closeKey sama; closeKey isi beda | Invalid mempertahankan shift; retry identik satu hasil; isi beda 409 | 422 & shift tetap aktif; retry setelah restart `closeKey` sama & jumlah penutupan tidak bertambah; isi beda 409 | Tes #7, #11 | **PASS** |
+| AC-06.02 | (a) close & commit paralel; (b) urutan close lebih dulu; (c) urutan commit lebih dulu lalu close; (d) checkout shift tertutup | Kedua urutan: close 200 + tepat satu penutupan baru; commit dulu masuk rekap, close dulu menolak 409 | (a) close=200, +1 penutupan, commit=409; (b) commit=409 `SHIFT_NOT_ACTIVE`, tanpa sale; (c) commit=200, `saleCount=1`, `cashRp=5000`; (d) 409 `SHIFT_NOT_ACTIVE` | Tes #8, #10, final | **PASS** |
+| AC-06.03 | close nominal invalid; close sah; restart; retry closeKey sama; closeKey isi beda | Invalid mempertahankan shift; retry mengembalikan totals & selisih asli; isi beda 409 | 422 & shift tetap aktif; retry setelah restart `closeKey`, `totals`, `varianceRp`, `declaredCashRp`, `expectedCashRp` identik & penutupan tidak bertambah; isi beda 409 | Tes #7, #11 | **PASS** |
 
 Status **FAIL: tidak ada**; **BLOCKED: tidak ada** dalam cakupan yang dijalankan.
 
@@ -101,9 +101,35 @@ Catatan baseline: `frontend` juga diulang dengan `npm test -- --testTimeout=3000
 
 Log mentah: `docs/laporan/evidence/TASK-024/`.
 
+Verifikasi di atas dijalankan pada HEAD `b119c77` dengan perbaikan CodeRabbit belum ter-commit; harness **12/12 PASS**, backend **157/158** (BUG-097 EPERM), frontend **199/199**.
+
+### 6.1 Perbaikan temuan CodeRabbit PR #43 (BUG-102–BUG-116)
+
+Semua 15 temuan diverifikasi terhadap kode saat ini dan ditangani di harness/laporan (kode produk 0 perubahan):
+
+| Bug | Tindakan |
+|---|---|
+| BUG-102 | Hash salah sekarang wajib 409 `IDEMPOTENCY_CONFLICT` (500 tidak diterima) |
+| BUG-103 | Sebelum PASS `REKONSILIASI`, assert `finalSnap.reconciled === true` dan `stock === expectedStock` |
+| BUG-104 | Assert kedua teks struk bertipe string & non-empty sebelum dibandingkan |
+| BUG-105 | Klaim "graceful" dihapus; ini penggantian proses child, bukan shutdown rapi |
+| BUG-106 | Retry close membandingkan `closeKey`, `shiftId`, `totals`, `varianceRp`, `declaredCashRp`, `expectedCashRp` |
+| BUG-107 | Race: close wajib 200 + tepat satu penutupan baru; kedua urutan (close-first & commit-first) diuji eksplisit |
+| BUG-108 | Commit setelah close wajib 409 `SHIFT_NOT_ACTIVE`; 500 tidak diterima |
+| BUG-109 | `startInProcess` menutup DB bila server gagal start; `inProcess` diisi hanya setelah sukses |
+| BUG-110 | `reconciled` membandingkan stok dengan saldo ledger (OPENING 10 + Σ mutasi −4 = 6) |
+| BUG-111 | Cakupan AC-04.02 dipersempit jujur: crash setelah respons prepare/commit diterima; tidak ada injeksi kegagalan saat tulis DB (lihat §7) |
+| BUG-112 | Replay tender Rp9.999 → 200 dengan `saleId` & `cashReceivedRp=5000` asli; label diubah jadi replay |
+| BUG-113 | `stopChild` mengenali `exitCode` atau `signalCode`, tidak menyinyal proses yang sudah mati, menunggu konfirmasi exit setelah SIGKILL (maks 3 detik, gagal → error) |
+| BUG-114 | Cleanup temp berada di `finally` bersarang agar tetap jalan bila `writeEvidence` melempar; error tetap propagate |
+| BUG-115 | Laporan menyatakan keterbatasan crash-saat-prepare (§7) |
+| BUG-116 | Tes #2 juga menjalankan buka bersamaan A/A/B → satu 200, dua 409, satu baris shift aktif; identitas pemilik dipakai untuk reset fixture |
+
 ## 7. Temuan, risiko, dan yang belum terbukti
 
 - **Tidak ada bug kehilangan/dobel uang atau stok** pada cakupan yang dieksekusi. Tidak ada temuan kritis yang perlu ditriase.
+- **Batas AC-04.02 (BUG-115):** harness tidak menyuntik kegagalan *di tengah tulis DB* maupun *antara commit tersimpan dan pengiriman respons*. Yang dibuktikan adalah crash setelah respons `prepare` diterima penuh (sebelum commit) dan crash setelah respons `commit` diterima penuh. Skenario "crash saat prepare aktif" dan "commit tersimpan tapi respons hilang" **tidak tercakup** dan tetap menjadi utang uji (TASK-019/TASK-024 lanjutan).
+- **Penggantian proses bukan graceful shutdown (BUG-105):** pada Windows `child.kill()` tidak dapat dianggap sebagai shutdown terkendali; tes #3 hanya membuktikan shift persisten setelah proses diganti, bukan penutupan aplikasi yang rapi.
 - Printer fisik (ESC/POS, driver, port), uang tunai/QRIS nyata, scanner, resolusi 1366×768, PC 4 GB, Electron, dan installer **belum diuji**. Adapter virtual bukan pengganti perangkat (VAL-04).
 - `SIGKILL` adalah simulasi mati listrik/CRASH pada proses backend di DB uji; bukan pemadaman daya sungguhan (TASK-035).
 - Token sesi berada di memori proses; setelah restart/login ulang kasir harus login lagi — sesuai desain, bukan bug.
