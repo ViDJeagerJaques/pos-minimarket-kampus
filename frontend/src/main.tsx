@@ -6,29 +6,55 @@ import { createMockDataSource } from "./api/mockDataSource";
 import "./styles/tokens.css";
 import "./styles/app.css";
 
-const container = document.getElementById("root");
-if (!container) {
-  throw new Error("Elemen #root tidak ditemukan");
+/**
+ * Jembatan opsional yang disediakan kandidat Electron (TASK-031). Di browser
+ * development tidak ada objek ini, sehingga perilaku lama tetap dipertahankan.
+ */
+declare global {
+  interface Window {
+    POS_SPIKE?: {
+      getApiBaseUrl: () => Promise<string>;
+      openExternal: (target: string) => Promise<boolean>;
+      retryStartup: () => Promise<boolean>;
+      exitApp: () => Promise<boolean>;
+    };
+  }
 }
 
 /**
- * TASK-011/TASK-012: autentikasi, akun, dan katalog memakai backend lokal nyata.
- *
- * - Default: `POST /auth/login` dan katalog via proxy Vite `/api` → 127.0.0.1:8787.
- * - `VITE_AUTH_MODE=demo`: kembali ke mock DEMO (hanya untuk kerja UI terisolasi).
- *   Mode DEMO menandai dirinya di UI dan menolak operasi tulis katalog.
- * - Build Electron: set `VITE_API_BASE_URL=http://127.0.0.1:8787/api/v1`
- *   (CSP `connect-src` sudah mengizinkan loopback).
+ * BUG-121: bila berjalan di Electron, alamat API diambil dari main process
+ * yang memilih port loopback aktual. Tunggu nilai itu SEBELUM request pertama.
+ * Fallback development memakai VITE_API_BASE_URL / proxy Vite seperti sebelumnya.
  */
-const dataSource =
-  import.meta.env.VITE_AUTH_MODE === "demo"
-    ? createMockDataSource({ latencyMs: 150 })
-    : createHttpDataSource({
-        baseUrl: import.meta.env.VITE_API_BASE_URL ?? "/api/v1",
-      });
+async function resolveApiBaseUrl(): Promise<string> {
+  const bridge = window.POS_SPIKE;
+  if (bridge && typeof bridge.getApiBaseUrl === "function") {
+    const endpoint = await bridge.getApiBaseUrl();
+    if (typeof endpoint !== "string" || endpoint.trim().length === 0) {
+      throw new Error("Alamat API dari main process tidak valid.");
+    }
+    return endpoint;
+  }
+  return import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+}
 
-createRoot(container).render(
-  <StrictMode>
-    <App dataSource={dataSource} />
-  </StrictMode>,
-);
+async function bootstrap(): Promise<void> {
+  const container = document.getElementById("root");
+  if (!container) {
+    throw new Error("Elemen #root tidak ditemukan");
+  }
+
+  const baseUrl = await resolveApiBaseUrl();
+  const dataSource =
+    import.meta.env.VITE_AUTH_MODE === "demo"
+      ? createMockDataSource({ latencyMs: 150 })
+      : createHttpDataSource({ baseUrl });
+
+  createRoot(container).render(
+    <StrictMode>
+      <App dataSource={dataSource} />
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

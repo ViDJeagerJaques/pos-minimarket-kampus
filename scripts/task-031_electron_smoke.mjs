@@ -2,8 +2,14 @@
 /**
  * TASK-031 — Smoke nyata melalui backend yang di-spawn kandidat Electron.
  *
- * Jalankan dari root repo saat kandidat Electron berjalan (default port 8787):
- *   POS_SPIKE_DB="<path userData>/pos-dev.sqlite" node scripts/task-031_electron_smoke.mjs
+ * Jalankan dari root repo saat kandidat Electron berjalan (default port 8787).
+ * Kedua perintah HARUS memakai POS_SPIKE_CREDS_FILE yang sama:
+ *   POS_SPIKE_DB="<userData>/pos-dev.sqlite" POS_SPIKE_CREDS_FILE=<temp>/task031-creds.json node scripts/task-031_electron_smoke.mjs
+ *   POS_SPIKE_DB="<userData>/pos-dev.sqlite" POS_SPIKE_CREDS_FILE=<temp>/task031-creds.json node scripts/task-031_catalog_bench.mjs
+ *
+ * Bootstrap ADMIN hanya berjalan pada DB evaluasi yang MASIH KOSONG. Menjalankan
+ * ulang smoke pada DB yang sudah terisi tidak dapat memulihkan kredensial yang
+ * hilang; hapus DB userData terlebih dahulu bila ingin mengulang dari awal.
  *
  * Alur: login ADMIN → buat kasir → scan barcode → buka shift → prepare →
  * commit CASH → baca struk → cetak → cek SQLite. Data sintetis; tidak ada uang

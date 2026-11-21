@@ -10,4 +10,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("POS_SPIKE", Object.freeze({
   getApiBaseUrl: () => ipcRenderer.invoke("pos:get-api-base-url"),
   openExternal: (target) => ipcRenderer.invoke("pos:open-external", target),
+  retryStartup: () => ipcRenderer.invoke("pos:retry-startup"),
+  exitApp: () => ipcRenderer.invoke("pos:exit-app"),
 }));

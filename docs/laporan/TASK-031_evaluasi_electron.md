@@ -60,12 +60,12 @@ Dependensi dicek nyata: TASK-007 (frontend React/Vite) ada di `frontend/`; TASK-
 |---|---|
 | Sampel | 20 |
 | Berhasil / gagal | **20 / 0** |
-| Minimum | 4.078,5 ms |
-| Median | 5.099,8 ms |
-| p95 | 6.147,9 ms |
-| Maksimum | 6.255,9 ms |
-| RAM idle (median tree) | **398,3 MB** |
-| Contoh fase internal (run terakhir) | `app_ready=2200,4 ms`, `backend_ready=2952,1 ms`, `window_loaded=4904,5 ms` |
+| Minimum | 3.714,2 ms |
+| Median | 3.916,6 ms |
+| p95 | 4.483,5 ms |
+| Maksimum | 5.704,2 ms |
+| RAM idle (median tree) | **399,5 MB** |
+| Contoh fase internal (run smoke akhir) | `app_ready=1455,0 ms`, `backend_ready=1894,3 ms`, `window_loaded=3484,0 ms` |
 
 Catatan: ini adalah **startup proses aplikasi**, bukan cold boot Windows. Cache OS tidak dibersihkan antar sampel, jadi perbedaan cold/warm tidak dipisahkan secara ketat; kedua istilah tidak dipakai untuk klaim. Perintah: `powershell -File task031-measure20.ps1` (script disimpan di evidence folder).
 
@@ -74,14 +74,16 @@ Catatan: ini adalah **startup proses aplikasi**, bukan cold boot Windows. Cache 
 | Metrik | Hasil |
 |---|---|
 | Smoke | **8/8 PASS** |
-| `readyWallMs` | 8.664,8 ms (run ini, termasuk inisialisasi DB) |
-| RAM idle | 391,8 MB |
-| RAM setelah checkout | 390,2 MB (perubahan dalam bising pengukuran; tidak dibaca sebagai penurunan nyata) |
-| Fase internal | `app_ready=1826,6 ms`, `backend_ready=2550,0 ms`, `window_loaded=3747,9 ms` |
+| `readyWallMs` | 7.766,7 ms (run akhir, termasuk inisialisasi DB) |
+| RAM idle | 405,4 MB |
+| RAM setelah checkout | 406,8 MB (N=1; perubahan dalam bising pengukuran, bukan penurunan/kenaikan yang dibuktikan) |
+| Fase internal | `app_ready=1455,0 ms`, `backend_ready=1894,3 ms`, `window_loaded=3484,0 ms` |
 | Bukti UI | `POS_SPIKE dom_text=MODE DEMO - Autentikasi memakai backend lokal (offline) ... POS Minimarket Kampus Masuk dengan akun lokal ...` |
 | Screenshot | **GAGAL**: `Current display surface not available for capture` (keterbatasan environment) |
 
-Run awal 2 sampel (sebelum perbaikan kandidat) juga memberi cold 4.413,5 ms / warm 4.488,6 ms, RAM idle 395,1/400,9 MB, checkout 398,5/430,3 MB, dengan checkout E2E TASK-017 13/13 PASS saat aplikasi hidup. Angka-angka ini bukan target dan tidak diekstrapolasi ke PC 4 GB.
+Sumber angka di tabel ini adalah `finalSmoke` pada `docs/laporan/evidence/TASK-031/task031-summary.json` (log pendukung: `task031-smoke2.log` dan `task031-smoke-result2.json`). **N=1** di sini berarti satu run smoke akhir yang dicatat; angka RAM idle/checkout bukan median dan tidak diekstrapolasi.
+
+Run awal 2 sampel yang **terpisah** (sebelum perbaikan kandidat) ada di `task031-measurement.json`: cold 4.413,5 ms / warm 4.488,6 ms, RAM idle 395,1/400,9 MB, checkout 398,5/430,3 MB, dengan checkout E2E TASK-017 13/13 PASS saat aplikasi hidup. Keduanya bukan target dan tidak diekstrapolasi ke PC 4 GB.
 
 ### 4.3 Katalog besar
 
@@ -92,10 +94,10 @@ Hasil dari `scripts/task-031_catalog_bench.mjs` (log: `docs/laporan/evidence/TAS
 | Dataset | 1.000 SKU sintetis + barcode unik (prefiks `T31B-`), tanpa data pelanggan |
 | Sampel scan | 100 |
 | Berhasil / gagal | **100 / 0** |
-| Minimum | 1,04 ms |
-| Median | 1,70 ms |
-| p95 | 3,68 ms |
-| Maksimum | 7,31 ms |
+| Minimum | 1,01 ms |
+| Median | 1,53 ms |
+| p95 | 3,13 ms |
+| Maksimum | 4,44 ms |
 | Referensi CDN/eksternal di `dist/index.html` | **0** (`externalRefs: []`) |
 
 Ini adalah latensi lookup API loopback pada mesin dev dengan katalog 1.000 SKU; **bukan** angka PC tujuan dan bukan beban render UI 10.000 SKU. Target usulan PERFORMANCE.md p95 ≤ 300 ms terpenuhi pada lingkungan ini, tetapi tidak diekstrapolasi ke PC 4 GB.
@@ -146,6 +148,20 @@ node scripts/task-031_catalog_bench.mjs
 ```
 
 Semua log ada di `docs/laporan/evidence/TASK-031/`.
+
+### 6.1 Perbaikan temuan CodeRabbit PR #44 (BUG-119–BUG-125)
+
+| Bug | Tindakan |
+|---|---|
+| BUG-119 | Migrasi gagal kini melempar error startup; jendela kasir tidak dibuka, ditampilkan error UI dengan tombol **Coba lagi** (menjalankan ulang startup) / **Keluar** |
+| BUG-120 | `will-navigate` membandingkan URL dengan `pathToFileURL(FRONTEND_INDEX).href` kanonis + query/fragment, bukan substring `frontend` |
+| BUG-121 | Renderer `frontend/src/main.tsx` kini `await window.POS_SPIKE.getApiBaseUrl()` sebelum membuat data source; main mengembalikan promise yang ter-resolve saat backend siap. Fallback browser development tetap `VITE_API_BASE_URL` / proxy Vite |
+| BUG-122 | Tabel §4.1–4.3 dan sumbernya diselaraskan dengan `task031-summary.json` hasil run akhir; N=1 smoke dijelaskan secara eksplisit |
+| BUG-123 | `externalRefs` mem-parse URL dan membandingkan hostname persis (`127.0.0.1`/`localhost`/`::1`); `//cdn.example/...` terdeteksi eksternal |
+| BUG-124 | Jumlah fixture `T31B-%` diverifikasi sama dengan yang diminta sebelum dipakai ulang; jumlah terverifikasi dilaporkan di `skuCount` |
+| BUG-125 | Kedua perintah di header smoke mencantumkan `POS_SPIKE_CREDS_FILE` yang sama + catatan bootstrap butuh DB kosong |
+
+Verifikasi setelah perbaikan: smoke **8/8 PASS**, katalog **100/100 PASS**, startup **20/20 PASS**, backend **157/158** (hanya BUG-097 symlink EPERM), frontend **199/199 PASS**, dan Electron berhasil start ulang dengan DOM renderer terisi.
 
 ## 7. Risiko, asumsi DEMO, dan syarat GO-LIVE yang belum terbukti
 

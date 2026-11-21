@@ -22,9 +22,22 @@ const SCAN_COUNT = Number(process.env.POS_SPIKE_SCAN_COUNT ?? 100);
 
 const html = readFileSync(resolve(root, "frontend/dist/index.html"), "utf8");
 const assets = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
-const externalRefs = assets.filter((a) => /^https?:\/\//i.test(a) && !a.includes("127.0.0.1") && !a.includes("localhost"));
+const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+/** BUG-123: bandingkan hostname persis; URL relatif & protocol-relative ditangani. */
+function isExternalAsset(ref) {
+  try {
+    const candidate = ref.startsWith("//") ? `https:${ref}` : ref;
+    const parsed = new URL(candidate, "file:///");
+    const host = parsed.hostname.toLowerCase();
+    return host.length > 0 && !ALLOWED_HOSTS.has(host);
+  } catch {
+    return false;
+  }
+}
+const externalRefs = assets.filter(isExternalAsset);
 assert.deepEqual(externalRefs, [], "tidak boleh ada referensi CDN/eksternal di index.html");
 
+let verifiedFixtureCount = 0;
 const db = new DatabaseSync(dbPath);
 try {
   const categoryId = Number(
@@ -41,18 +54,30 @@ try {
   const existing = Number(
     db.prepare("SELECT COUNT(*) AS total FROM products WHERE sku LIKE 'T31B-%'").get().total,
   );
+  // BUG-124: hanya pakai ulang fixture bila jumlahnya benar-benar sesuai.
+  assert.ok(
+    existing === 0 || existing === SKU_COUNT,
+    `fixture T31B ada ${existing} baris, diharapkan 0 atau ${SKU_COUNT}`,
+  );
   if (existing === 0) {
-    const tx = db.prepare("SELECT 1");
-    void tx;
     db.exec("BEGIN");
-    for (let i = 0; i < SKU_COUNT; i += 1) {
-      const sku = `T31B-${String(i).padStart(6, "0")}`;
-      const barcode = `T31B${String(i).padStart(10, "0")}`;
-      const info = insertProduct.run(categoryId, sku, `Produk sintetis ${i}`, 2500);
-      insertBarcode.run(barcode, Number(info.lastInsertRowid));
+    try {
+      for (let i = 0; i < SKU_COUNT; i += 1) {
+        const sku = `T31B-${String(i).padStart(6, "0")}`;
+        const barcode = `T31B${String(i).padStart(10, "0")}`;
+        const info = insertProduct.run(categoryId, sku, `Produk sintetis ${i}`, 2500);
+        insertBarcode.run(barcode, Number(info.lastInsertRowid));
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
     }
-    db.exec("COMMIT");
   }
+  verifiedFixtureCount = Number(
+    db.prepare("SELECT COUNT(*) AS total FROM products WHERE sku LIKE 'T31B-%'").get().total,
+  );
+  assert.equal(verifiedFixtureCount, SKU_COUNT, "jumlah fixture terverifikasi harus sama dengan yang diminta");
 } finally {
   db.close();
 }
@@ -72,7 +97,7 @@ adminToken = (await login.json()).data.token;
 
 const durations = [];
 for (let i = 0; i < SCAN_COUNT; i += 1) {
-  const idx = i % SKU_COUNT;
+  const idx = i % verifiedFixtureCount;
   const barcode = `T31B${String(idx).padStart(10, "0")}`;
   const t0 = process.hrtime.bigint();
   const res = await fetch(`${base}/products?barcode=${barcode}`, {
@@ -87,7 +112,7 @@ for (let i = 0; i < SCAN_COUNT; i += 1) {
 durations.sort((a, b) => a - b);
 const pct = (p) => durations[Math.ceil(durations.length * p) - 1];
 const summary = {
-  skuCount: SKU_COUNT,
+  skuCount: verifiedFixtureCount,
   scanCount: SCAN_COUNT,
   success: durations.length,
   failed: 0,

@@ -3,9 +3,9 @@
   "scanCount": 100,
   "success": 100,
   "failed": 0,
-  "minMs": 1.04,
-  "medianMs": 1.7,
-  "p95Ms": 3.68,
-  "maxMs": 7.31,
+  "minMs": 1.01,
+  "medianMs": 1.53,
+  "p95Ms": 3.13,
+  "maxMs": 4.44,
   "externalRefs": []
 }
