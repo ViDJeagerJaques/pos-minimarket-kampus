@@ -1,0 +1,43 @@
+{
+  "task": "TASK-031",
+  "revision": "review PR #44 fixes",
+  "environment": {
+    "os": "Microsoft Windows 11 Home Single Language 10.0.26200 x64",
+    "cpu": "12th Gen Intel Core i5-1235U",
+    "ramGB": 7.69,
+    "node": "v24.22.3",
+    "electron": "45.4.1",
+    "dataMode": "DEMO synthetic, dev machine - NOT target 4GB PC"
+  },
+  "startup20": {
+    "total": 20,
+    "success": 20,
+    "failed": 0,
+    "minMs": 3714.2,
+    "medianMs": 3916.6,
+    "p95Ms": 4483.5,
+    "maxMs": 5704.2,
+    "idleRamMedianMB": 399.5,
+    "domTextSample": ""
+  },
+  "finalSmoke": {
+    "ready": true,
+    "readyWallMs": 7766.7,
+    "idleRamMB": 405.4,
+    "afterCheckoutRamMB": 406.8,
+    "smokeOk": true,
+    "smokeTail": "PASS 1. Electron userData DB dapat dibuka | PASS 2. Bootstrap ADMIN sintetis di DB userData | PASS 3. Login ADMIN & CASHIER lewat backend Electron | PASS 4. Stok awal sintetis +5 ditulis ke DB userData | PASS 5. Scan barcode 000321 menemukan produk & harga dari backend | PASS 6. Checkout dummy CASH Rp5.000 COMMITTED via backend Electron | PASS 7. Struk dibaca & dicetak (adapter VIRTUAL) dengan nomor yang sama | PASS 8. SQLite akhir: 1 sale, 1 payment, stok 4, integrity ok, FK 0 |  | PASS total 8 smoke Electron TASK-031.",
+    "bench": "POS_BENCH app_ready=1455.0ms | POS_BENCH backend_ready=1894.3ms | POS_BENCH window_loaded=3484.0ms"
+  },
+  "catalogBench": {
+    "skuCount": 1000,
+    "scanCount": 100,
+    "success": 100,
+    "failed": 0,
+    "minMs": 1.01,
+    "medianMs": 1.53,
+    "p95Ms": 3.13,
+    "maxMs": 4.44,
+    "externalRefs": []
+  }
+}

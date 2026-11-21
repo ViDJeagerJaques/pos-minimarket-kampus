@@ -1,0 +1,7 @@
+
+POS_BENCH app_ready=1455.0ms
+POS_BENCH backend_ready=1894.3ms
+POS_BENCH window_loaded=3484.0ms
+POS_SPIKE window_ready
+POS_SPIKE dom_text=MODE DEMO — Autentikasi memakai backend lokal (offline). Katalog masih data sintetis; transaksi uji yang COMMITTED dapat tersimpan di SQLite lokal. Bukan untuk uang sungguhan. POS Minimarket Kampus Masuk dengan akun lokal. Server hanya diakses melalui loopback (tanpa internet). Nama pengguna Kata sandi Masuk Belum punya akun? ADMIN membuat akun melalui menu Akun setelah masuk. Akun kasir nonaktif tidak dapat login.
+POS_SPIKE backend exit code=4294967295 signal=null
