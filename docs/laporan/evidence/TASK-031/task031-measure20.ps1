@@ -64,8 +64,22 @@ for ($i=1; $i -le 20; $i++) {
   $samples += [pscustomobject]@{
     n=$i; ok=$ok; wallMs=$wall; idleRamMB=$ram
     appReadyMs=if($app){[double]$app.Matches[0].Groups[1].Value}else{$null}
-    backendReadyMs=if($bk){[double]$bk.Matches[0].Groups[1].Value}else{$null}
-    windowLoadedMs=if($win){[double]$win.Matches[0].Groups[1].Value}else{$null}
+    backendReadyMs=if($bk){[double]$bk.Matches[0].Groups[2].Value}else{$null}
+    windowLoadedMs=if($win){[double]$win.Matches[0].Groups[3].Value}else{$null}
+  }
+  # BUG-130: tunggu bukti DOM sebelum mematikan Electron; wall time sudah
+  # di-anchor saat window_ready terdeteksi di atas.
+  if ($ok) {
+    $domDeadline = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $domDeadline) {
+      $dc = Get-Content $outLog -Raw -ErrorAction SilentlyContinue
+      if ($dc -match 'POS_SPIKE dom_text=|POS_SPIKE dom_fail=') {
+        $dm2 = Select-String -Path $outLog -Pattern 'POS_SPIKE dom_text=(.*)' | Select-Object -First 1
+        if ($dm2) { $dom = $dm2.Line -replace '^.*POS_SPIKE dom_text=', '' }
+        break
+      }
+      Start-Sleep -Milliseconds 150
+    }
   }
   Kill-Tree $p
   Start-Sleep -Milliseconds 600
@@ -81,7 +95,7 @@ $summary = [pscustomobject]@{
   medianMs=Pct $okWalls 0.5
   p95Ms=Pct $okWalls 0.95
   maxMs=if($okWalls){$okWalls[-1]}else{$null}
-  idleRamMedianMB=(($samples | Where-Object {$_.idleRamMB -gt 0} | ForEach-Object {$_.idleRamMB} | Sort-Object) | ForEach-Object {$_})[9]
+  idleRamMedianMB=(Pct @($samples | Where-Object {$_.idleRamMB -gt 0} | ForEach-Object {[double]$_.idleRamMB} | Sort-Object) 0.5)
   domTextSample=$dom.Substring(0,[Math]::Min(300,$dom.Length))
 }
 [pscustomobject]@{ summary=$summary; samples=$samples } | ConvertTo-Json -Depth 6 | Tee-Object -FilePath "$env:LOCALAPPDATA\Temp\opencode\task031-startup20.json"

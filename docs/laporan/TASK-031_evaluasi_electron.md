@@ -60,12 +60,12 @@ Dependensi dicek nyata: TASK-007 (frontend React/Vite) ada di `frontend/`; TASK-
 |---|---|
 | Sampel | 20 |
 | Berhasil / gagal | **20 / 0** |
-| Minimum | 3.714,2 ms |
-| Median | 3.916,6 ms |
-| p95 | 4.483,5 ms |
-| Maksimum | 5.704,2 ms |
-| RAM idle (median tree) | **399,5 MB** |
-| Contoh fase internal (run smoke akhir) | `app_ready=1455,0 ms`, `backend_ready=1894,3 ms`, `window_loaded=3484,0 ms` |
+| Minimum | 3.686,6 ms |
+| Median | 3.930,7 ms |
+| p95 | 4.527,9 ms |
+| Maksimum | 4.904,9 ms |
+| RAM idle (median dari 20 sampel) | **399,9 MB** |
+| Contoh fase internal (run smoke akhir, setelah BUG-127) | `backend_ready=2563,4 ms`, `app_ready=2567,3 ms`, `window_loaded=4778,1 ms` |
 
 Catatan: ini adalah **startup proses aplikasi**, bukan cold boot Windows. Cache OS tidak dibersihkan antar sampel, jadi perbedaan cold/warm tidak dipisahkan secara ketat; kedua istilah tidak dipakai untuk klaim. Perintah: `powershell -File task031-measure20.ps1` (script disimpan di evidence folder).
 
@@ -74,10 +74,10 @@ Catatan: ini adalah **startup proses aplikasi**, bukan cold boot Windows. Cache 
 | Metrik | Hasil |
 |---|---|
 | Smoke | **8/8 PASS** |
-| `readyWallMs` | 7.766,7 ms (run akhir, termasuk inisialisasi DB) |
-| RAM idle | 405,4 MB |
-| RAM setelah checkout | 406,8 MB (N=1; perubahan dalam bising pengukuran, bukan penurunan/kenaikan yang dibuktikan) |
-| Fase internal | `app_ready=1455,0 ms`, `backend_ready=1894,3 ms`, `window_loaded=3484,0 ms` |
+| `readyWallMs` | 5.698,3 ms (diukur tepat saat `window_ready` terdeteksi, sebelum smoke/benchmark) |
+| RAM idle | 393,1 MB |
+| RAM setelah checkout | 404,8 MB (N=1; perubahan dalam bising pengukuran, bukan penurunan/kenaikan yang dibuktikan) |
+| Fase internal | `backend_ready=2563,4 ms`, `app_ready=2567,3 ms`, `window_loaded=4778,1 ms` |
 | Bukti UI | `POS_SPIKE dom_text=MODE DEMO - Autentikasi memakai backend lokal (offline) ... POS Minimarket Kampus Masuk dengan akun lokal ...` |
 | Screenshot | **GAGAL**: `Current display surface not available for capture` (keterbatasan environment) |
 
@@ -94,10 +94,10 @@ Hasil dari `scripts/task-031_catalog_bench.mjs` (log: `docs/laporan/evidence/TAS
 | Dataset | 1.000 SKU sintetis + barcode unik (prefiks `T31B-`), tanpa data pelanggan |
 | Sampel scan | 100 |
 | Berhasil / gagal | **100 / 0** |
-| Minimum | 1,01 ms |
-| Median | 1,53 ms |
-| p95 | 3,13 ms |
-| Maksimum | 4,44 ms |
+| Minimum | 3,14 ms |
+| Median | 5,26 ms |
+| p95 | 9,68 ms |
+| Maksimum | 14,68 ms |
 | Referensi CDN/eksternal di `dist/index.html` | **0** (`externalRefs: []`) |
 
 Ini adalah latensi lookup API loopback pada mesin dev dengan katalog 1.000 SKU; **bukan** angka PC tujuan dan bukan beban render UI 10.000 SKU. Target usulan PERFORMANCE.md p95 ≤ 300 ms terpenuhi pada lingkungan ini, tetapi tidak diekstrapolasi ke PC 4 GB.
@@ -162,6 +162,20 @@ Semua log ada di `docs/laporan/evidence/TASK-031/`.
 | BUG-125 | Kedua perintah di header smoke mencantumkan `POS_SPIKE_CREDS_FILE` yang sama + catatan bootstrap butuh DB kosong |
 
 Verifikasi setelah perbaikan: smoke **8/8 PASS**, katalog **100/100 PASS**, startup **20/20 PASS**, backend **157/158** (hanya BUG-097 symlink EPERM), frontend **199/199 PASS**, dan Electron berhasil start ulang dengan DOM renderer terisi.
+
+### 6.2 Perbaikan temuan CodeRabbit ronde 2 PR #44 (BUG-126–BUG-132)
+
+| Bug | Tindakan |
+|---|---|
+| BUG-126 | Output backend dibuffer sampai newline lengkap; sisa potongan disimpan untuk chunk berikutnya; endpoint hanya diambil dari baris lengkap |
+| BUG-127 | `startBackend()` mengembalikan promise yang resolve saat backend lapor siap dan reject saat exit awal/error proses/timeout 15 s; `runStartup` menunggunya sebelum `createWindow()` — error tampil di jendela startup |
+| BUG-128 | `task031-measure20.ps1`: `appReadyMs` → Groups[1], `backendReadyMs` → Groups[2], `windowLoadedMs` → Groups[3]; diverifikasi 20/20 field terisi |
+| BUG-129 | Median RAM dihitung dengan `Pct` dari array terurut sampel positif yang benar-benar ada (bukan indeks tetap 9) |
+| BUG-130 | Skrip menunggu `dom_text`/`dom_fail` dengan deadline sebelum menghentikan Electron; `domTextSample` kini terisi |
+| BUG-131 | Log smoke & benchmark dibersihkan sebelum launch; `smokeTail`/`catalogBench` hanya diisi dari run saat ini dan kosong bila timeout |
+| BUG-132 | `readyWallMs` dicatat tepat saat `window_ready` terdeteksi, bukan setelah smoke/benchmark/cleanup |
+
+Verifikasi setelah ronde 2: smoke **8/8 PASS**, katalog **100/100 PASS**, startup **20/20 PASS** (dengan `domTextSample` terisi dan ketiga fieldTiming terisi), backend **157/158** (BUG-097 EPERM), frontend **199/199 PASS**.
 
 ## 7. Risiko, asumsi DEMO, dan syarat GO-LIVE yang belum terbukti
 

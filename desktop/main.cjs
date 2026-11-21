@@ -60,30 +60,66 @@ function startBackend() {
     throw new Error(`Migrasi database gagal: ${(migrate.stderr || migrate.stdout || "").slice(0, 300)}`);
   }
 
-  backend = spawn(
-    NODE_BIN,
-    [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(API_PORT)],
-    { cwd: path.join(ROOT, "backend"), env, stdio: ["ignore", "pipe", "pipe"] },
-  );
-  backend.stdout.setEncoding("utf8");
-  backend.stdout.on("data", (chunk) => {
-    const match = String(chunk).match(/Server DEMO berjalan di (http:\/\/127\.0\.0\.1:\d+)/);
-    if (match) {
-      setApiBaseUrl(`${match[1]}/api/v1`);
-      if (BENCH) bench("backend_ready");
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("pos:api-base-url", apiBaseUrl);
+  // BUG-127: kembalikan promise yang hanya resolve saat backend benar-benar
+  // melaporkan siap; reject pada exit awal, error proses, atau timeout.
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) {
+        if (backend && backend.exitCode === null) {
+          try { backend.kill(); } catch { /* sudah keluar */ }
+        }
+        reject(error);
+      } else {
+        resolve();
       }
-    }
-  });
-  backend.stderr.setEncoding("utf8");
-  backend.stderr.on("data", (chunk) => {
-    if (process.env.POS_SPIKE_BACKEND_LOG) {
-      fs.appendFileSync(process.env.POS_SPIKE_BACKEND_LOG, String(chunk));
-    }
-  });
-  backend.once("exit", (code, signal) => {
-    process.stdout.write(`POS_SPIKE backend exit code=${code} signal=${signal}\n`);
+    };
+    const timer = setTimeout(
+      () => finish(new Error("Backend tidak melaporkan kesiapan dalam 15 detik.")),
+      15_000,
+    );
+
+    backend = spawn(
+      NODE_BIN,
+      [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(API_PORT)],
+      { cwd: path.join(ROOT, "backend"), env, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    // BUG-126: buffer sampai newline lengkap; potongan stream tidak boleh
+    // dianggap sebagai baris output backend.
+    let stdoutBuffer = "";
+    backend.stdout.setEncoding("utf8");
+    backend.stdout.on("data", (chunk) => {
+      stdoutBuffer += String(chunk);
+      let newline = stdoutBuffer.indexOf("\n");
+      while (newline !== -1) {
+        const line = stdoutBuffer.slice(0, newline);
+        stdoutBuffer = stdoutBuffer.slice(newline + 1);
+        const match = line.match(/Server DEMO berjalan di (http:\/\/127\.0\.0\.1:\d+)/);
+        if (match) {
+          setApiBaseUrl(`${match[1]}/api/v1`);
+          if (BENCH) bench("backend_ready");
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("pos:api-base-url", apiBaseUrl);
+          }
+          finish();
+        }
+        newline = stdoutBuffer.indexOf("\n");
+      }
+    });
+    backend.stderr.setEncoding("utf8");
+    backend.stderr.on("data", (chunk) => {
+      if (process.env.POS_SPIKE_BACKEND_LOG) {
+        fs.appendFileSync(process.env.POS_SPIKE_BACKEND_LOG, String(chunk));
+      }
+    });
+    backend.once("error", (error) => finish(error));
+    backend.once("exit", (code, signal) => {
+      process.stdout.write(`POS_SPIKE backend exit code=${code} signal=${signal}\n`);
+      finish(new Error(`Backend keluar lebih awal (code=${code}, signal=${signal}).`));
+    });
   });
 }
 
@@ -171,7 +207,8 @@ function showStartupError(message) {
 
 async function runStartup() {
   try {
-    startBackend();
+    // BUG-127: jendela kasir hanya dibuka setelah backend siap.
+    await startBackend();
     if (startupWindow && !startupWindow.isDestroyed()) {
       startupWindow.close();
       startupWindow = null;

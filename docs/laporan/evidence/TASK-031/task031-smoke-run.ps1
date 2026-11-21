@@ -14,6 +14,9 @@ $env:POS_ELECTRON_BENCH = '1'
 $env:POS_SPIKE_API_PORT = '8787'
 Remove-Item Env:\POS_SPIKE_SCREENSHOT -ErrorAction SilentlyContinue
 if (Test-Path $log) { Remove-Item $log -Force }
+if (Test-Path $smokeLog) { Remove-Item $smokeLog -Force }
+$benchLog = "$env:LOCALAPPDATA\Temp\opencode\task031-catalog-bench2.log"
+if (Test-Path $benchLog) { Remove-Item $benchLog -Force }
 
 function Get-TreeWS($rootId) {
   $ids = @($rootId); $all = Get-CimInstance Win32_Process
@@ -30,13 +33,15 @@ function Get-TreeWS($rootId) {
 
 $t0 = Get-Date
 $p = Start-Process -FilePath $exe -ArgumentList "`"$appDir`"" -PassThru -RedirectStandardOutput $log -RedirectStandardError "$env:LOCALAPPDATA\Temp\opencode\task031-smoke2-err.log"
-$ready=$false; $deadline=(Get-Date).AddSeconds(30)
+$ready=$false; $readyWallMs=$null; $deadline=(Get-Date).AddSeconds(30)
 while((Get-Date) -lt $deadline){
-  if(Test-Path $log){ $c=Get-Content $log -Raw -ErrorAction SilentlyContinue; if($c -match 'POS_SPIKE window_ready'){$ready=$true;break} }
+  if(Test-Path $log){ $c=Get-Content $log -Raw -ErrorAction SilentlyContinue; if($c -match 'POS_SPIKE window_ready'){$ready=$true; $readyWallMs=[math]::Round(((Get-Date)-$t0).TotalMilliseconds,1); break} }
   Start-Sleep -Milliseconds 150
 }
 $idle = Get-TreeWS $p.Id
 $smokeOk=$false
+$smokeTail=''
+$catalogBench=''
 if($ready){
   $env:POS_SPIKE_DB = $db
   $env:POS_SPIKE_CREDS_FILE = "$env:LOCALAPPDATA\Temp\opencode\task031-creds.json"
@@ -47,6 +52,8 @@ if($ready){
   & "$nodeDir\node.exe" "scripts\task-031_catalog_bench.mjs" *>&1 | Out-File $benchLog -Encoding utf8
   Pop-Location
   $smokeOk = Select-String -Path $smokeLog -Pattern 'PASS total 8' -Quiet
+  if ($smokeOk) { $smokeTail = (Get-Content $smokeLog -Tail 12 -ErrorAction SilentlyContinue) -join ' | ' }
+  if (Test-Path $benchLog) { $catalogBench = (Get-Content $benchLog -Raw -ErrorAction SilentlyContinue) }
 }
 $after = Get-TreeWS $p.Id
 $children = Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $p.Id } | Select-Object -ExpandProperty ProcessId
@@ -56,12 +63,12 @@ try{ $p.WaitForExit(4000) | Out-Null }catch{}
 
 [pscustomobject]@{
   ready=$ready
-  readyWallMs=if($ready){[math]::Round(((Get-Date)-$t0).TotalMilliseconds,1)}else{$null}
+  readyWallMs=if($ready){$readyWallMs}else{$null}
   idleRamMB=$idle
   afterCheckoutRamMB=$after
   smokeOk=$smokeOk
-  smokeTail=(Get-Content $smokeLog -Tail 12 -ErrorAction SilentlyContinue) -join ' | '
-  catalogBench=(Get-Content "$env:LOCALAPPDATA\Temp\opencode\task031-catalog-bench2.log" -Raw -ErrorAction SilentlyContinue)
+  smokeTail=$smokeTail
+  catalogBench=$catalogBench
   bench=(Get-Content $log -ErrorAction SilentlyContinue | Where-Object {$_ -match 'POS_BENCH'}) -join ' | '
 } | ConvertTo-Json -Depth 4 | Tee-Object -FilePath "$env:LOCALAPPDATA\Temp\opencode\task031-smoke-result2.json"
 
