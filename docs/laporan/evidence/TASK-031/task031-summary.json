@@ -1,0 +1,41 @@
+{
+  "task": "TASK-031",
+  "environment": {
+    "os": "Microsoft Windows 11 Home Single Language 10.0.26200 x64",
+    "cpu": "12th Gen Intel Core i5-1235U",
+    "ramGB": 7.69,
+    "node": "v24.22.3",
+    "electron": "45.4.1",
+    "dataMode": "DEMO synthetic, dev machine - NOT target 4GB PC"
+  },
+  "startup20": {
+    "total": 20,
+    "success": 20,
+    "failed": 0,
+    "minMs": 4078.5,
+    "medianMs": 5099.8,
+    "p95Ms": 6147.9,
+    "maxMs": 6255.9,
+    "idleRamMedianMB": 398.3,
+    "domTextSample": "MODE DEMO — Autentikasi memakai backend lokal (offline). Katalog masih data sintetis; transaksi uji yang COMMITTED dapat tersimpan di SQLite lokal. Bukan untuk uang sungguhan. POS Minimarket Kampus Masuk dengan akun lokal. Server hanya diakses melalui loopback (tanpa internet). Nama pengguna Kata sa"
+  },
+  "finalSmoke": {
+    "ready": true,
+    "readyWallMs": 7642.4,
+    "idleRamMB": 399.9,
+    "afterCheckoutRamMB": 401.1,
+    "smokeOk": true,
+    "bench": "POS_BENCH app_ready=1542.1ms | POS_BENCH backend_ready=1967.0ms | POS_BENCH window_loaded=3475.0ms"
+  },
+  "catalogBench": {
+    "skuCount": 1000,
+    "scanCount": 100,
+    "success": 100,
+    "failed": 0,
+    "minMs": 1.04,
+    "medianMs": 1.7,
+    "p95Ms": 3.68,
+    "maxMs": 7.31,
+    "externalRefs": []
+  }
+}
