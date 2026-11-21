@@ -61,7 +61,7 @@ Dependensi coding dicek nyata di checkout: `backend/src/print/service.ts` + `pri
 | AC-05.01 | Tiga `POST /shifts/open` bersamaan (A, A, B); lalu dua open paralel kasir A; ADMIN coba buka | Satu shift aktif; ADMIN 403 | 3-way: satu 200 + dua 409, tepat satu baris shift aktif; A/A: 200 + 409 `SHIFT_ALREADY_OPEN`; kasir B `null`; ADMIN 403 | Tes #2 | **PASS** |
 | AC-05.02 | Logout owner → token lama 401 → login ulang; ganti proses child; login ulang; cek shift A & B | Shift ID/waktu sama; owner lanjut, kasir B tidak | ID & `openedAtMs` identik setelah logout/login dan penggantian proses; token lama 401; kasir B `null`. Ini **bukan uji graceful shutdown** (Windows `kill()`) | Tes #3 | **PASS (penggantian proses backend)** — graceful shutdown, restart frontend & PC mati **NOT RUN** |
 | AC-06.01 | Preview tutup shift 1 dengan `declaredCashRp = expectedCashRp`; close | Rekap CASH/QRIS & selisih sesuai fixture DEMO | `varianceRp=0`, `totals.totalSalesRp>0`, rekap tersimpan; `GET /shifts/current` → null | Tes #7 | **PASS** |
-| AC-06.02 | (a) close & commit paralel; (b) urutan close lebih dulu; (c) urutan commit lebih dulu lalu close; (d) checkout shift tertutup | Kedua urutan: close 200 + tepat satu penutupan baru; commit dulu masuk rekap, close dulu menolak 409 | (a) close=200, +1 penutupan, commit=409; (b) commit=409 `SHIFT_NOT_ACTIVE`, tanpa sale; (c) commit=200, `saleCount=1`, `cashRp=5000`; (d) 409 `SHIFT_NOT_ACTIVE` | Tes #8, #10, final | **PASS** |
+| AC-06.02 | (a) close & commit paralel; (b) urutan close lebih dulu; (c) urutan commit lebih dulu lalu close; (d) checkout shift tertutup | Kedua urutan: close 200 + tepat satu penutupan baru; totals rekap sesuai hasil; commit dulu masuk rekap, close dulu menolak 409 | (a) close=200, +1 penutupan, commit=409, rekap `saleCount=0`/`cashRp=0`; (b) commit=409 `SHIFT_NOT_ACTIVE`, tanpa sale; (c) commit=200, rekap `saleCount=1`/`cashRp=5000`; (d) 409 `SHIFT_NOT_ACTIVE` | Tes #8, #10, final | **PASS** |
 | AC-06.03 | close nominal invalid; close sah; restart; retry closeKey sama; closeKey isi beda | Invalid mempertahankan shift; retry mengembalikan totals & selisih asli; isi beda 409 | 422 & shift tetap aktif; retry setelah restart `closeKey`, `totals`, `varianceRp`, `declaredCashRp`, `expectedCashRp` identik & penutupan tidak bertambah; isi beda 409 | Tes #7, #11 | **PASS** |
 
 Status **FAIL: tidak ada**; **BLOCKED: tidak ada** dalam cakupan yang dijalankan.
@@ -124,6 +124,7 @@ Semua 15 temuan diverifikasi terhadap kode saat ini dan ditangani di harness/lap
 | BUG-114 | Cleanup temp berada di `finally` bersarang agar tetap jalan bila `writeEvidence` melempar; error tetap propagate |
 | BUG-115 | Laporan menyatakan keterbatasan crash-saat-prepare (§7) |
 | BUG-116 | Tes #2 juga menjalankan buka bersamaan A/A/B → satu 200, dua 409, satu baris shift aktif; identitas pemilik dipakai untuk reset fixture |
+| BUG-117 (R2) | Race close vs checkout: `raceClose.data.totals` divalidasi lawan hasil — commit menang → `saleCount=1`, `cashRp=5000`; commit ditolak → `saleCount=0`, `cashRp=0`; assertion jumlah penutupan & sale lama dipertahankan |
 
 ## 7. Temuan, risiko, dan yang belum terbukti
 

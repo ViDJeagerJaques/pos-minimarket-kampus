@@ -605,17 +605,22 @@ async function main() {
   assertCall(raceClose, 200, "close race");
   assert.equal(sRace.counts.closings, beforeRace.counts.closings + 1, "race harus menambah tepat satu penutupan");
   if (raceCommit.status === 200) {
-    // commit menang → sale masuk rekap
+    // commit menang → sale masuk rekap (BUG-117: totals harus cocok)
     assert.equal(sRace.counts.sales, afterClose1.counts.sales + 1, "commit lebih dulu → sale baru");
+    assert.equal(raceClose.data.totals.saleCount, 1, "rekap close harus 1 sale bila commit menang");
+    assert.equal(raceClose.data.totals.cashRp, 5000, "rekap close harus Rp5.000 cash bila commit menang");
   } else {
     // close menang → commit ditolak 409 SHIFT_NOT_ACTIVE, tanpa sale baru
     assert.equal(raceCommit.status, 409, "commit setelah close harus 409, bukan 500");
     assert.equal(raceCommit.errorCode, "SHIFT_NOT_ACTIVE");
     assert.equal(sRace.counts.sales, afterClose1.counts.sales, "close lebih dulu → tidak ada sale baru");
+    assert.equal(raceClose.data.totals.saleCount, 0, "rekap close harus 0 sale bila commit ditolak");
+    assert.equal(raceClose.data.totals.cashRp, 0, "rekap close harus 0 cash bila commit ditolak");
   }
   const raceDelta = deltaOf(beforeRace, sRace);
-  pass("AC-06.02", `Close vs checkout bersamaan: close=200, +1 penutupan, commit=${raceCommit.status} (${raceCommit.errorCode ?? "ok"}), sales delta=${raceDelta.sales}`, {
+  pass("AC-06.02", `Close vs checkout bersamaan: close=200, +1 penutupan, commit=${raceCommit.status} (${raceCommit.errorCode ?? "ok"}), sales delta=${raceDelta.sales}, rekap saleCount=${raceClose.data.totals.saleCount} cashRp=${raceClose.data.totals.cashRp}`, {
     before: beforeRace, after: sRace, delta: raceDelta, closeStatus: raceClose.status, commitStatus: raceCommit.status,
+    closeTotals: raceClose.data.totals,
   });
 
   // BUG-107: urutan TERPISAH — close lebih dulu, baru commit (deterministik).

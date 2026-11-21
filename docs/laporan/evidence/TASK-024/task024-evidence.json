@@ -1,14 +1,14 @@
 {
   "task": "TASK-024",
   "status": "PASS",
-  "generatedAtIso": "2026-11-21T07:43:59.146Z",
+  "generatedAtIso": "2026-11-21T08:03:14.317Z",
   "environment": {
     "os": "win32 10.0.26200 (x64)",
     "node": "v24.22.3",
-    "commit": "38b4e1f76f4c137bc76a8552aca91b3b9c975dfd",
+    "commit": "6cac5671b3e5132ec694a78075e5d1831880a2c8",
     "branch": "task/p29-024",
     "dataMode": "DEMO/QA synthetic — SQLite temp; child CLI + in-process printer injection",
-    "dbPath": "C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-task024-e2e-Fn1dWH\\task024.sqlite",
+    "dbPath": "C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-task024-e2e-WAsnEG\\task024.sqlite",
     "kept": false
   },
   "passes": 12,
@@ -103,18 +103,18 @@
         "stock": 0
       },
       "requestIds": [
-        "0f951c97-9a57-45e9-8ae7-76f9f0a346c0",
-        "8cc07132-a6a2-4db9-beeb-0187a64e5040",
-        "c248dc30-f00e-4a6d-acc7-1bc176be54a5",
-        "0289fe75-81fb-4f0b-811a-ebd69c92be4a",
-        "336c8c67-74e7-4dbe-ba6d-fe2e9848f64e",
-        "74f00361-4800-43cf-8622-1a62ea1611f7",
-        "a149522f-7bd8-4892-87be-bf9d97f1633a",
-        "37ab807d-5216-46bc-87e7-7abb93328702",
-        "97660a80-4d92-4fbf-be22-ad6f6261ac5f",
-        "828dbfbf-87a8-4db9-bcfe-27b598ca2495",
-        "87380870-c1b9-46f2-af73-b165161ec6c1",
-        "51032a97-7d49-4746-9c97-20f7b9f64393"
+        "c20edc7f-a682-4a8b-a321-c8b9fa3a410b",
+        "5573c3f0-b0d7-40c9-917d-55a7106fb63e",
+        "52487cce-07c9-448c-99e5-00454503d564",
+        "91c96b2f-cd34-4abb-88b2-739b06113c2a",
+        "33f7ddbd-c5c0-46ff-a8f7-c34301f23ac6",
+        "674f2707-54cd-43d7-b113-bd2e4a4cc44b",
+        "01a3c2a9-e05e-4ad1-8dce-ec15237bc945",
+        "f86810f0-07dd-4112-bd97-cb41aff0108e",
+        "49ec2dae-e832-4378-98f9-1d3c1334672e",
+        "19696a0b-843f-417b-9bd4-0309472b6ecf",
+        "7959f5ea-db98-4bb5-a6e5-32b32cc1089c",
+        "2a15b828-35b0-4e77-b281-fe40e798d30b"
       ],
       "calls": [
         {
@@ -122,7 +122,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "0f951c97-9a57-45e9-8ae7-76f9f0a346c0",
+          "requestId": "c20edc7f-a682-4a8b-a321-c8b9fa3a410b",
           "errorCode": null
         },
         {
@@ -130,7 +130,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "8cc07132-a6a2-4db9-beeb-0187a64e5040",
+          "requestId": "5573c3f0-b0d7-40c9-917d-55a7106fb63e",
           "errorCode": null
         },
         {
@@ -138,7 +138,7 @@
           "method": "POST",
           "path": "/shifts/open",
           "status": 200,
-          "requestId": "c248dc30-f00e-4a6d-acc7-1bc176be54a5",
+          "requestId": "52487cce-07c9-448c-99e5-00454503d564",
           "errorCode": null
         },
         {
@@ -146,7 +146,7 @@
           "method": "POST",
           "path": "/shifts/open",
           "status": 409,
-          "requestId": "0289fe75-81fb-4f0b-811a-ebd69c92be4a",
+          "requestId": "91c96b2f-cd34-4abb-88b2-739b06113c2a",
           "errorCode": "SHIFT_ALREADY_OPEN"
         },
         {
@@ -154,7 +154,7 @@
           "method": "POST",
           "path": "/shifts/open",
           "status": 409,
-          "requestId": "336c8c67-74e7-4dbe-ba6d-fe2e9848f64e",
+          "requestId": "33f7ddbd-c5c0-46ff-a8f7-c34301f23ac6",
           "errorCode": "SHIFT_ALREADY_OPEN"
         },
         {
@@ -162,7 +162,7 @@
           "method": "GET",
           "path": "/shifts/current",
           "status": 200,
-          "requestId": "74f00361-4800-43cf-8622-1a62ea1611f7",
+          "requestId": "674f2707-54cd-43d7-b113-bd2e4a4cc44b",
           "errorCode": null
         },
         {
@@ -170,7 +170,7 @@
           "method": "POST",
           "path": "/shifts/1/close",
           "status": 200,
-          "requestId": "a149522f-7bd8-4892-87be-bf9d97f1633a",
+          "requestId": "01a3c2a9-e05e-4ad1-8dce-ec15237bc945",
           "errorCode": null
         },
         {
@@ -178,7 +178,7 @@
           "method": "POST",
           "path": "/shifts/open",
           "status": 200,
-          "requestId": "37ab807d-5216-46bc-87e7-7abb93328702",
+          "requestId": "f86810f0-07dd-4112-bd97-cb41aff0108e",
           "errorCode": null
         },
         {
@@ -186,7 +186,7 @@
           "method": "POST",
           "path": "/shifts/open",
           "status": 409,
-          "requestId": "97660a80-4d92-4fbf-be22-ad6f6261ac5f",
+          "requestId": "49ec2dae-e832-4378-98f9-1d3c1334672e",
           "errorCode": "SHIFT_ALREADY_OPEN"
         },
         {
@@ -194,7 +194,7 @@
           "method": "GET",
           "path": "/shifts/current",
           "status": 200,
-          "requestId": "828dbfbf-87a8-4db9-bcfe-27b598ca2495",
+          "requestId": "19696a0b-843f-417b-9bd4-0309472b6ecf",
           "errorCode": null
         },
         {
@@ -202,7 +202,7 @@
           "method": "GET",
           "path": "/shifts/current",
           "status": 200,
-          "requestId": "87380870-c1b9-46f2-af73-b165161ec6c1",
+          "requestId": "7959f5ea-db98-4bb5-a6e5-32b32cc1089c",
           "errorCode": null
         },
         {
@@ -210,12 +210,12 @@
           "method": "POST",
           "path": "/shifts/open",
           "status": 403,
-          "requestId": "51032a97-7d49-4746-9c97-20f7b9f64393",
+          "requestId": "2a15b828-35b0-4e77-b281-fe40e798d30b",
           "errorCode": "FORBIDDEN"
         }
       ],
       "shiftA1": 2,
-      "openedAtMs": 1795247036723,
+      "openedAtMs": 1795248191813,
       "threeWay": {
         "statuses": [
           200,
@@ -286,14 +286,14 @@
         "stock": 0
       },
       "requestIds": [
-        "2e85c70e-8014-41b4-ade7-20f35dce1cde",
-        "a1d1a5cd-e373-4d57-a8a3-ecab0c4c8dbe",
-        "4cc18c9a-e00a-48f8-a36b-3674d6509462",
-        "34946553-09a6-4e88-9d9e-2575fe11e5f7",
-        "ed36a04a-4696-4dcf-abc1-5c8bf754ca96",
-        "2945d703-e580-4e93-ab9b-9716ce84dc00",
-        "85c72e31-d0c6-4707-9939-f0892336d79f",
-        "30e3e007-3307-42bb-8f68-bf5a7a239863"
+        "58bcfb39-80bd-4d3d-9392-02ef0fd7d2c4",
+        "9cc9580a-ee58-4ab0-8733-23a0fb98e0df",
+        "f8497fb2-437e-47b0-9530-4f69f0311cc8",
+        "bff8f55a-9e75-4a8c-9994-e51bd4828c23",
+        "6bf2e1a3-f783-4505-81ab-537d9f40fa99",
+        "9e710e38-4a37-4951-9577-3604b8f538e2",
+        "432ddedc-4ae3-43a2-b7e2-d80228770f1f",
+        "b7726262-2752-454d-be4b-dbfee36f569e"
       ],
       "calls": [
         {
@@ -301,7 +301,7 @@
           "method": "POST",
           "path": "/auth/logout",
           "status": 200,
-          "requestId": "2e85c70e-8014-41b4-ade7-20f35dce1cde",
+          "requestId": "58bcfb39-80bd-4d3d-9392-02ef0fd7d2c4",
           "errorCode": null
         },
         {
@@ -309,7 +309,7 @@
           "method": "GET",
           "path": "/auth/me",
           "status": 401,
-          "requestId": "a1d1a5cd-e373-4d57-a8a3-ecab0c4c8dbe",
+          "requestId": "9cc9580a-ee58-4ab0-8733-23a0fb98e0df",
           "errorCode": "AUTH_REQUIRED"
         },
         {
@@ -317,7 +317,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "4cc18c9a-e00a-48f8-a36b-3674d6509462",
+          "requestId": "f8497fb2-437e-47b0-9530-4f69f0311cc8",
           "errorCode": null
         },
         {
@@ -325,7 +325,7 @@
           "method": "GET",
           "path": "/shifts/current",
           "status": 200,
-          "requestId": "34946553-09a6-4e88-9d9e-2575fe11e5f7",
+          "requestId": "bff8f55a-9e75-4a8c-9994-e51bd4828c23",
           "errorCode": null
         },
         {
@@ -333,7 +333,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "ed36a04a-4696-4dcf-abc1-5c8bf754ca96",
+          "requestId": "6bf2e1a3-f783-4505-81ab-537d9f40fa99",
           "errorCode": null
         },
         {
@@ -341,7 +341,7 @@
           "method": "GET",
           "path": "/shifts/current",
           "status": 200,
-          "requestId": "2945d703-e580-4e93-ab9b-9716ce84dc00",
+          "requestId": "9e710e38-4a37-4951-9577-3604b8f538e2",
           "errorCode": null
         },
         {
@@ -349,7 +349,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "85c72e31-d0c6-4707-9939-f0892336d79f",
+          "requestId": "432ddedc-4ae3-43a2-b7e2-d80228770f1f",
           "errorCode": null
         },
         {
@@ -357,7 +357,7 @@
           "method": "GET",
           "path": "/shifts/current",
           "status": 200,
-          "requestId": "30e3e007-3307-42bb-8f68-bf5a7a239863",
+          "requestId": "b7726262-2752-454d-be4b-dbfee36f569e",
           "errorCode": null
         }
       ]
@@ -425,10 +425,10 @@
         "stock": -1
       },
       "requestIds": [
-        "234d66f5-3466-486f-bc21-963e3e24a376",
-        "7ee6523a-9710-47c6-b97c-e130ceb1ca08",
-        "1b0e144f-488a-4bef-beb5-2179bfe513eb",
-        "77ad1a63-4e1a-4829-8217-6bd810bab40f"
+        "eac7313d-5aa7-48f7-9773-b3093079e5f3",
+        "b714312a-d60f-4eb2-aa0f-cc9bc36c7c87",
+        "a0f34e5e-4870-4384-ada9-9d4125c413e3",
+        "6590701e-6ee9-4a16-a7db-9e8b783f5e45"
       ],
       "calls": [
         {
@@ -436,7 +436,7 @@
           "method": "POST",
           "path": "/checkouts/prepare",
           "status": 200,
-          "requestId": "234d66f5-3466-486f-bc21-963e3e24a376",
+          "requestId": "eac7313d-5aa7-48f7-9773-b3093079e5f3",
           "errorCode": null
         },
         {
@@ -444,15 +444,15 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "7ee6523a-9710-47c6-b97c-e130ceb1ca08",
+          "requestId": "b714312a-d60f-4eb2-aa0f-cc9bc36c7c87",
           "errorCode": null
         },
         {
           "label": "cek status PREPARED",
           "method": "GET",
-          "path": "/checkouts/t24_9c66102838_mati-sebelum-commit_2",
+          "path": "/checkouts/t24_0a78f735ec_mati-sebelum-commit_2",
           "status": 200,
-          "requestId": "1b0e144f-488a-4bef-beb5-2179bfe513eb",
+          "requestId": "a0f34e5e-4870-4384-ada9-9d4125c413e3",
           "errorCode": null
         },
         {
@@ -460,11 +460,11 @@
           "method": "POST",
           "path": "/checkouts/commit",
           "status": 200,
-          "requestId": "77ad1a63-4e1a-4829-8217-6bd810bab40f",
+          "requestId": "6590701e-6ee9-4a16-a7db-9e8b783f5e45",
           "errorCode": null
         }
       ],
-      "attemptKey": "t24_9c66102838_mati-sebelum-commit_2",
+      "attemptKey": "t24_0a78f735ec_mati-sebelum-commit_2",
       "statusAfterRestart": "PREPARED",
       "cakupan": "crash terjadi setelah respons prepare diterima, bukan saat backend menulis DB"
     },
@@ -535,10 +535,10 @@
         "stock": -1
       },
       "requestIds": [
-        "be508cae-30de-4337-802f-d75aa172c500",
-        "3f2b781b-018d-4298-a10f-858e1352b7e5",
-        "0c030254-c989-466d-85ba-92659e5d6fe5",
-        "29911052-3b81-49ca-8846-fbadf1fbf0d2"
+        "f4d01acf-e87f-460e-ad19-d3dabfb81dec",
+        "dfcc8059-b899-49c9-a0d7-517e8d16f23d",
+        "5cb17a3c-7a4f-4bb1-a6a6-2e4a57df0432",
+        "74e5b094-871d-4021-b64e-bf0676b28278"
       ],
       "calls": [
         {
@@ -546,7 +546,7 @@
           "method": "POST",
           "path": "/checkouts/prepare",
           "status": 200,
-          "requestId": "be508cae-30de-4337-802f-d75aa172c500",
+          "requestId": "f4d01acf-e87f-460e-ad19-d3dabfb81dec",
           "errorCode": null
         },
         {
@@ -554,7 +554,7 @@
           "method": "POST",
           "path": "/checkouts/commit",
           "status": 200,
-          "requestId": "3f2b781b-018d-4298-a10f-858e1352b7e5",
+          "requestId": "dfcc8059-b899-49c9-a0d7-517e8d16f23d",
           "errorCode": null
         },
         {
@@ -562,19 +562,19 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "0c030254-c989-466d-85ba-92659e5d6fe5",
+          "requestId": "5cb17a3c-7a4f-4bb1-a6a6-2e4a57df0432",
           "errorCode": null
         },
         {
           "label": "cek status COMMITTED",
           "method": "GET",
-          "path": "/checkouts/t24_9c66102838_mati-sesudah-commit_3",
+          "path": "/checkouts/t24_0a78f735ec_mati-sesudah-commit_3",
           "status": 200,
-          "requestId": "29911052-3b81-49ca-8846-fbadf1fbf0d2",
+          "requestId": "74e5b094-871d-4021-b64e-bf0676b28278",
           "errorCode": null
         }
       ],
-      "attemptKey": "t24_9c66102838_mati-sesudah-commit_3",
+      "attemptKey": "t24_0a78f735ec_mati-sesudah-commit_3",
       "saleId": 2,
       "saleNo": "S-000002",
       "cakupan": "crash setelah respons commit diterima penuh, bukan antara commit DB dan pengiriman respons"
@@ -647,15 +647,15 @@
         "stock": 0
       },
       "requestIds": [
-        "1f2940ad-a27a-44e6-8f52-fc8e10ba7ab2",
-        "0f0c0a67-a87b-4813-88dd-81f82679f5ea",
-        "54185648-380d-48df-859a-5bfe3b4f1e3b",
-        "b06bd134-b404-48e5-b85d-a2b48bad91d3",
-        "0c84a971-87e3-4980-98b6-dd2a8ad93f51",
-        "007cae02-def3-4351-b109-0fa8e66e7d9f",
-        "1c99ce3d-c834-4ab1-9ce5-64c4574387b9",
-        "37db6034-de9c-4a94-8624-ec2a71e22e72",
-        "90f4ff26-1788-4221-b99b-e763d7b9f40f"
+        "d642f530-2d77-4b60-931e-8178a40353fc",
+        "f65990ed-a1f7-4c2c-92a4-8601df489c8e",
+        "adf4676a-a2c6-4edf-a8db-c395a1a511f8",
+        "883508d0-2e13-4027-8ac6-11ef55b279ea",
+        "fe6f5f39-6a42-4674-804b-e83bc90c54ae",
+        "86f5d265-81c5-49da-8a50-9e3fa055e243",
+        "64b9f54e-5e91-4862-a0a4-dbd0f7808b22",
+        "e95204f7-ec56-4a21-acfc-90e64059fa25",
+        "ed6ece99-20f0-4457-a82a-d0414fb0a29b"
       ],
       "calls": [
         {
@@ -663,7 +663,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "1f2940ad-a27a-44e6-8f52-fc8e10ba7ab2",
+          "requestId": "d642f530-2d77-4b60-931e-8178a40353fc",
           "errorCode": null
         },
         {
@@ -671,7 +671,7 @@
           "method": "GET",
           "path": "/sales/2/receipt",
           "status": 200,
-          "requestId": "0f0c0a67-a87b-4813-88dd-81f82679f5ea",
+          "requestId": "f65990ed-a1f7-4c2c-92a4-8601df489c8e",
           "errorCode": null
         },
         {
@@ -679,7 +679,7 @@
           "method": "POST",
           "path": "/sales/2/print",
           "status": 503,
-          "requestId": "54185648-380d-48df-859a-5bfe3b4f1e3b",
+          "requestId": "adf4676a-a2c6-4edf-a8db-c395a1a511f8",
           "errorCode": "PRINTER_UNAVAILABLE"
         },
         {
@@ -687,7 +687,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "b06bd134-b404-48e5-b85d-a2b48bad91d3",
+          "requestId": "883508d0-2e13-4027-8ac6-11ef55b279ea",
           "errorCode": null
         },
         {
@@ -695,7 +695,7 @@
           "method": "POST",
           "path": "/sales/2/print",
           "status": 200,
-          "requestId": "0c84a971-87e3-4980-98b6-dd2a8ad93f51",
+          "requestId": "fe6f5f39-6a42-4674-804b-e83bc90c54ae",
           "errorCode": null
         },
         {
@@ -703,7 +703,7 @@
           "method": "POST",
           "path": "/sales/2/print",
           "status": 200,
-          "requestId": "007cae02-def3-4351-b109-0fa8e66e7d9f",
+          "requestId": "86f5d265-81c5-49da-8a50-9e3fa055e243",
           "errorCode": null
         },
         {
@@ -711,7 +711,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "1c99ce3d-c834-4ab1-9ce5-64c4574387b9",
+          "requestId": "64b9f54e-5e91-4862-a0a4-dbd0f7808b22",
           "errorCode": null
         },
         {
@@ -719,7 +719,7 @@
           "method": "POST",
           "path": "/sales/2/print",
           "status": 403,
-          "requestId": "37db6034-de9c-4a94-8624-ec2a71e22e72",
+          "requestId": "e95204f7-ec56-4a21-acfc-90e64059fa25",
           "errorCode": "FORBIDDEN"
         },
         {
@@ -727,7 +727,7 @@
           "method": "POST",
           "path": "/auth/login",
           "status": 200,
-          "requestId": "90f4ff26-1788-4221-b99b-e763d7b9f40f",
+          "requestId": "ed6ece99-20f0-4457-a82a-d0414fb0a29b",
           "errorCode": null
         }
       ],
@@ -802,12 +802,12 @@
         "stock": 0
       },
       "requestIds": [
-        "68620db8-203f-4e29-84a2-57898600b79c",
-        "ff2b57c0-0d90-4b9f-a7d7-cdbdcc1dcd59",
-        "d47c0eb5-aa3c-4dde-9799-535b305d810e",
-        "00579ac7-e02b-4915-9caf-9a34f01f7813",
-        "3fb47743-104f-437e-ac7d-ba76b2eeaf96",
-        "6f9effd9-89b4-483f-b9c8-abe149942428"
+        "18711e67-fa18-403f-b5d8-03663595e4bc",
+        "3195855e-a724-4ae2-b642-448bafc4bab1",
+        "7d9b690f-f738-4b11-8dcc-5bd7cd11f058",
+        "85d172e0-d793-40d9-bd71-2ab9b1c12958",
+        "a8d86fab-e7e5-4a58-b23d-71cf5216778f",
+        "a4582c71-6027-4041-944e-4985b8a2cf48"
       ],
       "calls": [
         {
@@ -815,7 +815,7 @@
           "method": "GET",
           "path": "/shifts/2/close/preview",
           "status": 200,
-          "requestId": "68620db8-203f-4e29-84a2-57898600b79c",
+          "requestId": "18711e67-fa18-403f-b5d8-03663595e4bc",
           "errorCode": null
         },
         {
@@ -823,7 +823,7 @@
           "method": "POST",
           "path": "/shifts/2/close",
           "status": 200,
-          "requestId": "ff2b57c0-0d90-4b9f-a7d7-cdbdcc1dcd59",
+          "requestId": "3195855e-a724-4ae2-b642-448bafc4bab1",
           "errorCode": null
         },
         {
@@ -831,7 +831,7 @@
           "method": "POST",
           "path": "/shifts/2/close",
           "status": 200,
-          "requestId": "d47c0eb5-aa3c-4dde-9799-535b305d810e",
+          "requestId": "7d9b690f-f738-4b11-8dcc-5bd7cd11f058",
           "errorCode": null
         },
         {
@@ -839,7 +839,7 @@
           "method": "POST",
           "path": "/shifts/2/close",
           "status": 409,
-          "requestId": "00579ac7-e02b-4915-9caf-9a34f01f7813",
+          "requestId": "85d172e0-d793-40d9-bd71-2ab9b1c12958",
           "errorCode": "IDEMPOTENCY_CONFLICT"
         },
         {
@@ -847,7 +847,7 @@
           "method": "POST",
           "path": "/shifts/2/close",
           "status": 422,
-          "requestId": "3fb47743-104f-437e-ac7d-ba76b2eeaf96",
+          "requestId": "a8d86fab-e7e5-4a58-b23d-71cf5216778f",
           "errorCode": "VALIDATION_ERROR"
         },
         {
@@ -855,7 +855,7 @@
           "method": "GET",
           "path": "/shifts/current",
           "status": 200,
-          "requestId": "6f9effd9-89b4-483f-b9c8-abe149942428",
+          "requestId": "a4582c71-6027-4041-944e-4985b8a2cf48",
           "errorCode": null
         }
       ],
@@ -870,7 +870,7 @@
     {
       "no": 8,
       "ac": "AC-06.02",
-      "label": "Close vs checkout bersamaan: close=200, +1 penutupan, commit=409 (SHIFT_NOT_ACTIVE), sales delta=0",
+      "label": "Close vs checkout bersamaan: close=200, +1 penutupan, commit=409 (SHIFT_NOT_ACTIVE), sales delta=0, rekap saleCount=0 cashRp=0",
       "status": "PASS",
       "before": {
         "counts": {
@@ -935,7 +935,13 @@
         "stock": 0
       },
       "closeStatus": 200,
-      "commitStatus": 409
+      "commitStatus": 409,
+      "closeTotals": {
+        "cashRp": 0,
+        "qrisManualRp": 0,
+        "totalSalesRp": 0,
+        "saleCount": 0
+      }
     },
     {
       "no": 9,
@@ -1160,7 +1166,7 @@
       "ac": "AC-06.03",
       "label": "Close invalid 422 & shift tetap aktif; close sah; restart + retry closeKey sama → hasil asli, tanpa penutupan tambahan",
       "status": "PASS",
-      "closeKey": "t24_9c66102838_close-retry_15",
+      "closeKey": "t24_0a78f735ec_close-retry_15",
       "closings": 7
     },
     {
@@ -1202,67 +1208,67 @@
   ],
   "keys": [
     {
-      "key": "t24_9c66102838_close-3way_1",
+      "key": "t24_0a78f735ec_close-3way_1",
       "label": "close-3way"
     },
     {
-      "key": "t24_9c66102838_mati-sebelum-commit_2",
+      "key": "t24_0a78f735ec_mati-sebelum-commit_2",
       "label": "mati-sebelum-commit"
     },
     {
-      "key": "t24_9c66102838_mati-sesudah-commit_3",
+      "key": "t24_0a78f735ec_mati-sesudah-commit_3",
       "label": "mati-sesudah-commit"
     },
     {
-      "key": "t24_9c66102838_close-1_4",
+      "key": "t24_0a78f735ec_close-1_4",
       "label": "close-1"
     },
     {
-      "key": "t24_9c66102838_close-invalid_5",
+      "key": "t24_0a78f735ec_close-invalid_5",
       "label": "close-invalid"
     },
     {
-      "key": "t24_9c66102838_close-vs-checkout_6",
+      "key": "t24_0a78f735ec_close-vs-checkout_6",
       "label": "close-vs-checkout"
     },
     {
-      "key": "t24_9c66102838_close-race_7",
+      "key": "t24_0a78f735ec_close-race_7",
       "label": "close-race"
     },
     {
-      "key": "t24_9c66102838_close-dulu_8",
+      "key": "t24_0a78f735ec_close-dulu_8",
       "label": "close-dulu"
     },
     {
-      "key": "t24_9c66102838_close-dulu_9",
+      "key": "t24_0a78f735ec_close-dulu_9",
       "label": "close-dulu"
     },
     {
-      "key": "t24_9c66102838_klik-ganda_10",
+      "key": "t24_0a78f735ec_klik-ganda_10",
       "label": "klik-ganda"
     },
     {
-      "key": "t24_9c66102838_close-idem_11",
+      "key": "t24_0a78f735ec_close-idem_11",
       "label": "close-idem"
     },
     {
-      "key": "t24_9c66102838_commit-dulu_12",
+      "key": "t24_0a78f735ec_commit-dulu_12",
       "label": "commit-dulu"
     },
     {
-      "key": "t24_9c66102838_close-commit-dulu_13",
+      "key": "t24_0a78f735ec_close-commit-dulu_13",
       "label": "close-commit-dulu"
     },
     {
-      "key": "t24_9c66102838_close-bad_14",
+      "key": "t24_0a78f735ec_close-bad_14",
       "label": "close-bad"
     },
     {
-      "key": "t24_9c66102838_close-retry_15",
+      "key": "t24_0a78f735ec_close-retry_15",
       "label": "close-retry"
     },
     {
-      "key": "t24_9c66102838_checkout-shift-tertutup_16",
+      "key": "t24_0a78f735ec_checkout-shift-tertutup_16",
       "label": "checkout-shift-tertutup"
     }
   ],
@@ -1272,7 +1278,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "08b21435-643f-4085-88f0-033aaaec2af9",
+      "requestId": "ab76658e-161c-496f-94d9-7b297e235478",
       "errorCode": null
     },
     {
@@ -1280,7 +1286,7 @@
       "method": "POST",
       "path": "/users",
       "status": 201,
-      "requestId": "bb1b4335-206d-4ffe-a712-5858c5bab60b",
+      "requestId": "28526075-94cc-4b7c-91b9-2d90c985b178",
       "errorCode": null
     },
     {
@@ -1288,7 +1294,7 @@
       "method": "POST",
       "path": "/users",
       "status": 201,
-      "requestId": "90f6461e-6640-4655-9bdf-6287af6a05b1",
+      "requestId": "4e32d674-04c5-4a1f-b562-a060fff9f3fd",
       "errorCode": null
     },
     {
@@ -1296,7 +1302,7 @@
       "method": "POST",
       "path": "/categories",
       "status": 201,
-      "requestId": "deda1258-6b70-407c-85f4-68cb468949fb",
+      "requestId": "5dcd9cb9-7db5-4122-827d-63abcac7547a",
       "errorCode": null
     },
     {
@@ -1304,7 +1310,7 @@
       "method": "POST",
       "path": "/products",
       "status": 201,
-      "requestId": "352f8253-4bca-4db3-91ee-2708c281de57",
+      "requestId": "6bf9c421-8ce1-4964-aa8b-f76c45c8187c",
       "errorCode": null
     },
     {
@@ -1312,7 +1318,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "0f951c97-9a57-45e9-8ae7-76f9f0a346c0",
+      "requestId": "c20edc7f-a682-4a8b-a321-c8b9fa3a410b",
       "errorCode": null
     },
     {
@@ -1320,7 +1326,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "8cc07132-a6a2-4db9-beeb-0187a64e5040",
+      "requestId": "5573c3f0-b0d7-40c9-917d-55a7106fb63e",
       "errorCode": null
     },
     {
@@ -1328,7 +1334,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 200,
-      "requestId": "c248dc30-f00e-4a6d-acc7-1bc176be54a5",
+      "requestId": "52487cce-07c9-448c-99e5-00454503d564",
       "errorCode": null
     },
     {
@@ -1336,7 +1342,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 409,
-      "requestId": "0289fe75-81fb-4f0b-811a-ebd69c92be4a",
+      "requestId": "91c96b2f-cd34-4abb-88b2-739b06113c2a",
       "errorCode": "SHIFT_ALREADY_OPEN"
     },
     {
@@ -1344,7 +1350,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 409,
-      "requestId": "336c8c67-74e7-4dbe-ba6d-fe2e9848f64e",
+      "requestId": "33f7ddbd-c5c0-46ff-a8f7-c34301f23ac6",
       "errorCode": "SHIFT_ALREADY_OPEN"
     },
     {
@@ -1352,7 +1358,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "74f00361-4800-43cf-8622-1a62ea1611f7",
+      "requestId": "674f2707-54cd-43d7-b113-bd2e4a4cc44b",
       "errorCode": null
     },
     {
@@ -1360,7 +1366,7 @@
       "method": "POST",
       "path": "/shifts/1/close",
       "status": 200,
-      "requestId": "a149522f-7bd8-4892-87be-bf9d97f1633a",
+      "requestId": "01a3c2a9-e05e-4ad1-8dce-ec15237bc945",
       "errorCode": null
     },
     {
@@ -1368,7 +1374,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 200,
-      "requestId": "37ab807d-5216-46bc-87e7-7abb93328702",
+      "requestId": "f86810f0-07dd-4112-bd97-cb41aff0108e",
       "errorCode": null
     },
     {
@@ -1376,7 +1382,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 409,
-      "requestId": "97660a80-4d92-4fbf-be22-ad6f6261ac5f",
+      "requestId": "49ec2dae-e832-4378-98f9-1d3c1334672e",
       "errorCode": "SHIFT_ALREADY_OPEN"
     },
     {
@@ -1384,7 +1390,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "828dbfbf-87a8-4db9-bcfe-27b598ca2495",
+      "requestId": "19696a0b-843f-417b-9bd4-0309472b6ecf",
       "errorCode": null
     },
     {
@@ -1392,7 +1398,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "87380870-c1b9-46f2-af73-b165161ec6c1",
+      "requestId": "7959f5ea-db98-4bb5-a6e5-32b32cc1089c",
       "errorCode": null
     },
     {
@@ -1400,7 +1406,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 403,
-      "requestId": "51032a97-7d49-4746-9c97-20f7b9f64393",
+      "requestId": "2a15b828-35b0-4e77-b281-fe40e798d30b",
       "errorCode": "FORBIDDEN"
     },
     {
@@ -1408,7 +1414,7 @@
       "method": "POST",
       "path": "/auth/logout",
       "status": 200,
-      "requestId": "2e85c70e-8014-41b4-ade7-20f35dce1cde",
+      "requestId": "58bcfb39-80bd-4d3d-9392-02ef0fd7d2c4",
       "errorCode": null
     },
     {
@@ -1416,7 +1422,7 @@
       "method": "GET",
       "path": "/auth/me",
       "status": 401,
-      "requestId": "a1d1a5cd-e373-4d57-a8a3-ecab0c4c8dbe",
+      "requestId": "9cc9580a-ee58-4ab0-8733-23a0fb98e0df",
       "errorCode": "AUTH_REQUIRED"
     },
     {
@@ -1424,7 +1430,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "4cc18c9a-e00a-48f8-a36b-3674d6509462",
+      "requestId": "f8497fb2-437e-47b0-9530-4f69f0311cc8",
       "errorCode": null
     },
     {
@@ -1432,7 +1438,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "34946553-09a6-4e88-9d9e-2575fe11e5f7",
+      "requestId": "bff8f55a-9e75-4a8c-9994-e51bd4828c23",
       "errorCode": null
     },
     {
@@ -1440,7 +1446,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "ed36a04a-4696-4dcf-abc1-5c8bf754ca96",
+      "requestId": "6bf2e1a3-f783-4505-81ab-537d9f40fa99",
       "errorCode": null
     },
     {
@@ -1448,7 +1454,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "2945d703-e580-4e93-ab9b-9716ce84dc00",
+      "requestId": "9e710e38-4a37-4951-9577-3604b8f538e2",
       "errorCode": null
     },
     {
@@ -1456,7 +1462,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "85c72e31-d0c6-4707-9939-f0892336d79f",
+      "requestId": "432ddedc-4ae3-43a2-b7e2-d80228770f1f",
       "errorCode": null
     },
     {
@@ -1464,7 +1470,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "30e3e007-3307-42bb-8f68-bf5a7a239863",
+      "requestId": "b7726262-2752-454d-be4b-dbfee36f569e",
       "errorCode": null
     },
     {
@@ -1472,7 +1478,7 @@
       "method": "POST",
       "path": "/checkouts/prepare",
       "status": 200,
-      "requestId": "234d66f5-3466-486f-bc21-963e3e24a376",
+      "requestId": "eac7313d-5aa7-48f7-9773-b3093079e5f3",
       "errorCode": null
     },
     {
@@ -1480,15 +1486,15 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "7ee6523a-9710-47c6-b97c-e130ceb1ca08",
+      "requestId": "b714312a-d60f-4eb2-aa0f-cc9bc36c7c87",
       "errorCode": null
     },
     {
       "label": "cek status PREPARED",
       "method": "GET",
-      "path": "/checkouts/t24_9c66102838_mati-sebelum-commit_2",
+      "path": "/checkouts/t24_0a78f735ec_mati-sebelum-commit_2",
       "status": 200,
-      "requestId": "1b0e144f-488a-4bef-beb5-2179bfe513eb",
+      "requestId": "a0f34e5e-4870-4384-ada9-9d4125c413e3",
       "errorCode": null
     },
     {
@@ -1496,7 +1502,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 200,
-      "requestId": "77ad1a63-4e1a-4829-8217-6bd810bab40f",
+      "requestId": "6590701e-6ee9-4a16-a7db-9e8b783f5e45",
       "errorCode": null
     },
     {
@@ -1504,7 +1510,7 @@
       "method": "POST",
       "path": "/checkouts/prepare",
       "status": 200,
-      "requestId": "be508cae-30de-4337-802f-d75aa172c500",
+      "requestId": "f4d01acf-e87f-460e-ad19-d3dabfb81dec",
       "errorCode": null
     },
     {
@@ -1512,7 +1518,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 200,
-      "requestId": "3f2b781b-018d-4298-a10f-858e1352b7e5",
+      "requestId": "dfcc8059-b899-49c9-a0d7-517e8d16f23d",
       "errorCode": null
     },
     {
@@ -1520,15 +1526,15 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "0c030254-c989-466d-85ba-92659e5d6fe5",
+      "requestId": "5cb17a3c-7a4f-4bb1-a6a6-2e4a57df0432",
       "errorCode": null
     },
     {
       "label": "cek status COMMITTED",
       "method": "GET",
-      "path": "/checkouts/t24_9c66102838_mati-sesudah-commit_3",
+      "path": "/checkouts/t24_0a78f735ec_mati-sesudah-commit_3",
       "status": 200,
-      "requestId": "29911052-3b81-49ca-8846-fbadf1fbf0d2",
+      "requestId": "74e5b094-871d-4021-b64e-bf0676b28278",
       "errorCode": null
     },
     {
@@ -1536,7 +1542,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "1f2940ad-a27a-44e6-8f52-fc8e10ba7ab2",
+      "requestId": "d642f530-2d77-4b60-931e-8178a40353fc",
       "errorCode": null
     },
     {
@@ -1544,7 +1550,7 @@
       "method": "GET",
       "path": "/sales/2/receipt",
       "status": 200,
-      "requestId": "0f0c0a67-a87b-4813-88dd-81f82679f5ea",
+      "requestId": "f65990ed-a1f7-4c2c-92a4-8601df489c8e",
       "errorCode": null
     },
     {
@@ -1552,7 +1558,7 @@
       "method": "POST",
       "path": "/sales/2/print",
       "status": 503,
-      "requestId": "54185648-380d-48df-859a-5bfe3b4f1e3b",
+      "requestId": "adf4676a-a2c6-4edf-a8db-c395a1a511f8",
       "errorCode": "PRINTER_UNAVAILABLE"
     },
     {
@@ -1560,7 +1566,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "b06bd134-b404-48e5-b85d-a2b48bad91d3",
+      "requestId": "883508d0-2e13-4027-8ac6-11ef55b279ea",
       "errorCode": null
     },
     {
@@ -1568,7 +1574,7 @@
       "method": "POST",
       "path": "/sales/2/print",
       "status": 200,
-      "requestId": "0c84a971-87e3-4980-98b6-dd2a8ad93f51",
+      "requestId": "fe6f5f39-6a42-4674-804b-e83bc90c54ae",
       "errorCode": null
     },
     {
@@ -1576,7 +1582,7 @@
       "method": "POST",
       "path": "/sales/2/print",
       "status": 200,
-      "requestId": "007cae02-def3-4351-b109-0fa8e66e7d9f",
+      "requestId": "86f5d265-81c5-49da-8a50-9e3fa055e243",
       "errorCode": null
     },
     {
@@ -1584,7 +1590,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "1c99ce3d-c834-4ab1-9ce5-64c4574387b9",
+      "requestId": "64b9f54e-5e91-4862-a0a4-dbd0f7808b22",
       "errorCode": null
     },
     {
@@ -1592,7 +1598,7 @@
       "method": "POST",
       "path": "/sales/2/print",
       "status": 403,
-      "requestId": "37db6034-de9c-4a94-8624-ec2a71e22e72",
+      "requestId": "e95204f7-ec56-4a21-acfc-90e64059fa25",
       "errorCode": "FORBIDDEN"
     },
     {
@@ -1600,7 +1606,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "90f4ff26-1788-4221-b99b-e763d7b9f40f",
+      "requestId": "ed6ece99-20f0-4457-a82a-d0414fb0a29b",
       "errorCode": null
     },
     {
@@ -1608,7 +1614,7 @@
       "method": "GET",
       "path": "/shifts/2/close/preview",
       "status": 200,
-      "requestId": "68620db8-203f-4e29-84a2-57898600b79c",
+      "requestId": "18711e67-fa18-403f-b5d8-03663595e4bc",
       "errorCode": null
     },
     {
@@ -1616,7 +1622,7 @@
       "method": "POST",
       "path": "/shifts/2/close",
       "status": 200,
-      "requestId": "ff2b57c0-0d90-4b9f-a7d7-cdbdcc1dcd59",
+      "requestId": "3195855e-a724-4ae2-b642-448bafc4bab1",
       "errorCode": null
     },
     {
@@ -1624,7 +1630,7 @@
       "method": "POST",
       "path": "/shifts/2/close",
       "status": 200,
-      "requestId": "d47c0eb5-aa3c-4dde-9799-535b305d810e",
+      "requestId": "7d9b690f-f738-4b11-8dcc-5bd7cd11f058",
       "errorCode": null
     },
     {
@@ -1632,7 +1638,7 @@
       "method": "POST",
       "path": "/shifts/2/close",
       "status": 409,
-      "requestId": "00579ac7-e02b-4915-9caf-9a34f01f7813",
+      "requestId": "85d172e0-d793-40d9-bd71-2ab9b1c12958",
       "errorCode": "IDEMPOTENCY_CONFLICT"
     },
     {
@@ -1640,7 +1646,7 @@
       "method": "POST",
       "path": "/shifts/2/close",
       "status": 422,
-      "requestId": "3fb47743-104f-437e-ac7d-ba76b2eeaf96",
+      "requestId": "a8d86fab-e7e5-4a58-b23d-71cf5216778f",
       "errorCode": "VALIDATION_ERROR"
     },
     {
@@ -1648,7 +1654,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "6f9effd9-89b4-483f-b9c8-abe149942428",
+      "requestId": "a4582c71-6027-4041-944e-4985b8a2cf48",
       "errorCode": null
     },
     {
@@ -1656,7 +1662,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 200,
-      "requestId": "a0006973-a5b3-4ac5-95c5-9ecb2961b697",
+      "requestId": "930d67fe-4915-4f41-b2db-1604decccfe0",
       "errorCode": null
     },
     {
@@ -1664,7 +1670,7 @@
       "method": "POST",
       "path": "/checkouts/prepare",
       "status": 200,
-      "requestId": "5386f9d9-fe15-4cde-be02-dc268965ff71",
+      "requestId": "26514f89-23f9-49db-b80c-52608e26315b",
       "errorCode": null
     },
     {
@@ -1672,7 +1678,7 @@
       "method": "POST",
       "path": "/shifts/3/close",
       "status": 200,
-      "requestId": "1bcdad14-450a-41ee-b0e9-ef6433579e6f",
+      "requestId": "2dcd8f45-a599-4b28-9d8f-91b91a5dcbaa",
       "errorCode": null
     },
     {
@@ -1680,7 +1686,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 409,
-      "requestId": "20d795f9-f935-4535-8e63-f24988d2d7d0",
+      "requestId": "ea314d72-1fc3-46bd-9ac5-ab333b565ffc",
       "errorCode": "SHIFT_NOT_ACTIVE"
     },
     {
@@ -1688,7 +1694,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 200,
-      "requestId": "0d20771d-1d5c-499d-89d2-6b22654867dc",
+      "requestId": "4c98bd76-10d2-479c-be98-acf37f88eab2",
       "errorCode": null
     },
     {
@@ -1696,7 +1702,7 @@
       "method": "POST",
       "path": "/checkouts/prepare",
       "status": 200,
-      "requestId": "90d2e92b-d5fb-4363-b819-0468f714d89b",
+      "requestId": "e35d82ed-b666-448c-84b5-50cdc6d66f95",
       "errorCode": null
     },
     {
@@ -1704,7 +1710,7 @@
       "method": "POST",
       "path": "/shifts/4/close",
       "status": 200,
-      "requestId": "d3f066cd-01f6-4e18-a854-404c0e95572a",
+      "requestId": "b8df40b2-45c1-4e3f-877b-b508630e0ddd",
       "errorCode": null
     },
     {
@@ -1712,7 +1718,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 409,
-      "requestId": "c2cc9394-fbce-4d09-b159-ca93e5983e63",
+      "requestId": "a18d48f7-418f-43f0-a518-eaad4d356ceb",
       "errorCode": "SHIFT_NOT_ACTIVE"
     },
     {
@@ -1720,7 +1726,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 200,
-      "requestId": "fac7361f-bd59-42f2-b995-ab5c2a418455",
+      "requestId": "2de239ee-1ce4-4a85-aa6f-dce2e415a291",
       "errorCode": null
     },
     {
@@ -1728,7 +1734,7 @@
       "method": "POST",
       "path": "/checkouts/prepare",
       "status": 200,
-      "requestId": "23ae4036-b480-47c3-af3c-6f322121db17",
+      "requestId": "1307bd62-2efd-41bb-9da5-d602d2e07b40",
       "errorCode": null
     },
     {
@@ -1736,7 +1742,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 200,
-      "requestId": "69d87d4f-3c7f-46ab-9342-6780b7cf375c",
+      "requestId": "d8b3951f-5ad0-47cb-bbc4-f05a889c75fd",
       "errorCode": null
     },
     {
@@ -1744,7 +1750,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 200,
-      "requestId": "356abdd9-0ded-47e6-821c-1bbe25f08bda",
+      "requestId": "ee4f4951-1056-4eb2-a75d-6311470fcfad",
       "errorCode": null
     },
     {
@@ -1752,7 +1758,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 200,
-      "requestId": "945ddeb2-ff57-46be-b665-80d8af0a47f4",
+      "requestId": "dd1e55ac-627e-46b8-8bfe-5654f57c2b96",
       "errorCode": null
     },
     {
@@ -1760,7 +1766,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 200,
-      "requestId": "3f03ea1e-f48c-4542-a26a-d03ab0665261",
+      "requestId": "fcffb7a0-6f68-4ab7-8ee9-8f7df24215b6",
       "errorCode": null
     },
     {
@@ -1768,7 +1774,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 409,
-      "requestId": "790d6382-f5b2-4db4-a3b4-a23452fa4bc4",
+      "requestId": "763ed650-5ae0-4651-8d51-4806f1000387",
       "errorCode": "IDEMPOTENCY_CONFLICT"
     },
     {
@@ -1776,7 +1782,7 @@
       "method": "POST",
       "path": "/shifts/5/close",
       "status": 200,
-      "requestId": "4c28404f-3cc7-4f73-8747-0f6ceae4d35a",
+      "requestId": "3ffe1301-4dd9-4f32-9739-3c9a3034a98f",
       "errorCode": null
     },
     {
@@ -1784,7 +1790,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 200,
-      "requestId": "30ea6f09-a482-4f84-a028-39291311fbc6",
+      "requestId": "d2ef8501-4255-45fe-854d-a51ff67a7d5c",
       "errorCode": null
     },
     {
@@ -1792,7 +1798,7 @@
       "method": "POST",
       "path": "/checkouts/prepare",
       "status": 200,
-      "requestId": "3891fa51-3cf6-43b6-8e1a-b1b12553e2a2",
+      "requestId": "b1c9d69f-1843-4804-95e1-ea67e1884fd3",
       "errorCode": null
     },
     {
@@ -1800,7 +1806,7 @@
       "method": "POST",
       "path": "/checkouts/commit",
       "status": 200,
-      "requestId": "364f8c6b-44d6-4a2d-bd8f-458000ce279f",
+      "requestId": "6cf18d11-6c00-44f2-8f09-daeb76ba3f34",
       "errorCode": null
     },
     {
@@ -1808,7 +1814,7 @@
       "method": "POST",
       "path": "/shifts/6/close",
       "status": 200,
-      "requestId": "c10addc5-d893-4bbd-ba5c-dffac57140dd",
+      "requestId": "d148f7a2-6246-4160-a679-41f804ced3d2",
       "errorCode": null
     },
     {
@@ -1816,7 +1822,7 @@
       "method": "POST",
       "path": "/shifts/open",
       "status": 200,
-      "requestId": "725293cb-b99c-4cc9-912e-7f345bda6feb",
+      "requestId": "9cf8b91b-9f02-434a-8460-f59b19af9b04",
       "errorCode": null
     },
     {
@@ -1824,7 +1830,7 @@
       "method": "POST",
       "path": "/shifts/7/close",
       "status": 422,
-      "requestId": "7816fd10-7195-413e-80eb-f8d19ed48115",
+      "requestId": "bee34e35-c40c-47ff-b10e-144be0697156",
       "errorCode": "VALIDATION_ERROR"
     },
     {
@@ -1832,7 +1838,7 @@
       "method": "GET",
       "path": "/shifts/current",
       "status": 200,
-      "requestId": "0060fd96-d66c-41f3-93be-28b770fbc7a1",
+      "requestId": "dff9d80e-264a-46b9-a7dd-54216cfae64b",
       "errorCode": null
     },
     {
@@ -1840,7 +1846,7 @@
       "method": "POST",
       "path": "/shifts/7/close",
       "status": 200,
-      "requestId": "950771d3-eaac-45da-bc4d-4fbfdc27baf5",
+      "requestId": "f5e141a3-71c7-413a-b3ae-9038a2026d86",
       "errorCode": null
     },
     {
@@ -1848,7 +1854,7 @@
       "method": "POST",
       "path": "/auth/login",
       "status": 200,
-      "requestId": "5628d7ff-d3bf-4536-be1a-878e64ff4e72",
+      "requestId": "4723e75d-1540-4b72-9034-214b34ad5bee",
       "errorCode": null
     },
     {
@@ -1856,7 +1862,7 @@
       "method": "POST",
       "path": "/shifts/7/close",
       "status": 200,
-      "requestId": "584a4867-50e1-40af-b310-f009b3692cd7",
+      "requestId": "9c891fbb-b615-4b7d-92e3-5692273ff145",
       "errorCode": null
     },
     {
@@ -1864,7 +1870,7 @@
       "method": "POST",
       "path": "/checkouts/prepare",
       "status": 409,
-      "requestId": "8c2af0e3-15c0-4b3c-981a-ccc6510bb2c0",
+      "requestId": "e4ad169b-5e58-4b6c-a140-9eca23d8807e",
       "errorCode": "SHIFT_NOT_ACTIVE"
     }
   ]
