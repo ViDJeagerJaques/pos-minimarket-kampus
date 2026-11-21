@@ -1,0 +1,1877 @@
+{
+  "task": "TASK-024",
+  "status": "PASS",
+  "generatedAtIso": "2026-11-21T08:03:14.317Z",
+  "environment": {
+    "os": "win32 10.0.26200 (x64)",
+    "node": "v24.22.3",
+    "commit": "6cac5671b3e5132ec694a78075e5d1831880a2c8",
+    "branch": "task/p29-024",
+    "dataMode": "DEMO/QA synthetic — SQLite temp; child CLI + in-process printer injection",
+    "dbPath": "C:\\Users\\Nazmi\\AppData\\Local\\Temp\\pos-task024-e2e-WAsnEG\\task024.sqlite",
+    "kept": false
+  },
+  "passes": 12,
+  "tests": [
+    {
+      "no": 1,
+      "ac": "SETUP",
+      "label": "SQLite sementara siap; baseline {\"sales\":0,\"payments\":0,\"movements\":1,\"stock\":10}",
+      "status": "PASS",
+      "baseline": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "shifts": 0,
+          "closings": 0,
+          "audit": 6,
+          "activeShifts": 0
+        },
+        "stock": 10,
+        "expectedStock": 10,
+        "saleTotalRp": 0,
+        "paymentTotalRp": 0,
+        "saleNos": [],
+        "ledger": {
+          "OPENING": 10
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      }
+    },
+    {
+      "no": 2,
+      "ac": "AC-05.01",
+      "label": "Dua buka paralel → tepat satu shift aktif; kasir B null; ADMIN 403; juga A/A/B 3-way → satu 200, dua 409",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "shifts": 1,
+          "closings": 1,
+          "audit": 8,
+          "activeShifts": 0
+        },
+        "stock": 10,
+        "expectedStock": 10,
+        "saleTotalRp": 0,
+        "paymentTotalRp": 0,
+        "saleNos": [],
+        "ledger": {
+          "OPENING": 10
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 9,
+          "activeShifts": 1
+        },
+        "stock": 10,
+        "expectedStock": 10,
+        "saleTotalRp": 0,
+        "paymentTotalRp": 0,
+        "saleNos": [],
+        "ledger": {
+          "OPENING": 10
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "c20edc7f-a682-4a8b-a321-c8b9fa3a410b",
+        "5573c3f0-b0d7-40c9-917d-55a7106fb63e",
+        "52487cce-07c9-448c-99e5-00454503d564",
+        "91c96b2f-cd34-4abb-88b2-739b06113c2a",
+        "33f7ddbd-c5c0-46ff-a8f7-c34301f23ac6",
+        "674f2707-54cd-43d7-b113-bd2e4a4cc44b",
+        "01a3c2a9-e05e-4ad1-8dce-ec15237bc945",
+        "f86810f0-07dd-4112-bd97-cb41aff0108e",
+        "49ec2dae-e832-4378-98f9-1d3c1334672e",
+        "19696a0b-843f-417b-9bd4-0309472b6ecf",
+        "7959f5ea-db98-4bb5-a6e5-32b32cc1089c",
+        "2a15b828-35b0-4e77-b281-fe40e798d30b"
+      ],
+      "calls": [
+        {
+          "label": "login kasir A",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "c20edc7f-a682-4a8b-a321-c8b9fa3a410b",
+          "errorCode": null
+        },
+        {
+          "label": "login kasir B",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "5573c3f0-b0d7-40c9-917d-55a7106fb63e",
+          "errorCode": null
+        },
+        {
+          "label": "3-way A-1",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 200,
+          "requestId": "52487cce-07c9-448c-99e5-00454503d564",
+          "errorCode": null
+        },
+        {
+          "label": "3-way A-2",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 409,
+          "requestId": "91c96b2f-cd34-4abb-88b2-739b06113c2a",
+          "errorCode": "SHIFT_ALREADY_OPEN"
+        },
+        {
+          "label": "3-way B",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 409,
+          "requestId": "33f7ddbd-c5c0-46ff-a8f7-c34301f23ac6",
+          "errorCode": "SHIFT_ALREADY_OPEN"
+        },
+        {
+          "label": "pemilik 3-way",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "674f2707-54cd-43d7-b113-bd2e4a4cc44b",
+          "errorCode": null
+        },
+        {
+          "label": "tutup shift 3-way",
+          "method": "POST",
+          "path": "/shifts/1/close",
+          "status": 200,
+          "requestId": "01a3c2a9-e05e-4ad1-8dce-ec15237bc945",
+          "errorCode": null
+        },
+        {
+          "label": "buka shift paralel 1",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 200,
+          "requestId": "f86810f0-07dd-4112-bd97-cb41aff0108e",
+          "errorCode": null
+        },
+        {
+          "label": "buka shift paralel 2",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 409,
+          "requestId": "49ec2dae-e832-4378-98f9-1d3c1334672e",
+          "errorCode": "SHIFT_ALREADY_OPEN"
+        },
+        {
+          "label": "shift kasir A",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "19696a0b-843f-417b-9bd4-0309472b6ecf",
+          "errorCode": null
+        },
+        {
+          "label": "shift kasir B",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "7959f5ea-db98-4bb5-a6e5-32b32cc1089c",
+          "errorCode": null
+        },
+        {
+          "label": "ADMIN buka shift",
+          "method": "POST",
+          "path": "/shifts/open",
+          "status": 403,
+          "requestId": "2a15b828-35b0-4e77-b281-fe40e798d30b",
+          "errorCode": "FORBIDDEN"
+        }
+      ],
+      "shiftA1": 2,
+      "openedAtMs": 1795248191813,
+      "threeWay": {
+        "statuses": [
+          200,
+          409,
+          409
+        ],
+        "activeShifts": 1,
+        "winner": "kasir.t24.a"
+      }
+    },
+    {
+      "no": 3,
+      "ac": "AC-05.02",
+      "label": "Logout→login ulang owner & penggantian proses child: shift ID/waktu tetap; token lama 401; kasir B tetap null (bukan uji graceful shutdown)",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 9,
+          "activeShifts": 1
+        },
+        "stock": 10,
+        "expectedStock": 10,
+        "saleTotalRp": 0,
+        "paymentTotalRp": 0,
+        "saleNos": [],
+        "ledger": {
+          "OPENING": 10
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 9,
+          "activeShifts": 1
+        },
+        "stock": 10,
+        "expectedStock": 10,
+        "saleTotalRp": 0,
+        "paymentTotalRp": 0,
+        "saleNos": [],
+        "ledger": {
+          "OPENING": 10
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "58bcfb39-80bd-4d3d-9392-02ef0fd7d2c4",
+        "9cc9580a-ee58-4ab0-8733-23a0fb98e0df",
+        "f8497fb2-437e-47b0-9530-4f69f0311cc8",
+        "bff8f55a-9e75-4a8c-9994-e51bd4828c23",
+        "6bf2e1a3-f783-4505-81ab-537d9f40fa99",
+        "9e710e38-4a37-4951-9577-3604b8f538e2",
+        "432ddedc-4ae3-43a2-b7e2-d80228770f1f",
+        "b7726262-2752-454d-be4b-dbfee36f569e"
+      ],
+      "calls": [
+        {
+          "label": "logout kasir A",
+          "method": "POST",
+          "path": "/auth/logout",
+          "status": 200,
+          "requestId": "58bcfb39-80bd-4d3d-9392-02ef0fd7d2c4",
+          "errorCode": null
+        },
+        {
+          "label": "token lama",
+          "method": "GET",
+          "path": "/auth/me",
+          "status": 401,
+          "requestId": "9cc9580a-ee58-4ab0-8733-23a0fb98e0df",
+          "errorCode": "AUTH_REQUIRED"
+        },
+        {
+          "label": "login ulang kasir A setelah logout",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "f8497fb2-437e-47b0-9530-4f69f0311cc8",
+          "errorCode": null
+        },
+        {
+          "label": "shift setelah logout/login",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "bff8f55a-9e75-4a8c-9994-e51bd4828c23",
+          "errorCode": null
+        },
+        {
+          "label": "login ulang setelah restart child",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "6bf2e1a3-f783-4505-81ab-537d9f40fa99",
+          "errorCode": null
+        },
+        {
+          "label": "shift setelah restart",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "9e710e38-4a37-4951-9577-3604b8f538e2",
+          "errorCode": null
+        },
+        {
+          "label": "login kasir B setelah restart",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "432ddedc-4ae3-43a2-b7e2-d80228770f1f",
+          "errorCode": null
+        },
+        {
+          "label": "shift B setelah restart",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "b7726262-2752-454d-be4b-dbfee36f569e",
+          "errorCode": null
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "ac": "AC-04.02",
+      "label": "Prepare response selesai lalu SIGKILL sebelum commit: 0 data parsial; upaya PREPARED ditemukan; commit niat sama → 1 sale",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 0,
+          "saleItems": 0,
+          "payments": 0,
+          "movements": 1,
+          "attempts": 0,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 9,
+          "activeShifts": 1
+        },
+        "stock": 10,
+        "expectedStock": 10,
+        "saleTotalRp": 0,
+        "paymentTotalRp": 0,
+        "saleNos": [],
+        "ledger": {
+          "OPENING": 10
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 1,
+          "saleItems": 1,
+          "payments": 1,
+          "movements": 2,
+          "attempts": 1,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 10,
+          "activeShifts": 1
+        },
+        "stock": 9,
+        "expectedStock": 9,
+        "saleTotalRp": 5000,
+        "paymentTotalRp": 5000,
+        "saleNos": [
+          "S-000001"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -1
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "requestIds": [
+        "eac7313d-5aa7-48f7-9773-b3093079e5f3",
+        "b714312a-d60f-4eb2-aa0f-cc9bc36c7c87",
+        "a0f34e5e-4870-4384-ada9-9d4125c413e3",
+        "6590701e-6ee9-4a16-a7db-9e8b783f5e45"
+      ],
+      "calls": [
+        {
+          "label": "prepare:mati-sebelum-commit",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "eac7313d-5aa7-48f7-9773-b3093079e5f3",
+          "errorCode": null
+        },
+        {
+          "label": "login setelah SIGKILL A",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "b714312a-d60f-4eb2-aa0f-cc9bc36c7c87",
+          "errorCode": null
+        },
+        {
+          "label": "cek status PREPARED",
+          "method": "GET",
+          "path": "/checkouts/t24_0a78f735ec_mati-sebelum-commit_2",
+          "status": 200,
+          "requestId": "a0f34e5e-4870-4384-ada9-9d4125c413e3",
+          "errorCode": null
+        },
+        {
+          "label": "commit:lanjut-setelah-SIGKILL",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "6590701e-6ee9-4a16-a7db-9e8b783f5e45",
+          "errorCode": null
+        }
+      ],
+      "attemptKey": "t24_0a78f735ec_mati-sebelum-commit_2",
+      "statusAfterRestart": "PREPARED",
+      "cakupan": "crash terjadi setelah respons prepare diterima, bukan saat backend menulis DB"
+    },
+    {
+      "no": 5,
+      "ac": "AC-04.02",
+      "label": "Respons commit lengkap lalu SIGKILL: status COMMITTED & saleId sama ditemukan; tanpa penagihan/penjualan ulang",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 1,
+          "saleItems": 1,
+          "payments": 1,
+          "movements": 2,
+          "attempts": 1,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 10,
+          "activeShifts": 1
+        },
+        "stock": 9,
+        "expectedStock": 9,
+        "saleTotalRp": 5000,
+        "paymentTotalRp": 5000,
+        "saleNos": [
+          "S-000001"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -1
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 2,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 11,
+          "activeShifts": 1
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "requestIds": [
+        "f4d01acf-e87f-460e-ad19-d3dabfb81dec",
+        "dfcc8059-b899-49c9-a0d7-517e8d16f23d",
+        "5cb17a3c-7a4f-4bb1-a6a6-2e4a57df0432",
+        "74e5b094-871d-4021-b64e-bf0676b28278"
+      ],
+      "calls": [
+        {
+          "label": "prepare:mati-sesudah-commit",
+          "method": "POST",
+          "path": "/checkouts/prepare",
+          "status": 200,
+          "requestId": "f4d01acf-e87f-460e-ad19-d3dabfb81dec",
+          "errorCode": null
+        },
+        {
+          "label": "commit:commit-lalu-SIGKILL",
+          "method": "POST",
+          "path": "/checkouts/commit",
+          "status": 200,
+          "requestId": "dfcc8059-b899-49c9-a0d7-517e8d16f23d",
+          "errorCode": null
+        },
+        {
+          "label": "login setelah SIGKILL B",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "5cb17a3c-7a4f-4bb1-a6a6-2e4a57df0432",
+          "errorCode": null
+        },
+        {
+          "label": "cek status COMMITTED",
+          "method": "GET",
+          "path": "/checkouts/t24_0a78f735ec_mati-sesudah-commit_3",
+          "status": 200,
+          "requestId": "74e5b094-871d-4021-b64e-bf0676b28278",
+          "errorCode": null
+        }
+      ],
+      "attemptKey": "t24_0a78f735ec_mati-sesudah-commit_3",
+      "saleId": 2,
+      "saleNo": "S-000002",
+      "cakupan": "crash setelah respons commit diterima penuh, bukan antara commit DB dan pengiriman respons"
+    },
+    {
+      "no": 6,
+      "ac": "AC-04.03",
+      "label": "Printer gagal → 503 PRINTER_UNAVAILABLE tanpa mutasi; cetak ulang 2× saleNo/teks identik; kasir lain 403",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 2,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 11,
+          "activeShifts": 1
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 2,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 11,
+          "activeShifts": 1
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "d642f530-2d77-4b60-931e-8178a40353fc",
+        "f65990ed-a1f7-4c2c-92a4-8601df489c8e",
+        "adf4676a-a2c6-4edf-a8db-c395a1a511f8",
+        "883508d0-2e13-4027-8ac6-11ef55b279ea",
+        "fe6f5f39-6a42-4674-804b-e83bc90c54ae",
+        "86f5d265-81c5-49da-8a50-9e3fa055e243",
+        "64b9f54e-5e91-4862-a0a4-dbd0f7808b22",
+        "e95204f7-ec56-4a21-acfc-90e64059fa25",
+        "ed6ece99-20f0-4457-a82a-d0414fb0a29b"
+      ],
+      "calls": [
+        {
+          "label": "login untuk printer gagal",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "d642f530-2d77-4b60-931e-8178a40353fc",
+          "errorCode": null
+        },
+        {
+          "label": "baca struk",
+          "method": "GET",
+          "path": "/sales/2/receipt",
+          "status": 200,
+          "requestId": "f65990ed-a1f7-4c2c-92a4-8601df489c8e",
+          "errorCode": null
+        },
+        {
+          "label": "cetak saat printer mati",
+          "method": "POST",
+          "path": "/sales/2/print",
+          "status": 503,
+          "requestId": "adf4676a-a2c6-4edf-a8db-c395a1a511f8",
+          "errorCode": "PRINTER_UNAVAILABLE"
+        },
+        {
+          "label": "login untuk cetak ulang",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "883508d0-2e13-4027-8ac6-11ef55b279ea",
+          "errorCode": null
+        },
+        {
+          "label": "cetak ulang 1",
+          "method": "POST",
+          "path": "/sales/2/print",
+          "status": 200,
+          "requestId": "fe6f5f39-6a42-4674-804b-e83bc90c54ae",
+          "errorCode": null
+        },
+        {
+          "label": "cetak ulang 2",
+          "method": "POST",
+          "path": "/sales/2/print",
+          "status": 200,
+          "requestId": "86f5d265-81c5-49da-8a50-9e3fa055e243",
+          "errorCode": null
+        },
+        {
+          "label": "login kasir B untuk cetak",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "64b9f54e-5e91-4862-a0a4-dbd0f7808b22",
+          "errorCode": null
+        },
+        {
+          "label": "kasir B cetak",
+          "method": "POST",
+          "path": "/sales/2/print",
+          "status": 403,
+          "requestId": "e95204f7-ec56-4a21-acfc-90e64059fa25",
+          "errorCode": "FORBIDDEN"
+        },
+        {
+          "label": "login setelah skenario printer",
+          "method": "POST",
+          "path": "/auth/login",
+          "status": 200,
+          "requestId": "ed6ece99-20f0-4457-a82a-d0414fb0a29b",
+          "errorCode": null
+        }
+      ],
+      "saleNo": "S-000002",
+      "failedCode": "PRINTER_UNAVAILABLE"
+    },
+    {
+      "no": 7,
+      "ac": "AC-06.01",
+      "label": "Tutup shift 1 dengan rekap & selisih 0; retry identik satu hasil; key sama isi beda 409; nominal invalid 422",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 2,
+          "shifts": 2,
+          "closings": 1,
+          "audit": 11,
+          "activeShifts": 1
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 2,
+          "shifts": 2,
+          "closings": 2,
+          "audit": 12,
+          "activeShifts": 0
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "requestIds": [
+        "18711e67-fa18-403f-b5d8-03663595e4bc",
+        "3195855e-a724-4ae2-b642-448bafc4bab1",
+        "7d9b690f-f738-4b11-8dcc-5bd7cd11f058",
+        "85d172e0-d793-40d9-bd71-2ab9b1c12958",
+        "a8d86fab-e7e5-4a58-b23d-71cf5216778f",
+        "a4582c71-6027-4041-944e-4985b8a2cf48"
+      ],
+      "calls": [
+        {
+          "label": "preview tutup shift 1",
+          "method": "GET",
+          "path": "/shifts/2/close/preview",
+          "status": 200,
+          "requestId": "18711e67-fa18-403f-b5d8-03663595e4bc",
+          "errorCode": null
+        },
+        {
+          "label": "tutup shift 1",
+          "method": "POST",
+          "path": "/shifts/2/close",
+          "status": 200,
+          "requestId": "3195855e-a724-4ae2-b642-448bafc4bab1",
+          "errorCode": null
+        },
+        {
+          "label": "retry close identik",
+          "method": "POST",
+          "path": "/shifts/2/close",
+          "status": 200,
+          "requestId": "7d9b690f-f738-4b11-8dcc-5bd7cd11f058",
+          "errorCode": null
+        },
+        {
+          "label": "close key sama isi beda",
+          "method": "POST",
+          "path": "/shifts/2/close",
+          "status": 409,
+          "requestId": "85d172e0-d793-40d9-bd71-2ab9b1c12958",
+          "errorCode": "IDEMPOTENCY_CONFLICT"
+        },
+        {
+          "label": "close nominal invalid",
+          "method": "POST",
+          "path": "/shifts/2/close",
+          "status": 422,
+          "requestId": "a8d86fab-e7e5-4a58-b23d-71cf5216778f",
+          "errorCode": "VALIDATION_ERROR"
+        },
+        {
+          "label": "shift setelah tutup",
+          "method": "GET",
+          "path": "/shifts/current",
+          "status": 200,
+          "requestId": "a4582c71-6027-4041-944e-4985b8a2cf48",
+          "errorCode": null
+        }
+      ],
+      "totals": {
+        "cashRp": 10000,
+        "qrisManualRp": 0,
+        "totalSalesRp": 10000,
+        "saleCount": 2
+      },
+      "varianceRp": 0
+    },
+    {
+      "no": 8,
+      "ac": "AC-06.02",
+      "label": "Close vs checkout bersamaan: close=200, +1 penutupan, commit=409 (SHIFT_NOT_ACTIVE), sales delta=0, rekap saleCount=0 cashRp=0",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 2,
+          "shifts": 2,
+          "closings": 2,
+          "audit": 12,
+          "activeShifts": 0
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 3,
+          "shifts": 3,
+          "closings": 3,
+          "audit": 14,
+          "activeShifts": 0
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 0,
+        "payments": 0,
+        "movements": 0,
+        "stock": 0
+      },
+      "closeStatus": 200,
+      "commitStatus": 409,
+      "closeTotals": {
+        "cashRp": 0,
+        "qrisManualRp": 0,
+        "totalSalesRp": 0,
+        "saleCount": 0
+      }
+    },
+    {
+      "no": 9,
+      "ac": "AC-04.01",
+      "label": "Dua commit paralel identik & retry → satu saleId; replay tender beda mengembalikan uang asli Rp5.000; hash salah 409 IDEMPOTENCY_CONFLICT tanpa mutasi",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 2,
+          "saleItems": 2,
+          "payments": 2,
+          "movements": 3,
+          "attempts": 4,
+          "shifts": 4,
+          "closings": 4,
+          "audit": 16,
+          "activeShifts": 0
+        },
+        "stock": 8,
+        "expectedStock": 8,
+        "saleTotalRp": 10000,
+        "paymentTotalRp": 10000,
+        "saleNos": [
+          "S-000001",
+          "S-000002"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -2
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 3,
+          "saleItems": 3,
+          "payments": 3,
+          "movements": 4,
+          "attempts": 5,
+          "shifts": 5,
+          "closings": 4,
+          "audit": 18,
+          "activeShifts": 1
+        },
+        "stock": 7,
+        "expectedStock": 7,
+        "saleTotalRp": 15000,
+        "paymentTotalRp": 15000,
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -3
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "saleId": 3,
+      "replayTenderStatus": 200,
+      "replayCashReceivedRp": 5000,
+      "wrongHashStatus": 409,
+      "wrongHashCode": "IDEMPOTENCY_CONFLICT"
+    },
+    {
+      "no": 10,
+      "ac": "AC-06.02",
+      "label": "Dua urutan close/commit: commit duluan → sale Rp5.000 masuk rekap (saleCount=1, cashRp=5000); close duluan → 409 SHIFT_NOT_ACTIVE. Keduanya +1 penutupan",
+      "status": "PASS",
+      "before": {
+        "counts": {
+          "sales": 3,
+          "saleItems": 3,
+          "payments": 3,
+          "movements": 4,
+          "attempts": 5,
+          "shifts": 5,
+          "closings": 5,
+          "audit": 19,
+          "activeShifts": 0
+        },
+        "stock": 7,
+        "expectedStock": 7,
+        "saleTotalRp": 15000,
+        "paymentTotalRp": 15000,
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -3
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "after": {
+        "counts": {
+          "sales": 4,
+          "saleItems": 4,
+          "payments": 4,
+          "movements": 5,
+          "attempts": 6,
+          "shifts": 6,
+          "closings": 6,
+          "audit": 22,
+          "activeShifts": 0
+        },
+        "stock": 6,
+        "expectedStock": 6,
+        "saleTotalRp": 20000,
+        "paymentTotalRp": 20000,
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -4
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      },
+      "delta": {
+        "sales": 1,
+        "payments": 1,
+        "movements": 1,
+        "stock": -1
+      },
+      "closeTotals": {
+        "cashRp": 5000,
+        "qrisManualRp": 0,
+        "totalSalesRp": 5000,
+        "saleCount": 1
+      },
+      "closeFirstOrder": {
+        "before": {
+          "counts": {
+            "sales": 2,
+            "saleItems": 2,
+            "payments": 2,
+            "movements": 3,
+            "attempts": 3,
+            "shifts": 3,
+            "closings": 3,
+            "audit": 14,
+            "activeShifts": 0
+          },
+          "stock": 8,
+          "expectedStock": 8,
+          "saleTotalRp": 10000,
+          "paymentTotalRp": 10000,
+          "saleNos": [
+            "S-000001",
+            "S-000002"
+          ],
+          "ledger": {
+            "OPENING": 10,
+            "SALE": -2
+          },
+          "integrity": "ok",
+          "fk": 0,
+          "reconciled": true
+        },
+        "after": {
+          "counts": {
+            "sales": 2,
+            "saleItems": 2,
+            "payments": 2,
+            "movements": 3,
+            "attempts": 4,
+            "shifts": 4,
+            "closings": 4,
+            "audit": 16,
+            "activeShifts": 0
+          },
+          "stock": 8,
+          "expectedStock": 8,
+          "saleTotalRp": 10000,
+          "paymentTotalRp": 10000,
+          "saleNos": [
+            "S-000001",
+            "S-000002"
+          ],
+          "ledger": {
+            "OPENING": 10,
+            "SALE": -2
+          },
+          "integrity": "ok",
+          "fk": 0,
+          "reconciled": true
+        },
+        "delta": {
+          "sales": 0,
+          "payments": 0,
+          "movements": 0,
+          "stock": 0
+        },
+        "closeStatus": 200,
+        "commitStatus": 409,
+        "commitCode": "SHIFT_NOT_ACTIVE"
+      }
+    },
+    {
+      "no": 11,
+      "ac": "AC-06.03",
+      "label": "Close invalid 422 & shift tetap aktif; close sah; restart + retry closeKey sama → hasil asli, tanpa penutupan tambahan",
+      "status": "PASS",
+      "closeKey": "t24_0a78f735ec_close-retry_15",
+      "closings": 7
+    },
+    {
+      "no": 12,
+      "ac": "REKONSILIASI",
+      "label": "Integritas akhir ok, FK 0, 4 sale = 4 payment, 7 penutupan, stok 6 (= ledger)",
+      "status": "PASS",
+      "final": {
+        "counts": {
+          "sales": 4,
+          "saleItems": 4,
+          "payments": 4,
+          "movements": 5,
+          "attempts": 6,
+          "shifts": 7,
+          "closings": 7,
+          "audit": 24,
+          "activeShifts": 0
+        },
+        "stock": 6,
+        "expectedStock": 6,
+        "saleTotalRp": 20000,
+        "paymentTotalRp": 20000,
+        "saleNos": [
+          "S-000001",
+          "S-000002",
+          "S-000003",
+          "S-000004"
+        ],
+        "ledger": {
+          "OPENING": 10,
+          "SALE": -4
+        },
+        "integrity": "ok",
+        "fk": 0,
+        "reconciled": true
+      }
+    }
+  ],
+  "keys": [
+    {
+      "key": "t24_0a78f735ec_close-3way_1",
+      "label": "close-3way"
+    },
+    {
+      "key": "t24_0a78f735ec_mati-sebelum-commit_2",
+      "label": "mati-sebelum-commit"
+    },
+    {
+      "key": "t24_0a78f735ec_mati-sesudah-commit_3",
+      "label": "mati-sesudah-commit"
+    },
+    {
+      "key": "t24_0a78f735ec_close-1_4",
+      "label": "close-1"
+    },
+    {
+      "key": "t24_0a78f735ec_close-invalid_5",
+      "label": "close-invalid"
+    },
+    {
+      "key": "t24_0a78f735ec_close-vs-checkout_6",
+      "label": "close-vs-checkout"
+    },
+    {
+      "key": "t24_0a78f735ec_close-race_7",
+      "label": "close-race"
+    },
+    {
+      "key": "t24_0a78f735ec_close-dulu_8",
+      "label": "close-dulu"
+    },
+    {
+      "key": "t24_0a78f735ec_close-dulu_9",
+      "label": "close-dulu"
+    },
+    {
+      "key": "t24_0a78f735ec_klik-ganda_10",
+      "label": "klik-ganda"
+    },
+    {
+      "key": "t24_0a78f735ec_close-idem_11",
+      "label": "close-idem"
+    },
+    {
+      "key": "t24_0a78f735ec_commit-dulu_12",
+      "label": "commit-dulu"
+    },
+    {
+      "key": "t24_0a78f735ec_close-commit-dulu_13",
+      "label": "close-commit-dulu"
+    },
+    {
+      "key": "t24_0a78f735ec_close-bad_14",
+      "label": "close-bad"
+    },
+    {
+      "key": "t24_0a78f735ec_close-retry_15",
+      "label": "close-retry"
+    },
+    {
+      "key": "t24_0a78f735ec_checkout-shift-tertutup_16",
+      "label": "checkout-shift-tertutup"
+    }
+  ],
+  "calls": [
+    {
+      "label": "login ADMIN",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "ab76658e-161c-496f-94d9-7b297e235478",
+      "errorCode": null
+    },
+    {
+      "label": "buat kasir.t24.a",
+      "method": "POST",
+      "path": "/users",
+      "status": 201,
+      "requestId": "28526075-94cc-4b7c-91b9-2d90c985b178",
+      "errorCode": null
+    },
+    {
+      "label": "buat kasir.t24.b",
+      "method": "POST",
+      "path": "/users",
+      "status": 201,
+      "requestId": "4e32d674-04c5-4a1f-b562-a060fff9f3fd",
+      "errorCode": null
+    },
+    {
+      "label": "buat kategori",
+      "method": "POST",
+      "path": "/categories",
+      "status": 201,
+      "requestId": "5dcd9cb9-7db5-4122-827d-63abcac7547a",
+      "errorCode": null
+    },
+    {
+      "label": "buat produk",
+      "method": "POST",
+      "path": "/products",
+      "status": 201,
+      "requestId": "6bf9c421-8ce1-4964-aa8b-f76c45c8187c",
+      "errorCode": null
+    },
+    {
+      "label": "login kasir A",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "c20edc7f-a682-4a8b-a321-c8b9fa3a410b",
+      "errorCode": null
+    },
+    {
+      "label": "login kasir B",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "5573c3f0-b0d7-40c9-917d-55a7106fb63e",
+      "errorCode": null
+    },
+    {
+      "label": "3-way A-1",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "52487cce-07c9-448c-99e5-00454503d564",
+      "errorCode": null
+    },
+    {
+      "label": "3-way A-2",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 409,
+      "requestId": "91c96b2f-cd34-4abb-88b2-739b06113c2a",
+      "errorCode": "SHIFT_ALREADY_OPEN"
+    },
+    {
+      "label": "3-way B",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 409,
+      "requestId": "33f7ddbd-c5c0-46ff-a8f7-c34301f23ac6",
+      "errorCode": "SHIFT_ALREADY_OPEN"
+    },
+    {
+      "label": "pemilik 3-way",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "674f2707-54cd-43d7-b113-bd2e4a4cc44b",
+      "errorCode": null
+    },
+    {
+      "label": "tutup shift 3-way",
+      "method": "POST",
+      "path": "/shifts/1/close",
+      "status": 200,
+      "requestId": "01a3c2a9-e05e-4ad1-8dce-ec15237bc945",
+      "errorCode": null
+    },
+    {
+      "label": "buka shift paralel 1",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "f86810f0-07dd-4112-bd97-cb41aff0108e",
+      "errorCode": null
+    },
+    {
+      "label": "buka shift paralel 2",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 409,
+      "requestId": "49ec2dae-e832-4378-98f9-1d3c1334672e",
+      "errorCode": "SHIFT_ALREADY_OPEN"
+    },
+    {
+      "label": "shift kasir A",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "19696a0b-843f-417b-9bd4-0309472b6ecf",
+      "errorCode": null
+    },
+    {
+      "label": "shift kasir B",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "7959f5ea-db98-4bb5-a6e5-32b32cc1089c",
+      "errorCode": null
+    },
+    {
+      "label": "ADMIN buka shift",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 403,
+      "requestId": "2a15b828-35b0-4e77-b281-fe40e798d30b",
+      "errorCode": "FORBIDDEN"
+    },
+    {
+      "label": "logout kasir A",
+      "method": "POST",
+      "path": "/auth/logout",
+      "status": 200,
+      "requestId": "58bcfb39-80bd-4d3d-9392-02ef0fd7d2c4",
+      "errorCode": null
+    },
+    {
+      "label": "token lama",
+      "method": "GET",
+      "path": "/auth/me",
+      "status": 401,
+      "requestId": "9cc9580a-ee58-4ab0-8733-23a0fb98e0df",
+      "errorCode": "AUTH_REQUIRED"
+    },
+    {
+      "label": "login ulang kasir A setelah logout",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "f8497fb2-437e-47b0-9530-4f69f0311cc8",
+      "errorCode": null
+    },
+    {
+      "label": "shift setelah logout/login",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "bff8f55a-9e75-4a8c-9994-e51bd4828c23",
+      "errorCode": null
+    },
+    {
+      "label": "login ulang setelah restart child",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "6bf2e1a3-f783-4505-81ab-537d9f40fa99",
+      "errorCode": null
+    },
+    {
+      "label": "shift setelah restart",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "9e710e38-4a37-4951-9577-3604b8f538e2",
+      "errorCode": null
+    },
+    {
+      "label": "login kasir B setelah restart",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "432ddedc-4ae3-43a2-b7e2-d80228770f1f",
+      "errorCode": null
+    },
+    {
+      "label": "shift B setelah restart",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "b7726262-2752-454d-be4b-dbfee36f569e",
+      "errorCode": null
+    },
+    {
+      "label": "prepare:mati-sebelum-commit",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "eac7313d-5aa7-48f7-9773-b3093079e5f3",
+      "errorCode": null
+    },
+    {
+      "label": "login setelah SIGKILL A",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "b714312a-d60f-4eb2-aa0f-cc9bc36c7c87",
+      "errorCode": null
+    },
+    {
+      "label": "cek status PREPARED",
+      "method": "GET",
+      "path": "/checkouts/t24_0a78f735ec_mati-sebelum-commit_2",
+      "status": 200,
+      "requestId": "a0f34e5e-4870-4384-ada9-9d4125c413e3",
+      "errorCode": null
+    },
+    {
+      "label": "commit:lanjut-setelah-SIGKILL",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "6590701e-6ee9-4a16-a7db-9e8b783f5e45",
+      "errorCode": null
+    },
+    {
+      "label": "prepare:mati-sesudah-commit",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "f4d01acf-e87f-460e-ad19-d3dabfb81dec",
+      "errorCode": null
+    },
+    {
+      "label": "commit:commit-lalu-SIGKILL",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "dfcc8059-b899-49c9-a0d7-517e8d16f23d",
+      "errorCode": null
+    },
+    {
+      "label": "login setelah SIGKILL B",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "5cb17a3c-7a4f-4bb1-a6a6-2e4a57df0432",
+      "errorCode": null
+    },
+    {
+      "label": "cek status COMMITTED",
+      "method": "GET",
+      "path": "/checkouts/t24_0a78f735ec_mati-sesudah-commit_3",
+      "status": 200,
+      "requestId": "74e5b094-871d-4021-b64e-bf0676b28278",
+      "errorCode": null
+    },
+    {
+      "label": "login untuk printer gagal",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "d642f530-2d77-4b60-931e-8178a40353fc",
+      "errorCode": null
+    },
+    {
+      "label": "baca struk",
+      "method": "GET",
+      "path": "/sales/2/receipt",
+      "status": 200,
+      "requestId": "f65990ed-a1f7-4c2c-92a4-8601df489c8e",
+      "errorCode": null
+    },
+    {
+      "label": "cetak saat printer mati",
+      "method": "POST",
+      "path": "/sales/2/print",
+      "status": 503,
+      "requestId": "adf4676a-a2c6-4edf-a8db-c395a1a511f8",
+      "errorCode": "PRINTER_UNAVAILABLE"
+    },
+    {
+      "label": "login untuk cetak ulang",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "883508d0-2e13-4027-8ac6-11ef55b279ea",
+      "errorCode": null
+    },
+    {
+      "label": "cetak ulang 1",
+      "method": "POST",
+      "path": "/sales/2/print",
+      "status": 200,
+      "requestId": "fe6f5f39-6a42-4674-804b-e83bc90c54ae",
+      "errorCode": null
+    },
+    {
+      "label": "cetak ulang 2",
+      "method": "POST",
+      "path": "/sales/2/print",
+      "status": 200,
+      "requestId": "86f5d265-81c5-49da-8a50-9e3fa055e243",
+      "errorCode": null
+    },
+    {
+      "label": "login kasir B untuk cetak",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "64b9f54e-5e91-4862-a0a4-dbd0f7808b22",
+      "errorCode": null
+    },
+    {
+      "label": "kasir B cetak",
+      "method": "POST",
+      "path": "/sales/2/print",
+      "status": 403,
+      "requestId": "e95204f7-ec56-4a21-acfc-90e64059fa25",
+      "errorCode": "FORBIDDEN"
+    },
+    {
+      "label": "login setelah skenario printer",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "ed6ece99-20f0-4457-a82a-d0414fb0a29b",
+      "errorCode": null
+    },
+    {
+      "label": "preview tutup shift 1",
+      "method": "GET",
+      "path": "/shifts/2/close/preview",
+      "status": 200,
+      "requestId": "18711e67-fa18-403f-b5d8-03663595e4bc",
+      "errorCode": null
+    },
+    {
+      "label": "tutup shift 1",
+      "method": "POST",
+      "path": "/shifts/2/close",
+      "status": 200,
+      "requestId": "3195855e-a724-4ae2-b642-448bafc4bab1",
+      "errorCode": null
+    },
+    {
+      "label": "retry close identik",
+      "method": "POST",
+      "path": "/shifts/2/close",
+      "status": 200,
+      "requestId": "7d9b690f-f738-4b11-8dcc-5bd7cd11f058",
+      "errorCode": null
+    },
+    {
+      "label": "close key sama isi beda",
+      "method": "POST",
+      "path": "/shifts/2/close",
+      "status": 409,
+      "requestId": "85d172e0-d793-40d9-bd71-2ab9b1c12958",
+      "errorCode": "IDEMPOTENCY_CONFLICT"
+    },
+    {
+      "label": "close nominal invalid",
+      "method": "POST",
+      "path": "/shifts/2/close",
+      "status": 422,
+      "requestId": "a8d86fab-e7e5-4a58-b23d-71cf5216778f",
+      "errorCode": "VALIDATION_ERROR"
+    },
+    {
+      "label": "shift setelah tutup",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "a4582c71-6027-4041-944e-4985b8a2cf48",
+      "errorCode": null
+    },
+    {
+      "label": "buka shift 2 (race)",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "930d67fe-4915-4f41-b2db-1604decccfe0",
+      "errorCode": null
+    },
+    {
+      "label": "prepare:close-vs-checkout",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "26514f89-23f9-49db-b80c-52608e26315b",
+      "errorCode": null
+    },
+    {
+      "label": "close race",
+      "method": "POST",
+      "path": "/shifts/3/close",
+      "status": 200,
+      "requestId": "2dcd8f45-a599-4b28-9d8f-91b91a5dcbaa",
+      "errorCode": null
+    },
+    {
+      "label": "commit:commit race",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 409,
+      "requestId": "ea314d72-1fc3-46bd-9ac5-ab333b565ffc",
+      "errorCode": "SHIFT_NOT_ACTIVE"
+    },
+    {
+      "label": "buka shift close-dulu",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "4c98bd76-10d2-479c-be98-acf37f88eab2",
+      "errorCode": null
+    },
+    {
+      "label": "prepare:close-dulu",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "e35d82ed-b666-448c-84b5-50cdc6d66f95",
+      "errorCode": null
+    },
+    {
+      "label": "close lebih dulu",
+      "method": "POST",
+      "path": "/shifts/4/close",
+      "status": 200,
+      "requestId": "b8df40b2-45c1-4e3f-877b-b508630e0ddd",
+      "errorCode": null
+    },
+    {
+      "label": "commit:commit-setelah-close",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 409,
+      "requestId": "a18d48f7-418f-43f0-a518-eaad4d356ceb",
+      "errorCode": "SHIFT_NOT_ACTIVE"
+    },
+    {
+      "label": "buka shift idempotensi",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "2de239ee-1ce4-4a85-aa6f-dce2e415a291",
+      "errorCode": null
+    },
+    {
+      "label": "prepare:klik-ganda",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "1307bd62-2efd-41bb-9da5-d602d2e07b40",
+      "errorCode": null
+    },
+    {
+      "label": "commit:klik-ganda-A",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "d8b3951f-5ad0-47cb-bbc4-f05a889c75fd",
+      "errorCode": null
+    },
+    {
+      "label": "commit:klik-ganda-B",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "ee4f4951-1056-4eb2-a75d-6311470fcfad",
+      "errorCode": null
+    },
+    {
+      "label": "commit:retry-identik",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "dd1e55ac-627e-46b8-8bfe-5654f57c2b96",
+      "errorCode": null
+    },
+    {
+      "label": "commit:replay-tender-diubah",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "fcffb7a0-6f68-4ab7-8ee9-8f7df24215b6",
+      "errorCode": null
+    },
+    {
+      "label": "commit:hash-salah",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 409,
+      "requestId": "763ed650-5ae0-4651-8d51-4806f1000387",
+      "errorCode": "IDEMPOTENCY_CONFLICT"
+    },
+    {
+      "label": "tutup shift idempotensi",
+      "method": "POST",
+      "path": "/shifts/5/close",
+      "status": 200,
+      "requestId": "3ffe1301-4dd9-4f32-9739-3c9a3034a98f",
+      "errorCode": null
+    },
+    {
+      "label": "buka shift commit-dulu",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "d2ef8501-4255-45fe-854d-a51ff67a7d5c",
+      "errorCode": null
+    },
+    {
+      "label": "prepare:commit-dulu",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 200,
+      "requestId": "b1c9d69f-1843-4804-95e1-ea67e1884fd3",
+      "errorCode": null
+    },
+    {
+      "label": "commit:commit-dulu",
+      "method": "POST",
+      "path": "/checkouts/commit",
+      "status": 200,
+      "requestId": "6cf18d11-6c00-44f2-8f09-daeb76ba3f34",
+      "errorCode": null
+    },
+    {
+      "label": "tutup setelah commit",
+      "method": "POST",
+      "path": "/shifts/6/close",
+      "status": 200,
+      "requestId": "d148f7a2-6246-4160-a679-41f804ced3d2",
+      "errorCode": null
+    },
+    {
+      "label": "buka shift retry-close",
+      "method": "POST",
+      "path": "/shifts/open",
+      "status": 200,
+      "requestId": "9cf8b91b-9f02-434a-8460-f59b19af9b04",
+      "errorCode": null
+    },
+    {
+      "label": "close invalid",
+      "method": "POST",
+      "path": "/shifts/7/close",
+      "status": 422,
+      "requestId": "bee34e35-c40c-47ff-b10e-144be0697156",
+      "errorCode": "VALIDATION_ERROR"
+    },
+    {
+      "label": "shift tetap aktif setelah close invalid",
+      "method": "GET",
+      "path": "/shifts/current",
+      "status": 200,
+      "requestId": "dff9d80e-264a-46b9-a7dd-54216cfae64b",
+      "errorCode": null
+    },
+    {
+      "label": "close sah",
+      "method": "POST",
+      "path": "/shifts/7/close",
+      "status": 200,
+      "requestId": "f5e141a3-71c7-413a-b3ae-9038a2026d86",
+      "errorCode": null
+    },
+    {
+      "label": "login untuk retry close setelah restart",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "requestId": "4723e75d-1540-4b72-9034-214b34ad5bee",
+      "errorCode": null
+    },
+    {
+      "label": "retry close setelah restart",
+      "method": "POST",
+      "path": "/shifts/7/close",
+      "status": 200,
+      "requestId": "9c891fbb-b615-4b7d-92e3-5692273ff145",
+      "errorCode": null
+    },
+    {
+      "label": "prepare:checkout-shift-tertutup",
+      "method": "POST",
+      "path": "/checkouts/prepare",
+      "status": 409,
+      "requestId": "e4ad169b-5e58-4b6c-a140-9eca23d8807e",
+      "errorCode": "SHIFT_NOT_ACTIVE"
+    }
+  ]
+}
