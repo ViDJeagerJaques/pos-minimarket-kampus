@@ -150,13 +150,14 @@ test("AC-08.02: rekonsiliasi per SKU menjumlahkan opening + penerimaan - penjual
     const report = reconcileProduct(db, 1);
     assert.equal(report.opening, 10);
     assert.equal(report.receipt, 4);
-    assert.equal(report.sale, -3);
+    assert.equal(report.sale, 3);
     assert.equal(report.adjustment, -1);
     assert.equal(report.computedOnHand, 10);
     assert.equal(report.ledgerOnHand, 10);
     assert.equal(report.matched, true);
     assert.deepEqual(report.issues, []);
     assert.equal(reconcileAll(db).length, 2);
+    assert.equal(reconcileProduct(db, 2).sale, 0);
   } finally {
     db.close();
     database.cleanup();
@@ -259,7 +260,7 @@ test("BUG-009: reconcileProduct menandai matched=false dan melaporkan issue jika
 
     const report = reconcileProduct(db, 1);
     assert.equal(report.opening, 10);
-    assert.equal(report.sale, -2);
+    assert.equal(report.sale, 2);
     assert.equal(report.computedOnHand, 8);
     assert.equal(report.ledgerOnHand, 8);
     assert.equal(report.matched, false);

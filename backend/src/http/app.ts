@@ -530,6 +530,12 @@ function createPrintRoutes(print: PrintService): Route[] {
   return [
     {
       method: "GET",
+      pattern: /^\/sales\/recent$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => ({ data: print.getRecentSales(actorOf(ctx)) }),
+    },
+    {
+      method: "GET",
       pattern: /^\/sales\/(?<id>\d+)\/receipt$/,
       roles: ["ADMIN", "CASHIER"],
       handler: (ctx) => ({ data: print.getReceipt(actorOf(ctx), Number(ctx.params.id)) }),

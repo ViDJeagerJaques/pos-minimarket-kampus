@@ -7,7 +7,10 @@ import { createVirtualPrinterAdapter } from "./printer.ts";
 import { formatReceiptText } from "./receipt.ts";
 import type { PrintResult, PrinterAdapter, Receipt, ReceiptView } from "./types.ts";
 
+export type RecentSale = { saleId: number; saleNo: string; committedAtMs: number; totalRp: number; method: CheckoutPaymentMethod };
+
 export type PrintService = {
+  getRecentSales(actor: SessionUser): RecentSale[];
   /** Membaca struk dari sale COMMITTED (ADMIN boleh membaca, tidak boleh mencetak). */
   getReceipt(actor: SessionUser, saleId: unknown): ReceiptView;
   /** Mencetak/cetak ulang. Hanya CASHIER pemilik sale. Tidak menulis DB. */
@@ -150,6 +153,16 @@ export function createPrintService(
   }
 
   return {
+    getRecentSales(actor) {
+      assertActiveActor(actor);
+      if (actor.role !== "ADMIN" && actor.role !== "CASHIER") throw new ForbiddenError("Akses transaksi ditolak.");
+      const rows = db.prepare(`SELECT s.id, s.sale_no, s.committed_at_ms, s.total_rp, p.method_code
+        FROM sales s JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
+        JOIN payments p ON p.sale_id = s.id
+        WHERE (? = 'ADMIN' OR a.cashier_id = ?)
+        ORDER BY s.committed_at_ms DESC, s.id DESC LIMIT 20`).all(actor.role, actor.userId);
+      return rows.map(row => ({ saleId: Number(row.id), saleNo: String(row.sale_no), committedAtMs: Number(row.committed_at_ms), totalRp: Number(row.total_rp), method: asPaymentMethod(String(row.method_code)) }));
+    },
     getReceipt(actor, saleIdInput) {
       const receipt = loadCommittedReceipt(actor, saleIdInput);
       return { receipt, text: formatReceiptText(receipt), demo: true };

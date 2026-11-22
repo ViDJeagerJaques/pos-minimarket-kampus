@@ -134,3 +134,10 @@ previousOnHand, onHand, delta, reason, actorId, committedAtMs, duplicate}}`.
 401 untuk sesi invalid, 403 untuk CASHIER, 404 produk tidak ada, 422 input invalid
 (termasuk saldo negatif, alasan kosong, delta nol). Kesalahan tidak menambah mutasi/audit.
 Ledger ADJUSTMENT, identitas retry, dan audit INVENTORY_ADJUSTED commit/rollback bersama.
+
+
+## Riwayat struk (BUG-100/101 follow-up)
+
+GET /sales/recent memerlukan sesi aktif. CASHIER hanya menerima penjualan miliknya berdasarkan checkout_attempts.cashier_id; ADMIN boleh membaca semua, mengikuti izin baca struk. Respons data berupa array maksimal 20 item: saleId, saleNo, committedAtMs, totalRp, method (CASH atau QRIS_MANUAL). Urutan committedAtMs DESC, id DESC. Daftar kosong menghasilkan []. Endpoint hanya membaca data dan tidak menyediakan pagination.
+
+Field sale pada laporan stok adalah jumlah terjual non-negatif. Saldo dihitung opening + receipt - sale + adjustment; delta pada riwayat mutasi SALE tetap negatif.

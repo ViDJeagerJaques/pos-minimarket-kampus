@@ -42,6 +42,20 @@ function source(overrides: Partial<PosDataSource> = {}): PosDataSource {
 }
 
 describe("TASK-021 ReceiptPage — cetak ulang dari saleId tersimpan", () => {
+  it.each(["S-000208", "s-000208", "S-208", "208", "000208", "  S-000208  "])(
+    "BUG-101: memuat nomor struk %s sebagai ID 208",
+    async (input) => {
+      const view = { ...VIEW, receipt: { ...VIEW.receipt, saleId: 208, saleNo: "S-000208" }, text: "No. Penjualan : S-000208" };
+      const getSaleReceipt = vi.fn(async () => view);
+      const user = userEvent.setup();
+      render(<ReceiptPage dataSource={source({ getSaleReceipt })} onSessionExpired={vi.fn()} />);
+      await user.type(screen.getByLabelText(/ID transaksi tersimpan/), input);
+      await user.click(screen.getByRole("button", { name: "Muat struk" }));
+      expect((await screen.findByTestId("receipt-text")).textContent).toContain("S-000208");
+      expect(getSaleReceipt).toHaveBeenCalledWith(208);
+    },
+  );
+
   it("memuat dan mencetak ulang struk lama tanpa checkout baru", async () => {
     const getSaleReceipt = vi.fn(async () => VIEW);
     const printSaleReceipt = vi.fn(async () => PRINTED);
@@ -74,4 +88,16 @@ describe("TASK-021 ReceiptPage — cetak ulang dari saleId tersimpan", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("bilangan bulat positif");
     expect(getSaleReceipt).not.toHaveBeenCalled();
   });
+});
+
+
+it("daftar otomatis dimuat dan klik nomor membuka struk asli", async () => {
+  const getRecentSales = vi.fn(async () => [{ saleId: 77, saleNo: "S-000077", committedAtMs: 1700000000000, totalRp: 2500, method: "CASH" as const }]);
+  const getSaleReceipt = vi.fn(async () => VIEW);
+  const user = userEvent.setup();
+  render(<ReceiptPage dataSource={source({ getRecentSales, getSaleReceipt })} onSessionExpired={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: "S-000077" }));
+  expect(await screen.findByTestId("receipt-text")).toBeTruthy();
+  expect(getSaleReceipt).toHaveBeenCalledWith(77);
+  expect(getRecentSales).toHaveBeenCalledTimes(1);
 });

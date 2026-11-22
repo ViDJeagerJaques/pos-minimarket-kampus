@@ -148,3 +148,20 @@ test("TASK-021: akun nonaktif dan input/sale tidak valid ditolak tanpa data boco
     ctx.cleanup();
   }
 });
+
+
+test("Riwayat terbaru membatasi pemilik, mendukung ADMIN, dan hanya membaca DB", () => {
+  const ctx = setup();
+  try {
+    const before = counts(ctx.db);
+    const rows = ctx.print.getRecentSales(cashier);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].saleId, ctx.saleId);
+    assert.equal(rows[0].method, "CASH");
+    assert.deepEqual(ctx.print.getRecentSales(otherCashier), []);
+    assert.deepEqual(ctx.print.getRecentSales(admin), rows);
+    assert.deepEqual(counts(ctx.db), before);
+    ctx.db.prepare("UPDATE users SET active = 0 WHERE id = ?").run(cashier.userId);
+    assert.throws(() => ctx.print.getRecentSales(cashier), AuthRequiredError);
+  } finally { ctx.cleanup(); }
+});

@@ -354,6 +354,8 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       );
     },
 
+    async getRecentSales() { return []; },
+
     async getSaleReceipt() {
       callLog.push({ operation: "getSaleReceipt", isMutation: false });
       await delay();

@@ -127,6 +127,12 @@ test("TASK-021 HTTP AC-04.03: cetak dari sale committed, gagal cetak, reprint, d
     const before = counts(db);
 
     // Pratinjau: pemilik boleh, ADMIN boleh membaca, kasir lain tidak.
+    assert.equal((await call(running.url, "/sales/recent")).status, 401);
+    const recent = await call(running.url, "/sales/recent", { token: ownerToken });
+    assert.equal(recent.status, 200);
+    assert.equal((recent.json.data as Array<{ saleId: number }>)[0].saleId, sale.saleId);
+    assert.deepEqual((await call(running.url, "/sales/recent", { token: otherToken })).json.data, []);
+    assert.equal((await call(running.url, "/sales/recent", { token: adminToken })).status, 200);
     const receiptRes = await call(running.url, `/sales/${sale.saleId}/receipt`, { token: ownerToken });
     assert.equal(receiptRes.status, 200);
     const view = receiptRes.json.data as { receipt: { saleNo: string }; text: string; demo: boolean };
