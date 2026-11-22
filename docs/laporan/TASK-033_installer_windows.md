@@ -42,13 +42,22 @@ npm --prefix frontend ci
 npm --prefix desktop run build
 ```
 
-Hasil: `dist-electron/POS-Minimarket-DEMO-0.1.0-demo-x64-Setup.exe`.
-Instal, buka sekali untuk migrasi DB kosong, lalu tutup aplikasi. Dengan
-`$installDir` menunjuk direktori yang dipilih saat instalasi:
+Instal dan buka aplikasi. Saat pertama dibuka pada database tanpa akun sama
+sekali, aplikasi menampilkan layar **Buat akun admin pertama** sebelum layar
+login (`GET /api/v1/auth/bootstrap-status` → `POST /api/v1/auth/bootstrap-admin`),
+sehingga admin pertama dibuat langsung dari UI tanpa sandi bawaan dan tanpa
+terminal. Setelah ada minimal satu akun, layar setup tidak pernah tampil lagi
+(backend menolak bootstrap kedua dengan `409 CONFLICT`). Akun DEMO tetap
+terkunci (`DEMO_LOCKED_NO_LOGIN`).
+
+Untuk setup headless/otomatis, CLI `bootstrap-admin` tetap tersedia memakai
+`$installDir`:
 
 ```powershell
 $runtime = Join-Path $installDir 'resources\runtime\node.exe'
 $database = Join-Path $env:APPDATA 'PosMinimarketKampus-DEMO\pos-dev.sqlite'
+& $runtime (Join-Path $installDir 'resources\backend\db\src\cli.ts') migrate --db $database
+if ($LASTEXITCODE -ne 0) { throw 'Migrasi gagal; bootstrap dibatalkan' }
 $secret = Read-Host 'Sandi ADMIN baru (tidak disimpan dalam skrip)' -AsSecureString
 $credential = [System.Net.NetworkCredential]::new('', $secret)
 try {

@@ -150,6 +150,18 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       }));
     },
 
+    async getBootstrapStatus() {
+      return { needsSetup: false };
+    },
+
+    async bootstrapAdmin() {
+      throw new ApiError(
+        0,
+        "DEMO_UNSUPPORTED",
+        "Mode DEMO memakai akun di memori dan tidak menyimpan admin ke database.",
+      );
+    },
+
     async createAccount(_input: CreateAccountInput): Promise<AccountSummary> {
       callLog.push({ operation: "createAccount", isMutation: false });
       await delay();

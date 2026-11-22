@@ -638,6 +638,21 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
 
   const routes: Route[] = [
     {
+      method: "GET",
+      pattern: /^\/auth\/bootstrap-status$/,
+      roles: null,
+      handler: () => ({ data: auth.getBootstrapStatus() }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/auth\/bootstrap-admin$/,
+      roles: null,
+      handler: (ctx) => ({
+        status: 201,
+        data: auth.bootstrapAdmin(asObject(ctx.body) as { username?: unknown; password?: unknown }),
+      }),
+    },
+    {
       method: "POST",
       pattern: /^\/auth\/login$/,
       roles: null,

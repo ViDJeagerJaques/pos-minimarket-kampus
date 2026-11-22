@@ -1,22 +1,22 @@
 {
-  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-tLjfdf",
+  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-TRs7w5",
   "installers": [
     {
       "file": "POS-Minimarket-DEMO-0.1.0-demo-x64-Setup.exe",
-      "sha256": "60a50f9354fe991b902519a302811302b47eaac6c719d61e72836eff22e01f14"
+      "sha256": "43ee62a9c46ef72db5e39bf2e9c224b16511b61a96520fe6d851567a1da8e955"
     },
     {
       "file": "POS-Minimarket-DEMO-0.1.1-demo-x64-Setup.exe",
-      "sha256": "70bcde338941fb2e1dc8ab2c37cd6ba463316698d029cc28bbcaa35e2b3d32c0"
+      "sha256": "154e78691ffbddb37646ac76b96c0524072ae5715f2007c31db304b1483fc584"
     },
     {
       "file": "POS-Minimarket-DEMO-0.1.2-failure-x64-Setup.exe",
-      "sha256": "a2a602a27a53ca03b38e1605e7e98ad50e3baf59449f5a016041229f10cc9370"
+      "sha256": "ebaa1dd932fe2a69929f3fa0f176d59896d4f344275908b2168ff1d14268ea69"
     }
   ],
   "checks": [
     {
-      "check": "fresh installer + bundled Node without PATH/Node override",
+      "check": "fresh install shows first-admin setup, creates admin, and logs in via packaged renderer",
       "status": "PASS",
       "nodeVersion": "v24.18.0"
     },
@@ -27,8 +27,8 @@
     {
       "check": "snapshot database + configuration",
       "status": "PASS",
-      "dbSha256": "b188b0a0fd249933e6ad31cc623844b6b0da082bc56756081780bc2a4b7d44f9",
-      "configSha256": "5851642a8f1e2bfcacffff7eadf8038c328b7111f27f45461a807504ef15a5fc"
+      "dbSha256": "b8eebd84a1d7c14f869bbd8adc2326d6d1d2fe896e87ab025dd5f521fedc2e5d",
+      "configSha256": "b6544b435b564c2029554fcc3374bfce46f546b0e095bff8c33356bbf98abe5d"
     },
     {
       "check": "upgrade keeps transactions, active shift, config; integrity=ok, FK=0",

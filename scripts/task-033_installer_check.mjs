@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rena
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 const installers = process.argv.slice(2).map(p => path.resolve(p));
 assert.equal(installers.length, 3, "Berikan installer baseline, upgrade, dan failure-injection");
@@ -125,10 +125,21 @@ function state() {
 try {
   assertNoExistingDemoInstall();
   await install(installers[0]);
-  let base = await start();
-  log("fresh installer + bundled Node without PATH/Node override", { nodeVersion: run(node, ["--version"]).trim() });
-  // Gunakan smoke TASK-031 yang sama, tetapi bootstrap dan semua CLI dari paket terpasang.
-  const smoke = readFileSync("scripts/task-031_electron_smoke.mjs", "utf8").replace('const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");', `const root = ${JSON.stringify(resources)};`);
+  const setupCredsPath = path.join(root, "setup-creds.json");
+  const setupAdminUser = "admin.setup";
+  const setupAdminPass = `Adm-${randomBytes(8).toString("hex")}`;
+  writeFileSync(setupCredsPath, JSON.stringify({ adminUser: setupAdminUser, adminPass: setupAdminPass }));
+  let base = await start(
+    { POS_INSTALLER_RENDERER_TEST: "1", POS_INSTALLER_SETUP_FIRST: "1", POS_SPIKE_CREDS_FILE: setupCredsPath },
+    "POS_SPIKE renderer_setup_and_login=PASS",
+  );
+  log("fresh install shows first-admin setup, creates admin, and logs in via packaged renderer", { nodeVersion: run(node, ["--version"]).trim() });
+  // Gunakan smoke TASK-031 dengan ADMIN yang baru dibuat lewat layar setup UI.
+  let smoke = readFileSync("scripts/task-031_electron_smoke.mjs", "utf8")
+    .replace('const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");', `const root = ${JSON.stringify(resources)};`)
+    .replace(/const adminUser = .*;/, `const adminUser = ${JSON.stringify(setupAdminUser)};`)
+    .replace(/const adminPass = .*;/, `const adminPass = ${JSON.stringify(setupAdminPass)};`)
+    .replace(/const boot = spawnSync\([\s\S]*?assert\.equal\(boot\.status, 0,[^;]*\);/, "// Admin pertama sudah dibuat lewat layar setup UI.");
   const smokePath = path.join(root, "smoke.mjs");
   writeFileSync(smokePath, smoke);
   const credsPath = path.join(root, "creds.json");

@@ -175,8 +175,9 @@ function createWindow() {
     if (BENCH && process.env.POS_INSTALLER_RENDERER_TEST === "1" && process.env.POS_SPIKE_CREDS_FILE) {
       try {
         const creds = JSON.parse(fs.readFileSync(process.env.POS_SPIKE_CREDS_FILE, "utf8"));
-        const userJson = JSON.stringify(String(creds.cashierUser ?? ""));
-        const passJson = JSON.stringify(String(creds.cashierPass ?? ""));
+        const setupFirst = process.env.POS_INSTALLER_SETUP_FIRST === "1";
+        const userJson = JSON.stringify(String(setupFirst ? (creds.adminUser ?? "") : (creds.cashierUser ?? "")));
+        const passJson = JSON.stringify(String(setupFirst ? (creds.adminPass ?? "") : (creds.cashierPass ?? "")));
         setTimeout(() => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
           mainWindow.webContents
@@ -186,15 +187,37 @@ function createWindow() {
                 setter.call(el, val);
                 el.dispatchEvent(new Event('input', { bubbles: true }));
               };
-              const deadline = Date.now() + 8000;
-              let form = null;
+              const deadline = Date.now() + 10000;
+              if (${setupFirst ? "true" : "false"}) {
+                let setupTitle = null;
+                while (Date.now() < deadline) {
+                  setupTitle = document.getElementById('setup-admin-title');
+                  if (setupTitle) break;
+                  await new Promise(r => setTimeout(r, 100));
+                }
+                if (!setupTitle) return 'FAIL:no_setup_screen';
+                const setupForm = setupTitle.closest('form');
+                const setupInputs = setupForm ? setupForm.querySelectorAll('input') : [];
+                if (setupInputs.length < 3) return 'FAIL:setup_inputs';
+                setVal(setupInputs[0], ${userJson});
+                setVal(setupInputs[1], ${passJson});
+                setVal(setupInputs[2], ${passJson});
+                const setupBtn = setupForm.querySelector('button[type="submit"]');
+                if (!setupBtn) return 'FAIL:no_setup_btn';
+                setupBtn.click();
+              }
+              let loginTitle = null;
               while (Date.now() < deadline) {
-                form = document.querySelector('form');
-                if (form && form.querySelectorAll('input').length >= 2) break;
+                loginTitle = document.getElementById('login-title');
+                if (loginTitle) break;
+                const err = document.querySelector('[role="alert"]');
+                if (err && err.textContent) return 'FAIL:' + err.textContent.trim();
                 await new Promise(r => setTimeout(r, 100));
               }
-              if (!form) return 'FAIL:no_login_form';
-              const inputs = form.querySelectorAll('input');
+              if (!loginTitle) return 'FAIL:no_login_form';
+              const form = loginTitle.closest('form');
+              const inputs = form ? form.querySelectorAll('input') : [];
+              if (inputs.length < 2) return 'FAIL:login_inputs';
               setVal(inputs[0], ${userJson});
               setVal(inputs[1], ${passJson});
               const btn = form.querySelector('button[type="submit"]');
@@ -209,8 +232,8 @@ function createWindow() {
               }
               return 'FAIL:timeout:' + document.body.innerText.slice(0, 200);
             })()`)
-            .then((result) => process.stdout.write(`POS_SPIKE renderer_login=${String(result)}\n`))
-            .catch((error) => process.stdout.write(`POS_SPIKE renderer_login=FAIL:${error.message}\n`));
+            .then((result) => process.stdout.write(`POS_SPIKE ${setupFirst ? "renderer_setup_and_login" : "renderer_login"}=${String(result)}\n`))
+            .catch((error) => process.stdout.write(`POS_SPIKE ${setupFirst ? "renderer_setup_and_login" : "renderer_login"}=FAIL:${error.message}\n`));
         }, 500);
       } catch (error) {
         process.stdout.write(`POS_SPIKE renderer_login=FAIL:${error.message}\n`);

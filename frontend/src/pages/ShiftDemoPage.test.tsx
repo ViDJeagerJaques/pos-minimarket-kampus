@@ -82,7 +82,7 @@ describe("TASK-023 penutupan shift", () => {
     const api = source({ login: vi.fn(async () => ({ ok: true as const, user })) });
     render(<App dataSource={api} onAfterLogout={vi.fn()} />);
     const u = userEvent.setup();
-    await u.type(screen.getByLabelText("Nama pengguna"), "kasir");
+    await u.type(await screen.findByLabelText("Nama pengguna"), "kasir");
     await u.type(screen.getByLabelText("Kata sandi"), "uji");
     await u.click(screen.getByRole("button", { name: "Masuk" }));
     await screen.findByRole("button", { name: "Ulangi permintaan yang sama" });
