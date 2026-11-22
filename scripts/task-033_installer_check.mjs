@@ -25,6 +25,39 @@ function run(exe, args, options = {}) {
   assert.equal(result.status, 0, `${exe}: ${result.error ?? result.stderr ?? result.stdout}`);
   return result.stdout;
 }
+function assertNoExistingDemoInstall() {
+  const probe = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-Command",
+      "$paths = @('HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*', 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*', 'HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'); $hits = Get-ItemProperty $paths -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq 'id.kampus.pos.demo' -or $_.PSChildName -eq 'ce4a1bc9-e19c-5b8f-9604-68890df7f21a' -or $_.DisplayName -like '*POS Minimarket Kampus DEMO*' } | Select-Object -ExpandProperty DisplayName; if ($hits) { $hits | ForEach-Object { Write-Output $_ }; exit 10 }",
+    ],
+    { windowsHide: true, encoding: "utf8", timeout: 30000 },
+  );
+  if (probe.status === 10) {
+    throw new Error(
+      `Instalasi POS Minimarket Kampus DEMO sudah ada untuk user Windows ini (${probe.stdout.trim()}). Copot pemasangan dulu atau jalankan rehearsal di akun Windows/VM disposable.`,
+    );
+  }
+  assert.equal(
+    probe.status,
+    0,
+    `Deteksi instalasi DEMO gagal (${probe.error ?? probe.stderr}); jalankan rehearsal di akun Windows/VM disposable.`,
+  );
+  const localPrograms = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Programs") : null;
+  if (localPrograms) {
+    for (const dirName of ["POS Minimarket Kampus DEMO", "pos-minimarket-kampus-desktop"]) {
+      const candidate = path.join(localPrograms, dirName);
+      assert.equal(
+        existsSync(candidate),
+        false,
+        `Direktori instalasi DEMO sudah ada di ${candidate}; copot pemasangan dulu atau pakai akun Windows/VM disposable.`,
+      );
+    }
+  }
+}
+
 async function install(file, failure = false) {
   const code = await new Promise((resolve, reject) => {
     const child = spawn(file, ["/S", `/D=${installDir}`], { windowsHide: true });
@@ -32,11 +65,11 @@ async function install(file, failure = false) {
     const timer = setTimeout(() => { child.kill(); reject(new Error("Installer timeout")); }, 180000);
     child.once("exit", code => { clearTimeout(timer); resolve(code); });
   });
-  if (failure) assert.notEqual(code, 0, "Installer fixture harus gagal"); else assert.equal(code, 0);
+  if (failure) assert.equal(code, 42, "Installer fixture harus gagal dengan exit code 42"); else assert.equal(code, 0);
   return code;
 }
 let app;
-async function start() {
+async function start(extraEnv = {}, waitToken = "POS_SPIKE window_ready") {
   const socket = createServer();
   await new Promise(resolve => socket.listen(0, "127.0.0.1", resolve));
   const port = socket.address().port;
@@ -46,14 +79,23 @@ async function start() {
   config.apiPort = port;
   writeFileSync(path.join(dataDir, "config.json"), JSON.stringify(config, null, 2));
   app = spawn(path.join(installDir, "POS Minimarket Kampus DEMO.exe"), [`--user-data-dir=${dataDir}`], {
-    windowsHide: true, env: { ...process.env, PATH: process.env.SystemRoot, POS_ELECTRON_BENCH: "1", POS_NODE_BIN: "missing-node.exe", NODE_OPTIONS: "" }, stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    env: {
+      ...process.env,
+      PATH: process.env.SystemRoot,
+      POS_ELECTRON_BENCH: "1",
+      POS_NODE_BIN: "missing-node.exe",
+      NODE_OPTIONS: "",
+      ...extraEnv,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
   app.stdout.on("data", b => { output += b; });
   app.stderr.on("data", b => { output += b; });
   const until = Date.now() + 30000;
-  while (!output.includes("POS_SPIKE window_ready") && Date.now() < until && app.exitCode === null) await new Promise(r => setTimeout(r, 200));
-  assert.ok(output.includes("POS_SPIKE window_ready"), output);
+  while (!output.includes(waitToken) && Date.now() < until && app.exitCode === null) await new Promise(r => setTimeout(r, 200));
+  assert.ok(output.includes(waitToken), output);
   writeFileSync(path.join(root, `startup-${evidence.length}.log`), output);
   return `http://127.0.0.1:${port}/api/v1`;
 }
@@ -81,6 +123,7 @@ function state() {
   } finally { db.close(); }
 }
 try {
+  assertNoExistingDemoInstall();
   await install(installers[0]);
   let base = await start();
   log("fresh installer + bundled Node without PATH/Node override", { nodeVersion: run(node, ["--version"]).trim() });
@@ -123,12 +166,12 @@ try {
   copyFileSync(configBackup, path.join(dataDir, "config.json"));
   assert.deepEqual(state(), original);
   assert.deepEqual(readFileSync(path.join(dataDir, "config.json")), originalConfig);
-  base = await start();
+  base = await start({ POS_INSTALLER_RENDERER_TEST: "1", POS_SPIKE_CREDS_FILE: credsPath }, "POS_SPIKE renderer_login=PASS");
   const creds = JSON.parse(readFileSync(credsPath));
   const response = await fetch(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: creds.cashierUser, password: creds.cashierPass }) });
   assert.equal(response.status, 200);
   await stop();
-  log("rollback restores database + config on same installation; CASHIER login works");
+  log("rollback restores database + config on same installation; packaged renderer CASHIER login PASS");
 } finally {
   if (app && app.exitCode === null) {
     try {

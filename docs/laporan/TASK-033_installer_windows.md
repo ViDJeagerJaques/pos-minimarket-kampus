@@ -38,6 +38,7 @@ migrasi baru. Uninstall tidak diminta menghapus app data.
 
 ```powershell
 npm --prefix desktop ci
+npm --prefix frontend ci
 npm --prefix desktop run build
 ```
 

@@ -26,7 +26,7 @@ const bench = (label) => {
 };
 
 const ROOT = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
-const FRONTEND_INDEX = path.join(ROOT, "frontend", "dist", "index.html");
+const FRONTEND_DIST = path.join(ROOT, "frontend", "dist");
 const API_PORT = Number(process.env.POS_SPIKE_API_PORT || (app.isPackaged ? 0 : 8787));
 const NODE_BIN = app.isPackaged ? path.join(ROOT, "runtime", "node.exe") : (process.env.POS_NODE_BIN || "node");
 const BENCH = process.env.POS_ELECTRON_BENCH === "1";
@@ -102,7 +102,7 @@ function startBackend() {
 
     backend = spawn(
       NODE_BIN,
-      [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(app.isPackaged ? config.apiPort : API_PORT)],
+      [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(app.isPackaged ? config.apiPort : API_PORT), "--static-dir", FRONTEND_DIST],
       { cwd: path.join(ROOT, "backend"), env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
     );
     // BUG-126: buffer sampai newline lengkap; potongan stream tidak boleh
@@ -155,22 +155,67 @@ function createWindow() {
     },
   });
 
-  // BUG-120: bandingkan dengan URL kanonis FRONTEND_INDEX, bukan substring
-  // "frontend" yang bisa cocok dengan file lokal lain bernama serupa.
-  const canonicalUrl = pathToFileURL(FRONTEND_INDEX).href;
+  // Sajikan frontend dari origin backend loopback yang sama agar tidak lintas origin
+  // saat webSecurity aktif.
+  const appOrigin = new URL(apiBaseUrl).origin;
+  const appEntryUrl = `${appOrigin}/`;
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    const allowed = url === canonicalUrl || url.startsWith(`${canonicalUrl}?`) || url.startsWith(`${canonicalUrl}#`);
+    const allowed = url === appEntryUrl || url.startsWith(`${appEntryUrl}?`) || url.startsWith(`${appEntryUrl}#`);
     if (!allowed) event.preventDefault();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-  mainWindow.loadFile(FRONTEND_INDEX);
+  mainWindow.loadURL(appEntryUrl);
   mainWindow.webContents.on("did-finish-load", () => {
     if (BENCH) bench("window_loaded");
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send("pos:api-base-url", apiBaseUrl);
     }
     process.stdout.write("POS_SPIKE window_ready\n");
+    if (BENCH && process.env.POS_INSTALLER_RENDERER_TEST === "1" && process.env.POS_SPIKE_CREDS_FILE) {
+      try {
+        const creds = JSON.parse(fs.readFileSync(process.env.POS_SPIKE_CREDS_FILE, "utf8"));
+        const userJson = JSON.stringify(String(creds.cashierUser ?? ""));
+        const passJson = JSON.stringify(String(creds.cashierPass ?? ""));
+        setTimeout(() => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          mainWindow.webContents
+            .executeJavaScript(`(async () => {
+              const setVal = (el, val) => {
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                setter.call(el, val);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+              };
+              const deadline = Date.now() + 8000;
+              let form = null;
+              while (Date.now() < deadline) {
+                form = document.querySelector('form');
+                if (form && form.querySelectorAll('input').length >= 2) break;
+                await new Promise(r => setTimeout(r, 100));
+              }
+              if (!form) return 'FAIL:no_login_form';
+              const inputs = form.querySelectorAll('input');
+              setVal(inputs[0], ${userJson});
+              setVal(inputs[1], ${passJson});
+              const btn = form.querySelector('button[type="submit"]');
+              if (!btn) return 'FAIL:no_submit_btn';
+              btn.click();
+              while (Date.now() < deadline) {
+                const nav = document.querySelector('nav[aria-label="Menu utama"]');
+                if (nav) return 'PASS';
+                const err = document.querySelector('[role="alert"]');
+                if (err && err.textContent) return 'FAIL:' + err.textContent.trim();
+                await new Promise(r => setTimeout(r, 100));
+              }
+              return 'FAIL:timeout:' + document.body.innerText.slice(0, 200);
+            })()`)
+            .then((result) => process.stdout.write(`POS_SPIKE renderer_login=${String(result)}\n`))
+            .catch((error) => process.stdout.write(`POS_SPIKE renderer_login=FAIL:${error.message}\n`));
+        }, 500);
+      } catch (error) {
+        process.stdout.write(`POS_SPIKE renderer_login=FAIL:${error.message}\n`);
+      }
+    }
     // Bukti teks UI nyata dari renderer (tidak bergantung pada permukaan GPU).
     // Renderer kini menunggu endpoint IPC sebelum render, jadi ambil setelah
     // backend siap; did-finish-load saja terlalu awal dan menghasilkan teks kosong.

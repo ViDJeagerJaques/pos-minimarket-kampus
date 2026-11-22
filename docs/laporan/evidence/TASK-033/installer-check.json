@@ -1,17 +1,17 @@
 {
-  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-kN0vrL",
+  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-tLjfdf",
   "installers": [
     {
       "file": "POS-Minimarket-DEMO-0.1.0-demo-x64-Setup.exe",
-      "sha256": "f1b0770110da692df75d31cc75c1c9d3ca5d88c7acc651b12bc35319c5cadd64"
+      "sha256": "60a50f9354fe991b902519a302811302b47eaac6c719d61e72836eff22e01f14"
     },
     {
       "file": "POS-Minimarket-DEMO-0.1.1-demo-x64-Setup.exe",
-      "sha256": "b742f6c950536cea987521e061956b925aed87c62e8f3de7c430e939b26961c0"
+      "sha256": "70bcde338941fb2e1dc8ab2c37cd6ba463316698d029cc28bbcaa35e2b3d32c0"
     },
     {
       "file": "POS-Minimarket-DEMO-0.1.2-failure-x64-Setup.exe",
-      "sha256": "d6b2e05b71cea57051b0bf1974aab1d13fef4c8ab0fa4621b1393c6f95555732"
+      "sha256": "a2a602a27a53ca03b38e1605e7e98ad50e3baf59449f5a016041229f10cc9370"
     }
   ],
   "checks": [
@@ -27,8 +27,8 @@
     {
       "check": "snapshot database + configuration",
       "status": "PASS",
-      "dbSha256": "b8125cc927c8862151cae82cd43949834bf1c93674671414f92d90df24d6333c",
-      "configSha256": "39bc82a88f9b5279182cf2f92e66bdda2f4b8048f1ea3ae5b11fbe87e268f438"
+      "dbSha256": "b188b0a0fd249933e6ad31cc623844b6b0da082bc56756081780bc2a4b7d44f9",
+      "configSha256": "5851642a8f1e2bfcacffff7eadf8038c328b7111f27f45461a807504ef15a5fc"
     },
     {
       "check": "upgrade keeps transactions, active shift, config; integrity=ok, FK=0",
@@ -40,7 +40,7 @@
       "exitCode": 42
     },
     {
-      "check": "rollback restores database + config on same installation; CASHIER login works",
+      "check": "rollback restores database + config on same installation; packaged renderer CASHIER login PASS",
       "status": "PASS"
     }
   ],
