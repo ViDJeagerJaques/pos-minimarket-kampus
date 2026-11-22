@@ -85,6 +85,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   const shouldCheckBootstrap =
     dataSource.authMode !== "DEMO" && typeof dataSource.getBootstrapStatus === "function";
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [bootstrapState, setBootstrapState] = useState<"loading" | "ready" | "error">(shouldCheckBootstrap ? "loading" : "ready");
+  const [bootstrapRetry, setBootstrapRetry] = useState(0);
 
   useEffect(() => {
     if (
@@ -95,20 +97,22 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       return;
     }
     let active = true;
+    setBootstrapState("loading");
     dataSource
       .getBootstrapStatus()
       .then((status) => {
         if (!active) return;
         setNeedsSetup(status.needsSetup);
+        setBootstrapState("ready");
       })
       .catch(() => {
         if (!active) return;
-        setNeedsSetup(false);
+        setBootstrapState("error");
       });
     return () => {
       active = false;
     };
-  }, [dataSource, shouldCheckBootstrap, user]);
+  }, [dataSource, shouldCheckBootstrap, user, bootstrapRetry]);
 
   const handleLoggedIn = useCallback((nextUser: SessionUser) => {
     const nextEpoch = sessionEpochRef.current + 1;
@@ -224,10 +228,17 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   }
 
   if (!user) {
+    if (shouldCheckBootstrap && bootstrapState !== "ready") {
+      return bootstrapState === "loading" ? <p>Memeriksa status setup…</p> : <div role="alert">Status setup tidak dapat diperiksa. <button type="button" onClick={() => setBootstrapRetry((n) => n + 1)}>Coba lagi</button></div>;
+    }
     if (needsSetup) {
       return (
         <SetupAdminPage
           dataSource={dataSource}
+          onAlreadyExists={() => {
+            setNeedsSetup(false);
+            setNotice("Akun admin sudah ada. Silakan masuk.");
+          }}
           onCompleted={(createdUsername) => {
             setNeedsSetup(false);
             setNotice(`Akun admin pertama "${createdUsername}" dibuat. Silakan masuk.`);

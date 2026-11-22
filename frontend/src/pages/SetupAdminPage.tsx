@@ -7,6 +7,7 @@ import { DemoBanner } from "../components/DemoBanner";
 interface SetupAdminPageProps {
   dataSource: PosDataSource;
   onCompleted: (username: string) => void;
+  onAlreadyExists: () => void;
 }
 
 const USERNAME_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -34,7 +35,7 @@ function validateSetup(username: string, password: string, confirmPassword: stri
  * Layar setup pertama kali (BUG-151): hanya tampil ketika database belum
  * memiliki akun sama sekali. Backend menolak bootstrap kedua dengan 409.
  */
-export function SetupAdminPage({ dataSource, onCompleted }: SetupAdminPageProps) {
+export function SetupAdminPage({ dataSource, onCompleted, onAlreadyExists }: SetupAdminPageProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -78,6 +79,12 @@ export function SetupAdminPage({ dataSource, onCompleted }: SetupAdminPageProps)
       setConfirmPassword("");
       onCompleted(created.username);
     } catch (caught) {
+      try {
+        if (dataSource.getBootstrapStatus && !(await dataSource.getBootstrapStatus()).needsSetup) {
+          onAlreadyExists();
+          return;
+        }
+      } catch { /* Status tidak pasti; tetap tampilkan kegagalan. */ }
       if (caught instanceof ApiError) {
         setError(caught.message);
       } else {

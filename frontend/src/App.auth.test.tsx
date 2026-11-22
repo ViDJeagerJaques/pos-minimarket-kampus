@@ -342,6 +342,26 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     expect(screen.getByRole("button", { name: "Akun" })).toBeTruthy();
   });
 
+  it("memulihkan pemeriksaan status yang gagal", async () => {
+    const getBootstrapStatus = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ needsSetup: true });
+    const { user } = renderApp(makeSource({ authMode: "LOCAL_API", getBootstrapStatus }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+    expect(await screen.findByRole("heading", { name: "Buat akun admin pertama" })).toBeTruthy();
+  });
+
+  it("menampilkan login ketika respons bootstrap hilang setelah akun tersimpan", async () => {
+    const getBootstrapStatus = vi.fn().mockResolvedValueOnce({ needsSetup: true }).mockResolvedValue({ needsSetup: false });
+    const bootstrapAdmin = vi.fn().mockRejectedValue(new Error("network"));
+    const { user } = renderApp(makeSource({ authMode: "LOCAL_API", getBootstrapStatus, bootstrapAdmin }));
+    await screen.findByRole("heading", { name: "Buat akun admin pertama" });
+    await user.type(screen.getByLabelText("Nama pengguna"), "admin.baru");
+    await user.type(screen.getByLabelText("Kata sandi"), "SandiAdmin123");
+    await user.type(screen.getByLabelText("Ulangi kata sandi"), "SandiAdmin123");
+    await user.click(screen.getByRole("button", { name: "Buat akun admin" }));
+    expect(await screen.findByText(/Akun admin sudah ada/)).toBeTruthy();
+  });
+
   it("BUG-151: database yang sudah memiliki user langsung membuka layar login tanpa setup admin", async () => {
     const getBootstrapStatus = vi.fn(async () => ({ needsSetup: false }));
     renderApp(makeSource({ authMode: "LOCAL_API", getBootstrapStatus }));

@@ -987,6 +987,10 @@ test("BUG-151: database kosong memicu bootstrap admin pertama, sandi lemah ditol
     });
     assert.equal(secondBootstrap.status, 409);
     assert.equal(asBody(secondBootstrap).error?.code, "CONFLICT");
+    const weakAfter = await call(running.url, "/auth/bootstrap-admin", {
+      payload: JSON.stringify({ username: "x", password: "x" }),
+    });
+    assert.equal(weakAfter.status, 409);
 
     const loginRes = await login(running.url, "admin.pertama", firstPassword);
     assert.equal(loginRes.status, 200);

@@ -56,6 +56,8 @@ Untuk setup headless/otomatis, CLI `bootstrap-admin` tetap tersedia memakai
 ```powershell
 $runtime = Join-Path $installDir 'resources\runtime\node.exe'
 $database = Join-Path $env:APPDATA 'PosMinimarketKampus-DEMO\pos-dev.sqlite'
+& $runtime (Join-Path $installDir 'resources\backend\db\src\cli.ts') migrate --db $database
+if ($LASTEXITCODE -ne 0) { throw 'Migrasi gagal; bootstrap dibatalkan' }
 $secret = Read-Host 'Sandi ADMIN baru (tidak disimpan dalam skrip)' -AsSecureString
 $credential = [System.Net.NetworkCredential]::new('', $secret)
 try {

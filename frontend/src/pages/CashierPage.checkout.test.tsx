@@ -510,7 +510,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     source.login = vi.fn(async () => ({ ok: true as const, user: { userId: 2, username: "uji", displayName: "Kasir", role: "CASHIER" as const } }));
     render(<App dataSource={source} onAfterLogout={vi.fn()} />);
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Nama pengguna"), "uji");
+    await user.type(await screen.findByLabelText("Nama pengguna"), "uji");
     await user.type(screen.getByLabelText("Kata sandi"), "sintetis");
     await user.click(screen.getByRole("button", { name: "Masuk" }));
     await user.type(await screen.findByLabelText("Scan barcode", { selector: "input" }), "123{Enter}");

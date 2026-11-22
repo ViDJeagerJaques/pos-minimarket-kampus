@@ -20,8 +20,6 @@ export function bootstrapFirstAdmin(
   db: DatabaseSync,
   input: { username?: unknown; password?: unknown; nowMs?: number },
 ): UserDto {
-  const username = assertUsername(input?.username);
-  const password = assertPassword(input?.password);
   const nowMs = input?.nowMs ?? Date.now();
 
   db.exec("BEGIN IMMEDIATE");
@@ -41,6 +39,8 @@ export function bootstrapFirstAdmin(
         "username",
       );
     }
+    const username = assertUsername(input?.username);
+    const password = assertPassword(input?.password);
     const result = db
       .prepare(
         `INSERT INTO users (username, password_hash, role, active, created_at_ms)
