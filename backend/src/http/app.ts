@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { backupRootFor, createBackup, verifyBackup, restoreBackupToTestCopy, InvalidBackupError } from "../backup/service.ts";
 import type { AuthService } from "../auth/service.ts";
@@ -63,6 +63,8 @@ export type HttpAppOptions = {
   receiving?: ReceivingService;
   /** Koreksi stok TASK-039; ADMIN, kunci retry dan audit atomik. */
   adjustments?: AdjustmentService;
+  /** Direktori build frontend (mis. resources/frontend/dist) untuk sajikan same-origin. */
+  staticDir?: string;
   loginRateLimiter?: LoginRateLimiter;
   loginIpRateLimiter?: LoginRateLimiter;
   now?: () => number;
@@ -93,6 +95,72 @@ type Route = {
 
 const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost)(?::\d+)?$/i;
 const LOOPBACK_ORIGIN = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i;
+
+const STATIC_CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".json": "application/json; charset=utf-8",
+};
+
+function tryServeStatic(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  staticRoot: string,
+): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return false;
+  }
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  if (decodedPath.includes("\0") || decodedPath.includes("\\")) {
+    return false;
+  }
+  const relative = decodedPath === "/" ? "index.html" : decodedPath.replace(/^\/+/, "");
+  if (relative.length === 0 || relative.split("/").some((part) => part === "..")) {
+    return false;
+  }
+  const candidate = path.resolve(staticRoot, relative);
+  if (candidate !== staticRoot && !candidate.startsWith(`${staticRoot}${path.sep}`)) {
+    return false;
+  }
+  let realTarget: string;
+  try {
+    realTarget = realpathSync(candidate);
+  } catch {
+    return false;
+  }
+  if (realTarget !== staticRoot && !realTarget.startsWith(`${staticRoot}${path.sep}`)) {
+    return false;
+  }
+  if (!statSync(realTarget).isFile()) {
+    return false;
+  }
+  const ext = path.extname(realTarget).toLowerCase();
+  const contentType = STATIC_CONTENT_TYPES[ext];
+  if (!contentType) {
+    return false;
+  }
+  const content = readFileSync(realTarget);
+  res.statusCode = 200;
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cache-Control", "no-store");
+  if (ext === ".html") {
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+  }
+  res.end(req.method === "HEAD" ? undefined : content);
+  return true;
+}
 
 function asObject(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) {
@@ -557,6 +625,7 @@ function createPrintRoutes(print: PrintService): Route[] {
 
 export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
+  const staticRoot = options.staticDir ? realpathSync(path.resolve(options.staticDir)) : null;
   const { auth, sessions, securityLog } = options;
   const loginRateLimiter =
     options.loginRateLimiter ?? createLoginRateLimiter({ now: options.now });
@@ -747,6 +816,11 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
 
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       let pathname = url.pathname;
+      if (staticRoot && !pathname.startsWith("/api/") && pathname !== "/api") {
+        if (tryServeStatic(req, res, pathname, staticRoot)) {
+          return;
+        }
+      }
       if (pathname.startsWith("/api/v1/")) {
         pathname = pathname.slice("/api/v1".length);
       } else if (pathname !== "/api/v1") {

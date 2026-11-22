@@ -27,6 +27,7 @@ type Options = {
   dbPath: string;
   port: number | undefined;
   sessionTtlMs: number;
+  staticDir: string | undefined;
 };
 
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -67,6 +68,7 @@ export function parseArgs(argv: string[]): Options {
     dbPath: resolveDatabasePath(),
     port: undefined,
     sessionTtlMs: DEFAULT_SESSION_TTL_MS,
+    staticDir: undefined,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -85,6 +87,13 @@ export function parseArgs(argv: string[]): Options {
         rest[index + 1],
         DEFAULT_SESSION_TTL_MS,
       );
+      index += 1;
+    } else if (arg === "--static-dir") {
+      const value = rest[index + 1];
+      if (!value) {
+        throw new Error("--static-dir memerlukan path direktori.");
+      }
+      options.staticDir = value;
       index += 1;
     } else {
       throw new Error(`Argumen tidak dikenal: ${arg}`);
@@ -147,6 +156,7 @@ async function main(argv: string[]): Promise<number> {
       receiving,
       adjustments: createAdjustmentService(db),
       print,
+      staticDir: options.staticDir,
       port: options.port,
     });
     process.stdout.write(

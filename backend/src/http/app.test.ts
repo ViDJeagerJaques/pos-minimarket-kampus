@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer as createNetServer } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import {
@@ -891,5 +894,48 @@ test("BUG-005: POST /products/:id/suppliers menolak body tanpa supplierIds atau 
     await handle.running.close();
     db.close();
     database.cleanup();
+  }
+});
+
+test("TASK-033 staticDir: menyajikan frontend same-origin, menolak traversal, dan login dengan Origin loopback", async () => {
+  const { database, db } = createDatabase();
+  const staticDir = mkdtempSync(path.join(tmpdir(), "pos-static-test-"));
+  mkdirSync(path.join(staticDir, "assets"), { recursive: true });
+  writeFileSync(path.join(staticDir, "index.html"), "<!doctype html><html><body>POS</body></html>", "utf8");
+  writeFileSync(path.join(staticDir, "assets", "app.js"), "console.log('ok');", "utf8");
+
+  const securityLog = createSecurityLogger({ sink: () => {} });
+  const sessions = createSessionStore(db, { secret: randomBytes(32), ttlMs: 60_000 });
+  const auth = createAuthService(db, { sessions, securityLog });
+  const running = await startHttpServer({ auth, sessions, securityLog, staticDir });
+  try {
+    const htmlRes = await fetch(`${running.url}/`);
+    assert.equal(htmlRes.status, 200);
+    assert.equal(htmlRes.headers.get("x-content-type-options"), "nosniff");
+    assert.match(htmlRes.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
+    assert.match(await htmlRes.text(), /POS/);
+
+    const jsRes = await fetch(`${running.url}/assets/app.js`);
+    assert.equal(jsRes.status, 200);
+    assert.match(jsRes.headers.get("content-type") ?? "", /application\/javascript/);
+
+    const traversal = await fetch(`${running.url}/../package.json`);
+    assert.equal(traversal.status, 404);
+
+    // Simulasi request same-origin dari renderer Electron dengan header Origin loopback.
+    const loginRes = await fetch(`${running.url}/api/v1/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: running.url,
+      },
+      body: JSON.stringify({ username: "admin.http", password: ADMIN_PASSWORD }),
+    });
+    assert.equal(loginRes.status, 200);
+  } finally {
+    await running.close();
+    db.close();
+    database.cleanup();
+    rmSync(staticDir, { recursive: true, force: true });
   }
 });

@@ -25,11 +25,20 @@ const bench = (label) => {
   process.stdout.write(`POS_BENCH ${label}=${ms.toFixed(1)}ms\n`);
 };
 
-const ROOT = path.resolve(__dirname, "..");
-const FRONTEND_INDEX = path.join(ROOT, "frontend", "dist", "index.html");
-const API_PORT = Number(process.env.POS_SPIKE_API_PORT || 8787);
-const NODE_BIN = process.env.POS_NODE_BIN || "node";
+const ROOT = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
+const FRONTEND_DIST = path.join(ROOT, "frontend", "dist");
+const API_PORT = Number(process.env.POS_SPIKE_API_PORT || (app.isPackaged ? 0 : 8787));
+const NODE_BIN = app.isPackaged ? path.join(ROOT, "runtime", "node.exe") : (process.env.POS_NODE_BIN || "node");
 const BENCH = process.env.POS_ELECTRON_BENCH === "1";
+
+// Identitas data stabil lintas versi; terpisah dari data development/operasional.
+if (app.isPackaged) {
+  const testDataDir = app.commandLine.getSwitchValue("user-data-dir");
+  if (testDataDir && !path.isAbsolute(testDataDir)) throw new Error("user-data-dir harus absolut.");
+  app.setPath("userData", testDataDir || path.join(app.getPath("appData"), "PosMinimarketKampus-DEMO"));
+}
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
 
 let backend = null;
 let mainWindow = null;
@@ -39,20 +48,29 @@ let resolveApiUrl;
 const apiUrlReady = new Promise((resolve) => { resolveApiUrl = resolve; });
 const setApiBaseUrl = (url) => {
   apiBaseUrl = url;
+  if (BENCH) process.stdout.write(`POS_BENCH api=${url}\n`);
   resolveApiUrl(url);
 };
 
 function startBackend() {
   const dataDir = app.getPath("userData");
   fs.mkdirSync(dataDir, { recursive: true });
+  const configPath = path.join(dataDir, "config.json");
+  if (!fs.existsSync(configPath)) fs.writeFileSync(configPath, JSON.stringify({ mode: "DEMO", apiPort: 0 }, null, 2), { flag: "wx" });
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  if (config.mode !== "DEMO" || !Number.isInteger(config.apiPort) || config.apiPort < 0 || config.apiPort > 65535) {
+    throw new Error("Konfigurasi DEMO tidak valid; pulihkan config.json dari cadangan.");
+  }
   const dbPath = path.join(dataDir, "pos-dev.sqlite");
-  const env = { ...process.env, POS_DB_PATH: dbPath, POS_DB_PROFILE: "development" };
+  const env = { ...process.env, POS_DB_PATH: dbPath, POS_DB_PROFILE: "development", POS_DATA_DIR: dataDir, POS_BACKUP_DIR: path.join(dataDir, "backups"), POS_RESTORE_TEST_DIR: path.join(dataDir, "restore-test") };
+  delete env.NODE_OPTIONS;
+  delete env.NODE_PATH;
 
   // First-run: pastikan skema ada sebelum server start (jalur development/DEMO).
   const migrate = spawnSync(
     NODE_BIN,
     [path.join(ROOT, "backend", "db", "src", "cli.ts"), "migrate", "--db", dbPath],
-    { cwd: path.join(ROOT, "backend"), env, encoding: "utf8" },
+    { cwd: path.join(ROOT, "backend"), env, encoding: "utf8", windowsHide: true },
   );
   // BUG-119: kegagalan migrasi adalah kegagalan startup, bukan kondisi untuk
   // tetap membuka jendela kasir dengan backend mati.
@@ -84,8 +102,8 @@ function startBackend() {
 
     backend = spawn(
       NODE_BIN,
-      [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(API_PORT)],
-      { cwd: path.join(ROOT, "backend"), env, stdio: ["ignore", "pipe", "pipe"] },
+      [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(app.isPackaged ? config.apiPort : API_PORT), "--static-dir", FRONTEND_DIST],
+      { cwd: path.join(ROOT, "backend"), env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
     );
     // BUG-126: buffer sampai newline lengkap; potongan stream tidak boleh
     // dianggap sebagai baris output backend.
@@ -137,26 +155,71 @@ function createWindow() {
     },
   });
 
-  // BUG-120: bandingkan dengan URL kanonis FRONTEND_INDEX, bukan substring
-  // "frontend" yang bisa cocok dengan file lokal lain bernama serupa.
-  const canonicalUrl = pathToFileURL(FRONTEND_INDEX).href;
+  // Sajikan frontend dari origin backend loopback yang sama agar tidak lintas origin
+  // saat webSecurity aktif.
+  const appOrigin = new URL(apiBaseUrl).origin;
+  const appEntryUrl = `${appOrigin}/`;
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    const allowed = url === canonicalUrl || url.startsWith(`${canonicalUrl}?`) || url.startsWith(`${canonicalUrl}#`);
+    const allowed = url === appEntryUrl || url.startsWith(`${appEntryUrl}?`) || url.startsWith(`${appEntryUrl}#`);
     if (!allowed) event.preventDefault();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-  mainWindow.loadFile(FRONTEND_INDEX);
+  mainWindow.loadURL(appEntryUrl);
   mainWindow.webContents.on("did-finish-load", () => {
     if (BENCH) bench("window_loaded");
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send("pos:api-base-url", apiBaseUrl);
     }
     process.stdout.write("POS_SPIKE window_ready\n");
+    if (BENCH && process.env.POS_INSTALLER_RENDERER_TEST === "1" && process.env.POS_SPIKE_CREDS_FILE) {
+      try {
+        const creds = JSON.parse(fs.readFileSync(process.env.POS_SPIKE_CREDS_FILE, "utf8"));
+        const userJson = JSON.stringify(String(creds.cashierUser ?? ""));
+        const passJson = JSON.stringify(String(creds.cashierPass ?? ""));
+        setTimeout(() => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          mainWindow.webContents
+            .executeJavaScript(`(async () => {
+              const setVal = (el, val) => {
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                setter.call(el, val);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+              };
+              const deadline = Date.now() + 8000;
+              let form = null;
+              while (Date.now() < deadline) {
+                form = document.querySelector('form');
+                if (form && form.querySelectorAll('input').length >= 2) break;
+                await new Promise(r => setTimeout(r, 100));
+              }
+              if (!form) return 'FAIL:no_login_form';
+              const inputs = form.querySelectorAll('input');
+              setVal(inputs[0], ${userJson});
+              setVal(inputs[1], ${passJson});
+              const btn = form.querySelector('button[type="submit"]');
+              if (!btn) return 'FAIL:no_submit_btn';
+              btn.click();
+              while (Date.now() < deadline) {
+                const nav = document.querySelector('nav[aria-label="Menu utama"]');
+                if (nav) return 'PASS';
+                const err = document.querySelector('[role="alert"]');
+                if (err && err.textContent) return 'FAIL:' + err.textContent.trim();
+                await new Promise(r => setTimeout(r, 100));
+              }
+              return 'FAIL:timeout:' + document.body.innerText.slice(0, 200);
+            })()`)
+            .then((result) => process.stdout.write(`POS_SPIKE renderer_login=${String(result)}\n`))
+            .catch((error) => process.stdout.write(`POS_SPIKE renderer_login=FAIL:${error.message}\n`));
+        }, 500);
+      } catch (error) {
+        process.stdout.write(`POS_SPIKE renderer_login=FAIL:${error.message}\n`);
+      }
+    }
     // Bukti teks UI nyata dari renderer (tidak bergantung pada permukaan GPU).
     // Renderer kini menunggu endpoint IPC sebelum render, jadi ambil setelah
     // backend siap; did-finish-load saja terlalu awal dan menghasilkan teks kosong.
-    setTimeout(() => {
+    if (!app.isPackaged || BENCH) setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents
         .executeJavaScript("document.body.innerText.slice(0, 600)")
@@ -220,7 +283,7 @@ async function runStartup() {
 }
 
 app.whenReady().then(() => {
-  void runStartup();
+  if (primaryInstance) void runStartup();
 });
 
 app.on("before-quit", () => {
