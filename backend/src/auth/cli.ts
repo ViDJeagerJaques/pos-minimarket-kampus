@@ -1,8 +1,6 @@
 import { openDatabase, readUserVersion } from "../../db/src/db.ts";
 import { assertOutsideSourceTree, resolveDatabasePath } from "../../db/src/paths.ts";
-import { writeAuthAudit } from "./audit.ts";
-import { hashPassword } from "./password.ts";
-import { assertPassword, assertUsername } from "./validation.ts";
+import { bootstrapFirstAdmin } from "./bootstrap.ts";
 
 /**
  * Bootstrap ADMIN pertama, terpisah dari alur kasir dan dari seed DEMO.
@@ -69,8 +67,6 @@ export function main(argv: string[]): number {
       process.stderr.write(`${usage()}\n`);
       return 2;
     }
-    const username = assertUsername(options.username);
-    const password = assertPassword(process.env.POS_BOOTSTRAP_PASSWORD);
     assertOutsideSourceTree(options.dbPath);
 
     const db = openDatabase(options.dbPath);
@@ -78,54 +74,18 @@ export function main(argv: string[]): number {
       if (readUserVersion(db) < 1) {
         throw new Error("Skema belum diterapkan. Jalankan `npm run db:migrate` terlebih dahulu.");
       }
-
-      const now = Date.now();
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const table = db
-          .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'users'")
-          .get() as { found: number } | undefined;
-        if (!table) {
-          throw new Error("Tabel users tidak tersedia.");
-        }
-        const existing = db.prepare("SELECT COUNT(*) AS total FROM users").get() as {
-          total: number;
-        };
-        if (Number(existing.total) > 0) {
-          throw new Error(
-            "Bootstrap ADMIN hanya berlaku saat belum ada akun. Buat akun tambahan lewat endpoint ADMIN.",
-          );
-        }
-        const result = db
-          .prepare(
-            `INSERT INTO users (username, password_hash, role, active, created_at_ms)
-             VALUES (?, ?, 'ADMIN', 1, ?)`,
-          )
-          .run(username, hashPassword(password), now);
-        const adminId = Number(result.lastInsertRowid);
-        writeAuthAudit(db, {
-          actorId: adminId,
-          action: "ACCOUNT_CREATED",
-          entityType: "users",
-          entityId: adminId,
-          details: { username, role: "ADMIN", active: true, bootstrap: true },
-          nowMs: now,
-        });
-        db.exec("COMMIT");
-        if (options.json) {
-          process.stdout.write(`${JSON.stringify({ created: true, username, role: "ADMIN" }, null, 2)}\n`);
-        } else {
-          process.stdout.write(`Akun ADMIN dibuat: ${username}\n`);
-        }
-        return 0;
-      } catch (error) {
-        try {
-          db.exec("ROLLBACK");
-        } catch {
-          // Error asli tetap dilempar.
-        }
-        throw error;
+      const created = bootstrapFirstAdmin(db, {
+        username: options.username,
+        password: process.env.POS_BOOTSTRAP_PASSWORD,
+      });
+      if (options.json) {
+        process.stdout.write(
+          `${JSON.stringify({ created: true, username: created.username, role: "ADMIN" }, null, 2)}\n`,
+        );
+      } else {
+        process.stdout.write(`Akun ADMIN dibuat: ${created.username}\n`);
       }
+      return 0;
     } finally {
       db.close();
     }

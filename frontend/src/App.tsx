@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { ApiError } from "./api/errors";
 import type { PosDataSource, ReceiveGoodsInput, SessionUser } from "./api/types";
 import { defaultPage, isPageAllowed, NAV_BY_ROLE, type PageId } from "./app/navigation";
@@ -12,6 +12,7 @@ import { CashierPage } from "./pages/CashierPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SetupAdminPage } from "./pages/SetupAdminPage";
 import { StockAdjustmentPage } from "./pages/StockAdjustmentPage";
 import { BackupPage } from "./pages/BackupPage";
 import { ProductsPage } from "./pages/ProductsPage";
@@ -81,6 +82,33 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   }
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(0);
+  const shouldCheckBootstrap =
+    dataSource.authMode !== "DEMO" && typeof dataSource.getBootstrapStatus === "function";
+  const [needsSetup, setNeedsSetup] = useState(false);
+
+  useEffect(() => {
+    if (
+      user !== null ||
+      !shouldCheckBootstrap ||
+      typeof dataSource.getBootstrapStatus !== "function"
+    ) {
+      return;
+    }
+    let active = true;
+    dataSource
+      .getBootstrapStatus()
+      .then((status) => {
+        if (!active) return;
+        setNeedsSetup(status.needsSetup);
+      })
+      .catch(() => {
+        if (!active) return;
+        setNeedsSetup(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [dataSource, shouldCheckBootstrap, user]);
 
   const handleLoggedIn = useCallback((nextUser: SessionUser) => {
     const nextEpoch = sessionEpochRef.current + 1;
@@ -196,6 +224,17 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   }
 
   if (!user) {
+    if (needsSetup) {
+      return (
+        <SetupAdminPage
+          dataSource={dataSource}
+          onCompleted={(createdUsername) => {
+            setNeedsSetup(false);
+            setNotice(`Akun admin pertama "${createdUsername}" dibuat. Silakan masuk.`);
+          }}
+        />
+      );
+    }
     return <LoginPage dataSource={dataSource} onLoggedIn={handleLoggedIn} notice={notice} />;
   }
   const currentUser = user;

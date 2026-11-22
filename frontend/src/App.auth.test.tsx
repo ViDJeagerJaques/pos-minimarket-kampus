@@ -286,4 +286,67 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
   });
+
+  it("BUG-151: instalasi baru menampilkan setup admin pertama, membuat admin, lalu login berhasil", async () => {
+    let setupDone = false;
+    const bootstrapAdmin = vi.fn(async (input: { username: string; password: string }) => {
+      setupDone = true;
+      return { id: 1, username: input.username, role: "ADMIN" as const, active: true };
+    });
+    const getBootstrapStatus = vi.fn(async () => ({ needsSetup: !setupDone }));
+    const { user } = renderApp(
+      makeSource({
+        authMode: "LOCAL_API",
+        getBootstrapStatus,
+        bootstrapAdmin,
+        login: vi.fn(async (username: string, password: string) => {
+          if (setupDone && username === "admin.baru" && password === "SandiAdmin123") {
+            return {
+              ok: true as const,
+              user: { userId: 1, username: "admin.baru", displayName: "admin.baru", role: "ADMIN" as const },
+            };
+          }
+          return { ok: false as const, code: "INVALID_CREDENTIALS" as const };
+        }),
+      }),
+    );
+
+    expect(await screen.findByRole("heading", { name: "Buat akun admin pertama" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+
+    // Sandi pendek ditolak di klien tanpa memanggil backend
+    await user.type(screen.getByLabelText("Nama pengguna"), "admin.baru");
+    await user.type(screen.getByLabelText("Kata sandi"), "123");
+    await user.type(screen.getByLabelText("Ulangi kata sandi"), "123");
+    await user.click(screen.getByRole("button", { name: "Buat akun admin" }));
+    expect(screen.getByRole("alert").textContent).toContain("8-1024 karakter");
+    expect(bootstrapAdmin).not.toHaveBeenCalled();
+
+    // Isi sandi valid dan buat admin pertama
+    await user.clear(screen.getByLabelText("Kata sandi"));
+    await user.clear(screen.getByLabelText("Ulangi kata sandi"));
+    await user.type(screen.getByLabelText("Kata sandi"), "SandiAdmin123");
+    await user.type(screen.getByLabelText("Ulangi kata sandi"), "SandiAdmin123");
+    await user.click(screen.getByRole("button", { name: "Buat akun admin" }));
+
+    expect(bootstrapAdmin).toHaveBeenCalledWith({
+      username: "admin.baru",
+      password: "SandiAdmin123",
+    });
+    expect(await screen.findByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain('Akun admin pertama "admin.baru" dibuat');
+
+    // Login dengan admin baru berhasil membuka menu ADMIN
+    await loginAs(user, "admin.baru", "SandiAdmin123");
+    expect(await screen.findByRole("navigation", { name: "Menu utama" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Akun" })).toBeTruthy();
+  });
+
+  it("BUG-151: database yang sudah memiliki user langsung membuka layar login tanpa setup admin", async () => {
+    const getBootstrapStatus = vi.fn(async () => ({ needsSetup: false }));
+    renderApp(makeSource({ authMode: "LOCAL_API", getBootstrapStatus }));
+
+    expect(await screen.findByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Buat akun admin pertama" })).toBeNull();
+  });
 });

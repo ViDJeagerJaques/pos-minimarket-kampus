@@ -939,3 +939,61 @@ test("TASK-033 staticDir: menyajikan frontend same-origin, menolak traversal, da
     rmSync(staticDir, { recursive: true, force: true });
   }
 });
+
+test("BUG-151: database kosong memicu bootstrap admin pertama, sandi lemah ditolak, dan setelah ada user selalu 409", async () => {
+  const database = createTempDatabase("pos-bug151-");
+  const db = database.open();
+  migrateFresh(database);
+  const logs: string[] = [];
+  const securityLog = createSecurityLogger({ sink: (line) => logs.push(line) });
+  const sessions = createSessionStore(db, { secret: randomBytes(32), ttlMs: 60_000 });
+  const auth = createAuthService(db, { sessions, securityLog });
+  const running = await startHttpServer({ auth, sessions, securityLog });
+  const firstPassword = `Adm-${randomBytes(8).toString("hex")}`;
+  try {
+    const asBody = (res: { json: unknown }) =>
+      res.json as { data?: unknown; error?: { code?: string } };
+
+    const statusBefore = await call(running.url, "/auth/bootstrap-status");
+    assert.equal(statusBefore.status, 200);
+    assert.deepEqual(asBody(statusBefore).data, { needsSetup: true });
+
+    const weakPass = await call(running.url, "/auth/bootstrap-admin", {
+      payload: JSON.stringify({ username: "admin.pertama", password: "123" }),
+    });
+    assert.equal(weakPass.status, 422);
+    assert.equal(asBody(weakPass).error?.code, "VALIDATION_ERROR");
+
+    const statusStillNeeds = await call(running.url, "/auth/bootstrap-status");
+    assert.deepEqual(asBody(statusStillNeeds).data, { needsSetup: true });
+
+    const created = await call(running.url, "/auth/bootstrap-admin", {
+      payload: JSON.stringify({ username: "admin.pertama", password: firstPassword }),
+    });
+    assert.equal(created.status, 201);
+    assert.deepEqual(asBody(created).data, {
+      id: 1,
+      username: "admin.pertama",
+      role: "ADMIN",
+      active: true,
+    });
+
+    const statusAfter = await call(running.url, "/auth/bootstrap-status");
+    assert.equal(statusAfter.status, 200);
+    assert.deepEqual(asBody(statusAfter).data, { needsSetup: false });
+
+    const secondBootstrap = await call(running.url, "/auth/bootstrap-admin", {
+      payload: JSON.stringify({ username: "admin.kedua", password: firstPassword }),
+    });
+    assert.equal(secondBootstrap.status, 409);
+    assert.equal(asBody(secondBootstrap).error?.code, "CONFLICT");
+
+    const loginRes = await login(running.url, "admin.pertama", firstPassword);
+    assert.equal(loginRes.status, 200);
+    assert.equal(logs.join("\n").includes(firstPassword), false);
+  } finally {
+    await running.close();
+    db.close();
+    database.cleanup();
+  }
+});

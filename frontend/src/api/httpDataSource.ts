@@ -13,6 +13,8 @@
 import { ApiError, type ApiErrorCode } from "./errors";
 import type {
   AccountSummary,
+  BootstrapAdminInput,
+  BootstrapStatus,
   CatalogProduct,
   CatalogQuery,
   CategorySummary,
@@ -1006,6 +1008,22 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     return data.map(toAccountSummary);
   }
 
+  async function getBootstrapStatus(): Promise<BootstrapStatus> {
+    const data = await request("GET", "/auth/bootstrap-status");
+    if (!isRecord(data) || typeof data.needsSetup !== "boolean") {
+      throw invalidResponse("Status setup awal dari backend tidak valid.");
+    }
+    return { needsSetup: data.needsSetup };
+  }
+
+  async function bootstrapAdmin(input: BootstrapAdminInput): Promise<AccountSummary> {
+    const data = await request("POST", "/auth/bootstrap-admin", {
+      username: input.username,
+      password: input.password,
+    });
+    return toAccountSummary(data);
+  }
+
   async function createAccount(input: CreateAccountInput): Promise<AccountSummary> {
     const activeToken = requireToken();
     const data = await request(
@@ -1344,6 +1362,8 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
   return {
     authMode: "LOCAL_API",
     catalogMode: "LOCAL_API",
+    getBootstrapStatus,
+    bootstrapAdmin,
     login,
     logout,
     getProfile,
