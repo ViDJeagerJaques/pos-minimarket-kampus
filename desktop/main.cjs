@@ -25,11 +25,20 @@ const bench = (label) => {
   process.stdout.write(`POS_BENCH ${label}=${ms.toFixed(1)}ms\n`);
 };
 
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
 const FRONTEND_INDEX = path.join(ROOT, "frontend", "dist", "index.html");
-const API_PORT = Number(process.env.POS_SPIKE_API_PORT || 8787);
-const NODE_BIN = process.env.POS_NODE_BIN || "node";
+const API_PORT = Number(process.env.POS_SPIKE_API_PORT || (app.isPackaged ? 0 : 8787));
+const NODE_BIN = app.isPackaged ? path.join(ROOT, "runtime", "node.exe") : (process.env.POS_NODE_BIN || "node");
 const BENCH = process.env.POS_ELECTRON_BENCH === "1";
+
+// Identitas data stabil lintas versi; terpisah dari data development/operasional.
+if (app.isPackaged) {
+  const testDataDir = app.commandLine.getSwitchValue("user-data-dir");
+  if (testDataDir && !path.isAbsolute(testDataDir)) throw new Error("user-data-dir harus absolut.");
+  app.setPath("userData", testDataDir || path.join(app.getPath("appData"), "PosMinimarketKampus-DEMO"));
+}
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
 
 let backend = null;
 let mainWindow = null;
@@ -39,20 +48,29 @@ let resolveApiUrl;
 const apiUrlReady = new Promise((resolve) => { resolveApiUrl = resolve; });
 const setApiBaseUrl = (url) => {
   apiBaseUrl = url;
+  if (BENCH) process.stdout.write(`POS_BENCH api=${url}\n`);
   resolveApiUrl(url);
 };
 
 function startBackend() {
   const dataDir = app.getPath("userData");
   fs.mkdirSync(dataDir, { recursive: true });
+  const configPath = path.join(dataDir, "config.json");
+  if (!fs.existsSync(configPath)) fs.writeFileSync(configPath, JSON.stringify({ mode: "DEMO", apiPort: 0 }, null, 2), { flag: "wx" });
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  if (config.mode !== "DEMO" || !Number.isInteger(config.apiPort) || config.apiPort < 0 || config.apiPort > 65535) {
+    throw new Error("Konfigurasi DEMO tidak valid; pulihkan config.json dari cadangan.");
+  }
   const dbPath = path.join(dataDir, "pos-dev.sqlite");
-  const env = { ...process.env, POS_DB_PATH: dbPath, POS_DB_PROFILE: "development" };
+  const env = { ...process.env, POS_DB_PATH: dbPath, POS_DB_PROFILE: "development", POS_DATA_DIR: dataDir, POS_BACKUP_DIR: path.join(dataDir, "backups"), POS_RESTORE_TEST_DIR: path.join(dataDir, "restore-test") };
+  delete env.NODE_OPTIONS;
+  delete env.NODE_PATH;
 
   // First-run: pastikan skema ada sebelum server start (jalur development/DEMO).
   const migrate = spawnSync(
     NODE_BIN,
     [path.join(ROOT, "backend", "db", "src", "cli.ts"), "migrate", "--db", dbPath],
-    { cwd: path.join(ROOT, "backend"), env, encoding: "utf8" },
+    { cwd: path.join(ROOT, "backend"), env, encoding: "utf8", windowsHide: true },
   );
   // BUG-119: kegagalan migrasi adalah kegagalan startup, bukan kondisi untuk
   // tetap membuka jendela kasir dengan backend mati.
@@ -84,8 +102,8 @@ function startBackend() {
 
     backend = spawn(
       NODE_BIN,
-      [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(API_PORT)],
-      { cwd: path.join(ROOT, "backend"), env, stdio: ["ignore", "pipe", "pipe"] },
+      [path.join(ROOT, "backend", "src", "http", "cli.ts"), "serve", "--port", String(app.isPackaged ? config.apiPort : API_PORT)],
+      { cwd: path.join(ROOT, "backend"), env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
     );
     // BUG-126: buffer sampai newline lengkap; potongan stream tidak boleh
     // dianggap sebagai baris output backend.
@@ -156,7 +174,7 @@ function createWindow() {
     // Bukti teks UI nyata dari renderer (tidak bergantung pada permukaan GPU).
     // Renderer kini menunggu endpoint IPC sebelum render, jadi ambil setelah
     // backend siap; did-finish-load saja terlalu awal dan menghasilkan teks kosong.
-    setTimeout(() => {
+    if (!app.isPackaged || BENCH) setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents
         .executeJavaScript("document.body.innerText.slice(0, 600)")
@@ -220,7 +238,7 @@ async function runStartup() {
 }
 
 app.whenReady().then(() => {
-  void runStartup();
+  if (primaryInstance) void runStartup();
 });
 
 app.on("before-quit", () => {

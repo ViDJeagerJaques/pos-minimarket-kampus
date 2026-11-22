@@ -1,0 +1,53 @@
+{
+  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-kN0vrL",
+  "installers": [
+    {
+      "file": "POS-Minimarket-DEMO-0.1.0-demo-x64-Setup.exe",
+      "sha256": "f1b0770110da692df75d31cc75c1c9d3ca5d88c7acc651b12bc35319c5cadd64"
+    },
+    {
+      "file": "POS-Minimarket-DEMO-0.1.1-demo-x64-Setup.exe",
+      "sha256": "b742f6c950536cea987521e061956b925aed87c62e8f3de7c430e939b26961c0"
+    },
+    {
+      "file": "POS-Minimarket-DEMO-0.1.2-failure-x64-Setup.exe",
+      "sha256": "d6b2e05b71cea57051b0bf1974aab1d13fef4c8ab0fa4621b1393c6f95555732"
+    }
+  ],
+  "checks": [
+    {
+      "check": "fresh installer + bundled Node without PATH/Node override",
+      "status": "PASS",
+      "nodeVersion": "v24.18.0"
+    },
+    {
+      "check": "installed API smoke 8/8: login, scan, CASH, VIRTUAL print, SQLite",
+      "status": "PASS"
+    },
+    {
+      "check": "snapshot database + configuration",
+      "status": "PASS",
+      "dbSha256": "b8125cc927c8862151cae82cd43949834bf1c93674671414f92d90df24d6333c",
+      "configSha256": "39bc82a88f9b5279182cf2f92e66bdda2f4b8048f1ea3ae5b11fbe87e268f438"
+    },
+    {
+      "check": "upgrade keeps transactions, active shift, config; integrity=ok, FK=0",
+      "status": "PASS"
+    },
+    {
+      "check": "controlled installer abort after extraction",
+      "status": "PASS",
+      "exitCode": 42
+    },
+    {
+      "check": "rollback restores database + config on same installation; CASHIER login works",
+      "status": "PASS"
+    }
+  ],
+  "limitations": [
+    "Internet Windows tidak diputus",
+    "Scanner API dan printer VIRTUAL; hardware belum diuji",
+    "Upgrade fixture versi memakai kode/skema sama",
+    "Kegagalan installer disuntikkan lewat NSIS Abort; bukan listrik mati"
+  ]
+}

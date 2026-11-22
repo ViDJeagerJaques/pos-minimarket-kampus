@@ -1,10 +1,76 @@
 {
   "name": "pos-minimarket-kampus-desktop",
   "private": true,
-  "version": "0.0.0-demo",
-  "description": "Kandidat Electron minimal untuk evaluasi TASK-031 (DEMO, data sintetis). BUKAN keputusan wrapper final (DEC-011 masih PROPOSED).",
+  "version": "0.1.0-demo",
+  "description": "POS Minimarket Kampus DEMO — kandidat installer Windows TASK-033, belum untuk operasional.",
   "main": "main.cjs",
   "scripts": {
-    "start:spike": "electron ."
+    "start:spike": "electron .",
+    "prepare:runtime": "node prepare-runtime.mjs",
+    "build": "npm --prefix ../frontend run build && npm run prepare:runtime && electron-builder --win nsis --x64 --publish never"
+  },
+  "build": {
+    "appId": "id.kampus.pos.demo",
+    "productName": "POS Minimarket Kampus DEMO",
+    "directories": {
+      "output": "../dist-electron"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "maintenance.mjs", "to": "maintenance.mjs" },
+      {
+        "from": "runtime",
+        "to": "runtime",
+        "filter": [
+          "node.exe",
+          "LICENSE",
+          "manifest.json"
+        ]
+      },
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "package.json",
+          "src/**/*.ts",
+          "db/src/**/*.ts",
+          "db/migrations/*.sql",
+          "!**/*.test.ts"
+        ]
+      },
+      {
+        "from": "../shared",
+        "to": "shared",
+        "filter": [
+          "**/*.ts",
+          "!**/*.test.ts"
+        ]
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": false
+    },
+    "artifactName": "POS-Minimarket-DEMO-${version}-${arch}-Setup.${ext}"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
   }
 }

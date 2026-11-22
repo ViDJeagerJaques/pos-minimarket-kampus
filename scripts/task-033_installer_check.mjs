@@ -1,0 +1,144 @@
+// Windows DEMO rehearsal. Selalu membuat direktori uji baru; tidak memakai DB pengguna.
+// Usage: node scripts/task-033_installer_check.mjs <installer-lama> <installer-baru> <installer-gagal>
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
+import { createServer } from "node:net";
+const installers = process.argv.slice(2).map(p => path.resolve(p));
+assert.equal(installers.length, 3, "Berikan installer baseline, upgrade, dan failure-injection");
+const root = mkdtempSync(path.join(tmpdir(), "task033-"));
+const installDir = path.join(root, "application");
+const dataDir = path.join(root, "data");
+mkdirSync(dataDir);
+const resources = path.join(installDir, "resources");
+const node = path.join(resources, "runtime", "node.exe");
+const dbPath = path.join(dataDir, "pos-dev.sqlite");
+const evidence = [];
+const log = (check, details = {}) => { evidence.push({ check, status: "PASS", ...details }); console.log(`PASS ${check}`); };
+const sha = p => createHash("sha256").update(readFileSync(p)).digest("hex");
+function run(exe, args, options = {}) {
+  const result = spawnSync(exe, args, { windowsHide: true, encoding: "utf8", timeout: 180000, ...options });
+  assert.equal(result.status, 0, `${exe}: ${result.error ?? result.stderr ?? result.stdout}`);
+  return result.stdout;
+}
+async function install(file, failure = false) {
+  const code = await new Promise((resolve, reject) => {
+    const child = spawn(file, ["/S", `/D=${installDir}`], { windowsHide: true });
+    child.once("error", reject);
+    const timer = setTimeout(() => { child.kill(); reject(new Error("Installer timeout")); }, 180000);
+    child.once("exit", code => { clearTimeout(timer); resolve(code); });
+  });
+  if (failure) assert.notEqual(code, 0, "Installer fixture harus gagal"); else assert.equal(code, 0);
+  return code;
+}
+let app;
+async function start() {
+  const socket = createServer();
+  await new Promise(resolve => socket.listen(0, "127.0.0.1", resolve));
+  const port = socket.address().port;
+  await new Promise(resolve => socket.close(resolve));
+  // Port sintetis eksplisit; konfigurasi lain dipertahankan.
+  const config = existsSync(path.join(dataDir, "config.json")) ? JSON.parse(readFileSync(path.join(dataDir, "config.json"))) : { mode: "DEMO", marker: "TASK033-synthetic" };
+  config.apiPort = port;
+  writeFileSync(path.join(dataDir, "config.json"), JSON.stringify(config, null, 2));
+  app = spawn(path.join(installDir, "POS Minimarket Kampus DEMO.exe"), [`--user-data-dir=${dataDir}`], {
+    windowsHide: true, env: { ...process.env, PATH: process.env.SystemRoot, POS_ELECTRON_BENCH: "1", POS_NODE_BIN: "missing-node.exe", NODE_OPTIONS: "" }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  app.stdout.on("data", b => { output += b; });
+  app.stderr.on("data", b => { output += b; });
+  const until = Date.now() + 30000;
+  while (!output.includes("POS_SPIKE window_ready") && Date.now() < until && app.exitCode === null) await new Promise(r => setTimeout(r, 200));
+  assert.ok(output.includes("POS_SPIKE window_ready"), output);
+  writeFileSync(path.join(root, `startup-${evidence.length}.log`), output);
+  return `http://127.0.0.1:${port}/api/v1`;
+}
+async function stop() {
+  if (!app || app.exitCode !== null) return;
+  const pid = app.pid;
+  spawnSync("taskkill", ["/PID", String(pid)], { windowsHide: true, encoding: "utf8" });
+  const until = Date.now() + 5000;
+  while (app.exitCode === null && Date.now() < until) await new Promise(r => setTimeout(r, 100));
+  if (app.exitCode === null) {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, encoding: "utf8" });
+    const forceUntil = Date.now() + 10000;
+    while (app.exitCode === null && Date.now() < forceUntil) await new Promise(r => setTimeout(r, 100));
+  }
+  assert.notEqual(app.exitCode, null, "Aplikasi harus berhenti sebelum upgrade/restore");
+  app = null;
+}
+function state() {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    assert.equal(db.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
+    assert.equal(db.prepare("PRAGMA foreign_key_check").all().length, 0);
+    const tables = ["users", "products", "sales", "sale_items", "payments", "inventory_movements", "shifts", "shift_closings", "checkout_attempts"];
+    return Object.fromEntries(tables.map(t => [t, db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
+  } finally { db.close(); }
+}
+try {
+  await install(installers[0]);
+  let base = await start();
+  log("fresh installer + bundled Node without PATH/Node override", { nodeVersion: run(node, ["--version"]).trim() });
+  // Gunakan smoke TASK-031 yang sama, tetapi bootstrap dan semua CLI dari paket terpasang.
+  const smoke = readFileSync("scripts/task-031_electron_smoke.mjs", "utf8").replace('const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");', `const root = ${JSON.stringify(resources)};`);
+  const smokePath = path.join(root, "smoke.mjs");
+  writeFileSync(smokePath, smoke);
+  const credsPath = path.join(root, "creds.json");
+  const smokeOutput = run(node, [smokePath], { env: { ...process.env, POS_SPIKE_DB: dbPath, POS_SPIKE_API_BASE: base, POS_SPIKE_CREDS_FILE: credsPath } });
+  writeFileSync(path.join(root, "smoke.log"), smokeOutput);
+  assert.match(smokeOutput, /PASS total 8 smoke/);
+  log("installed API smoke 8/8: login, scan, CASH, VIRTUAL print, SQLite");
+  await stop();
+  const original = state();
+  const originalConfig = readFileSync(path.join(dataDir, "config.json"));
+  const snapshot = JSON.parse(run(node, [path.join(resources, "maintenance.mjs"), "snapshot", dataDir]));
+  log("snapshot database + configuration", { dbSha256: snapshot.database.sha256, configSha256: snapshot.configSha256 });
+  await install(installers[1]);
+  assert.deepEqual(state(), original);
+  assert.deepEqual(readFileSync(path.join(dataDir, "config.json")), originalConfig);
+  base = await start();
+  assert.deepEqual(state(), original);
+  await stop();
+  log("upgrade keeps transactions, active shift, config; integrity=ok, FK=0");
+  const failureCode = await install(installers[2], true);
+  log("controlled installer abort after extraction", { exitCode: failureCode });
+  // Pulihkan versi di instalasi SAMA. Data lama dikarantina, tidak dihapus.
+  await install(installers[0]);
+  const backup = snapshot.database.destinationPath;
+  assert.equal(sha(backup), snapshot.database.sha256);
+  const configBackup = path.join(path.dirname(backup), snapshot.configFile);
+  assert.equal(sha(configBackup), snapshot.configSha256);
+  const quarantine = path.join(root, "before-restore");
+  mkdirSync(quarantine);
+  for (const name of ["pos-dev.sqlite", "pos-dev.sqlite-wal", "pos-dev.sqlite-shm", "config.json"]) {
+    const source = path.join(dataDir, name);
+    if (existsSync(source)) renameSync(source, path.join(quarantine, name));
+  }
+  copyFileSync(backup, dbPath);
+  copyFileSync(configBackup, path.join(dataDir, "config.json"));
+  assert.deepEqual(state(), original);
+  assert.deepEqual(readFileSync(path.join(dataDir, "config.json")), originalConfig);
+  base = await start();
+  const creds = JSON.parse(readFileSync(credsPath));
+  const response = await fetch(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: creds.cashierUser, password: creds.cashierPass }) });
+  assert.equal(response.status, 200);
+  await stop();
+  log("rollback restores database + config on same installation; CASHIER login works");
+} finally {
+  if (app && app.exitCode === null) {
+    try {
+      await stop();
+    } catch {
+      app.kill();
+    }
+  }
+  const report = { root, installers: installers.map(p => ({ file: path.basename(p), sha256: sha(p) })), checks: evidence, limitations: ["Internet Windows tidak diputus", "Scanner API dan printer VIRTUAL; hardware belum diuji", "Upgrade fixture versi memakai kode/skema sama", "Kegagalan installer disuntikkan lewat NSIS Abort; bukan listrik mati"] };
+  mkdirSync("docs/laporan/evidence/TASK-033", { recursive: true });
+  writeFileSync("docs/laporan/evidence/TASK-033/installer-check.json", JSON.stringify(report, null, 2));
+  console.log(`Evidence: ${root}`);
+}
