@@ -15,6 +15,7 @@ import { hashPassword } from "../auth/password.ts";
 import { createSessionStore } from "../auth/session.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { getStockBalance } from "../inventory/ledger.ts";
+import { InvalidBackupError, verifyBackup } from "../backup/service.ts";
 import { createAdjustmentService } from "../inventory/adjustments.ts";
 import { startHttpServer, type RunningServer } from "./app.ts";
 
@@ -38,12 +39,12 @@ function setup() {
   return { database, db };
 }
 
-async function start(db: DatabaseSync, backupDbPath?: string, backupEnv?: NodeJS.ProcessEnv): Promise<RunningServer> {
+async function start(db: DatabaseSync, backupDbPath?: string, backupEnv?: NodeJS.ProcessEnv, verifyBackupForListing?: typeof verifyBackup): Promise<RunningServer> {
   const sessions = createSessionStore(db, { secret: randomBytes(32), ttlMs: 60 * 60 * 1000 });
   const securityLog = createSecurityLogger({ sink: () => {} });
   const auth = createAuthService(db, { sessions, securityLog });
   const adjustments = createAdjustmentService(db, { now: () => FIXED_NOW });
-  return startHttpServer({ auth, sessions, securityLog, adjustments, backupDbPath, backupEnv });
+  return startHttpServer({ auth, sessions, securityLog, adjustments, backupDbPath, backupEnv, verifyBackupForListing });
 }
 
 async function call(
@@ -178,4 +179,40 @@ test("BUG-138 backup HTTP: ADMIN, verifikasi, restore salinan uji, dan tujuan ga
     assert.equal(result.status, 422);
     assert.match(String((result.json.error as { message: string }).message), /Cadangan gagal dibuat/);
   } finally { await failed.close(); bad.db.close(); bad.database.cleanup(); }
+});
+
+
+test("BUG-145 verifikasi sementara dicoba lagi, hasil definitif dan sukses di-cache", async () => {
+  const { database, db } = setup();
+  const env = { ...process.env, POS_BACKUP_DIR: path.join(database.dir, "backups"), POS_DB_PATH: database.dbPath };
+  let calls = 0;
+  let mode: "transient" | "valid" | "invalid" = "transient";
+  const verify: typeof verifyBackup = (file, ...rest) => {
+    calls++;
+    if (mode === "transient") throw Object.assign(new Error("read denied"), { code: "EACCES" });
+    if (mode === "invalid") throw new InvalidBackupError("user_version tidak valid");
+    return verifyBackup(file, ...rest);
+  };
+  const running = await start(db, database.dbPath, env, verify);
+  try {
+    const admin = await login(running.url, "admin.adjust");
+    const created = await call(running.url, "/backups", { token: admin, payload: {} });
+    const name = (created.json.data as { name: string }).name;
+    const list = async () => (await call(running.url, "/backups", { token: admin })).json.data as Array<{ valid: boolean }>;
+    assert.equal((await list())[0]!.valid, false);
+    assert.equal(calls, 1);
+    mode = "valid";
+    assert.equal((await list())[0]!.valid, true);
+    assert.equal(calls, 2);
+    assert.equal((await list())[0]!.valid, true);
+    assert.equal(calls, 2);
+    const backupFile = path.join(env.POS_BACKUP_DIR, name);
+    const original = readFileSync(backupFile);
+    writeFileSync(backupFile, Buffer.concat([original, Buffer.from([0])]));
+    mode = "invalid";
+    assert.equal((await list())[0]!.valid, false);
+    assert.equal(calls, 3);
+    assert.equal((await list())[0]!.valid, false);
+    assert.equal(calls, 3);
+  } finally { await running.close(); db.close(); database.cleanup(); }
 });

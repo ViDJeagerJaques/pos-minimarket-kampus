@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { backupRootFor, createBackup, verifyBackup, restoreBackupToTestCopy } from "../backup/service.ts";
+import { backupRootFor, createBackup, verifyBackup, restoreBackupToTestCopy, InvalidBackupError } from "../backup/service.ts";
 import type { AuthService } from "../auth/service.ts";
 import { AuthError, InvalidCredentialsError, ValidationError } from "../auth/errors.ts";
 import type { Role, SessionStore, SessionUser } from "../auth/session.ts";
@@ -44,6 +44,7 @@ import type { ReceivingService } from "../receiving/service.ts";
 
 export type HttpAppOptions = {
   backupDbPath?: string;
+  verifyBackupForListing?: typeof verifyBackup;
   backupEnv?: NodeJS.ProcessEnv;
   auth: AuthService;
   sessions: SessionStore;
@@ -697,10 +698,16 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
           const stat = statSync(file);
           let cached = verificationCache.get(name);
           if (!cached || cached.size !== stat.size || cached.mtimeMs !== stat.mtimeMs) {
-            let valid = true;
-            try { verifyBackup(file); } catch { valid = false; }
-            cached = { size: stat.size, mtimeMs: stat.mtimeMs, valid };
-            verificationCache.set(name, cached);
+            try {
+              (options.verifyBackupForListing ?? verifyBackup)(file);
+              cached = { size: stat.size, mtimeMs: stat.mtimeMs, valid: true };
+              verificationCache.set(name, cached);
+            } catch (error) {
+              verificationCache.delete(name);
+              if (!(error instanceof InvalidBackupError)) throw error;
+              cached = { size: stat.size, mtimeMs: stat.mtimeMs, valid: false };
+              verificationCache.set(name, cached);
+            }
           }
           return { name, valid: cached.valid, createdAtMs: cached.valid ? Math.trunc(stat.mtimeMs) : null };
         } catch { verificationCache.delete(name); return { name, valid: false, createdAtMs: null }; }

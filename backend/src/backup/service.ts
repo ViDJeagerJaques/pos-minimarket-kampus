@@ -168,6 +168,8 @@ function readCounts(filePath: string): BackupCounts {
   }
 }
 
+export class InvalidBackupError extends Error {}
+
 function verifySnapshot(filePath: string, createdAtMs: number): BackupReport {
   if (!existsSync(filePath)) {
     throw new Error("File cadangan tidak ditemukan.");
@@ -182,17 +184,17 @@ function verifySnapshot(filePath: string, createdAtMs: number): BackupReport {
     );
   }
   if (inspection.integrity !== "ok") {
-    throw new Error(`Cadangan gagal integrity_check: ${inspection.integrity}`);
+    throw new InvalidBackupError(`Cadangan gagal integrity_check: ${inspection.integrity}`);
   }
   if (inspection.foreignKeyViolations > 0) {
-    throw new Error(`Cadangan memiliki ${inspection.foreignKeyViolations} pelanggaran foreign key.`);
+    throw new InvalidBackupError(`Cadangan memiliki ${inspection.foreignKeyViolations} pelanggaran foreign key.`);
   }
   if (inspection.userVersion <= 0) {
-    throw new Error("Cadangan memiliki user_version tidak valid.");
+    throw new InvalidBackupError("Cadangan memiliki user_version tidak valid.");
   }
   const missing = REQUIRED_BACKUP_TABLES.filter((table) => !inspection.tables.includes(table));
   if (missing.length > 0) {
-    throw new Error(`Cadangan kehilangan tabel penting: ${missing.join(", ")}.`);
+    throw new InvalidBackupError(`Cadangan kehilangan tabel penting: ${missing.join(", ")}.`);
   }
   return {
     fileName: path.basename(filePath),
