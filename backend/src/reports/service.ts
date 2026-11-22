@@ -174,8 +174,8 @@ function parseStockFilter(filter: StockReportFilter): number {
 export function createReportService(db: DatabaseSync): ReportService {
   return {
     getPaymentReport(actor) {
-      if (actor.role !== "ADMIN") {
-        throw new ForbiddenError("Laporan pembayaran hanya untuk ADMIN.");
+      if (actor.role !== "ADMIN" && actor.role !== "CASHIER") {
+        throw new ForbiddenError("Akses laporan pembayaran ditolak.");
       }
       // Agregat dihitung SQL; rincian QRIS diambil terpisah dengan batas.
       // Keduanya dibaca dalam satu snapshot SQLite yang sama.
@@ -192,9 +192,11 @@ export function createReportService(db: DatabaseSync): ReportService {
                              AND p.verified_by IS NOT NULL AND p.verified_at_ms IS NOT NULL
                         THEN 1 ELSE 0 END) AS verified_count,
                COALESCE(SUM(p.amount_rp), 0) AS total
-             FROM sales s JOIN payments p ON p.sale_id = s.id`,
+             FROM sales s JOIN payments p ON p.sale_id = s.id
+             JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
+             WHERE (? = 'ADMIN' OR a.cashier_id = ?)`,
           )
-          .get() as {
+          .get(actor.role, actor.userId) as {
           cash_total: number;
           cash_count: number;
           qris_total: number;
@@ -210,13 +212,14 @@ export function createReportService(db: DatabaseSync): ReportService {
                     u.username AS cashier_username
              FROM sales s
              JOIN payments p ON p.sale_id = s.id
+             JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
              LEFT JOIN users u ON u.id = p.verified_by
-             WHERE p.method_code = 'QRIS_MANUAL'
+             WHERE (? = 'ADMIN' OR a.cashier_id = ?) AND p.method_code = 'QRIS_MANUAL'
                AND p.verified_by IS NOT NULL AND p.verified_at_ms IS NOT NULL
              ORDER BY s.committed_at_ms DESC, s.id DESC
              LIMIT 100`,
           )
-          .all() as Row[];
+          .all(actor.role, actor.userId) as Row[];
 
         const report: PaymentReport = {
           cash: {

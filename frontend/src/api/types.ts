@@ -381,7 +381,14 @@ export type LoginResult =
  * `authMode`/`catalogMode` dipakai UI untuk memberi label DEMO yang jujur:
  * autentikasi lokal nyata tetap bukan izin transaksi uang sungguhan.
  */
+export interface AdjustmentInput { adjustmentKey: string; productId: number; expectedOnHand: number; targetOnHand: number; reason: string }
+export interface AdjustmentResult { productId: number; previousOnHand: number; onHand: number; delta: number; duplicate: boolean }
+export interface BackupEntry { name: string; valid: boolean; createdAtMs: number | null }
 export interface PosDataSource {
+  adjustStock(input: AdjustmentInput): Promise<AdjustmentResult>;
+  listBackups(): Promise<BackupEntry[]>;
+  createBackup(): Promise<BackupEntry>;
+  restoreBackupTest(name: string): Promise<{ destinationPath: string }>;
   readonly authMode: AuthMode;
   readonly catalogMode: CatalogMode;
   login(username: string, password: string): Promise<LoginResult>;

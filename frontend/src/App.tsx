@@ -12,7 +12,8 @@ import { CashierPage } from "./pages/CashierPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
 import { LoginPage } from "./pages/LoginPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { StockAdjustmentPage } from "./pages/StockAdjustmentPage";
+import { BackupPage } from "./pages/BackupPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { ReceiptPage } from "./pages/ReceiptPage";
 import { ReceivingPage } from "./pages/ReceivingPage";
@@ -39,11 +40,6 @@ const PAGE_LABEL: Record<PageId, string> = {
 };
 
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
-
-const PLACEHOLDER_REASON: Record<Exclude<PageId, "cashier" | "products" | "accounts" | "shift" | "reports" | "history" | "receiving" | "dashboard">, { title: string; reason: string }> = {
-  "stock-adjustment": { title: "Koreksi Stok", reason: "Menunggu TASK-039 dan kunci idempotensi (TASK-001 K-11)." },
-  backup: { title: "Backup", reason: "Menunggu TASK-028." },
-};
 
 function newDraftId(): string {
   return globalThis.crypto.randomUUID();
@@ -302,8 +298,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
         />
       );
     }
-    const info = PLACEHOLDER_REASON[activePage];
-    return <PlaceholderPage title={info.title} reason={info.reason} />;
+    if (activePage === "stock-adjustment") return <StockAdjustmentPage dataSource={dataSource} currentUser={currentUser} onSessionExpired={handleSessionExpired} />;
+    return <BackupPage dataSource={dataSource} onSessionExpired={handleSessionExpired} />;
   }
 
   return (

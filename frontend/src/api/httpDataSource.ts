@@ -1250,6 +1250,19 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     });
   }
 
+  async function adjustStock(input: import("./types").AdjustmentInput): Promise<import("./types").AdjustmentResult> {
+    const value = await request("POST", "/inventory/adjustments", input, requireToken());
+    if (!isRecord(value) || !isPositiveInt(value.productId) || !isNonNegativeInt(value.previousOnHand) || !isNonNegativeInt(value.onHand) || !Number.isSafeInteger(value.delta) || typeof value.duplicate !== "boolean") throw new ApiError(500, "INVALID_RESPONSE", "Hasil koreksi tidak valid.");
+    return { productId: value.productId, previousOnHand: value.previousOnHand, onHand: value.onHand, delta: value.delta as number, duplicate: value.duplicate };
+  }
+  function backupEntry(value: unknown): import("./types").BackupEntry {
+    if (!isRecord(value) || typeof value.name !== "string" || typeof value.valid !== "boolean" || !(value.createdAtMs === null || isNonNegativeInt(value.createdAtMs))) throw new ApiError(500, "INVALID_RESPONSE", "Data cadangan tidak valid.");
+    return { name: value.name, valid: value.valid, createdAtMs: value.createdAtMs };
+  }
+  async function listBackups() { const value = await request("GET", "/backups", undefined, requireToken()); if (!Array.isArray(value)) throw new ApiError(500, "INVALID_RESPONSE", "Daftar cadangan tidak valid."); return value.map(backupEntry); }
+  async function createBackup() { return backupEntry(await request("POST", "/backups", {}, requireToken())); }
+  async function restoreBackupTest(name: string) { const value = await request("POST", "/backups/restore-test", { name }, requireToken()); if (!isRecord(value) || typeof value.destinationPath !== "string") throw new ApiError(500, "INVALID_RESPONSE", "Hasil pemulihan tidak valid."); return { destinationPath: value.destinationPath }; }
+
   async function getSaleReceipt(saleId: number): Promise<ReceiptView> {
     if (!isPositiveInt(saleId)) {
       throw new ApiError(422, "VALIDATION_ERROR", "ID transaksi tidak valid.");
@@ -1358,6 +1371,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     commitCheckout,
     getCheckoutStatus,
     getRecentSales,
+    adjustStock, listBackups, createBackup, restoreBackupTest,
     getSaleReceipt,
     printSaleReceipt,
     getPaymentReport,

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import path from "node:path";
+import { writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -36,12 +38,12 @@ function setup() {
   return { database, db };
 }
 
-async function start(db: DatabaseSync): Promise<RunningServer> {
+async function start(db: DatabaseSync, backupDbPath?: string, backupEnv?: NodeJS.ProcessEnv): Promise<RunningServer> {
   const sessions = createSessionStore(db, { secret: randomBytes(32), ttlMs: 60 * 60 * 1000 });
   const securityLog = createSecurityLogger({ sink: () => {} });
   const auth = createAuthService(db, { sessions, securityLog });
   const adjustments = createAdjustmentService(db, { now: () => FIXED_NOW });
-  return startHttpServer({ auth, sessions, securityLog, adjustments });
+  return startHttpServer({ auth, sessions, securityLog, adjustments, backupDbPath, backupEnv });
 }
 
 async function call(
@@ -132,4 +134,39 @@ test("TASK-039 HTTP: auth, input, actor/waktu server, dua request identik satu k
     db.close();
     database.cleanup();
   }
+});
+
+
+test("BUG-138 backup HTTP: ADMIN, verifikasi, restore salinan uji, dan tujuan gagal", async () => {
+  const { database, db } = setup();
+  const env = { ...process.env, POS_BACKUP_DIR: path.join(database.dir, "backups"), POS_RESTORE_TEST_DIR: path.join(database.dir, "restores"), POS_DB_PATH: database.dbPath };
+  const running = await start(db, database.dbPath, env);
+  try {
+    const admin = await login(running.url, "admin.adjust");
+    const cashier = await login(running.url, "kasir.adjust");
+    assert.equal((await call(running.url, "/backups")).status, 401);
+    assert.equal((await call(running.url, "/backups", { token: cashier })).status, 403);
+    assert.equal((await call(running.url, "/backups", { token: cashier, payload: {} })).status, 403);
+    const created = await call(running.url, "/backups", { token: admin, payload: {} });
+    assert.equal(created.status, 200);
+    const name = (created.json.data as { name: string }).name;
+    const list = await call(running.url, "/backups", { token: admin });
+    assert.equal((list.json.data as Array<{ name: string; valid: boolean }>)[0].name, name);
+    assert.equal((list.json.data as Array<{ valid: boolean }>)[0].valid, true);
+    assert.equal((await call(running.url, "/backups/restore-test", { token: cashier, payload: { name } })).status, 403);
+    const restore = await call(running.url, "/backups/restore-test", { token: admin, payload: { name } });
+    assert.equal(restore.status, 200);
+    assert.notEqual((restore.json.data as { destinationPath: string }).destinationPath, database.dbPath);
+    assert.equal((await call(running.url, "/backups/restore-test", { token: admin, payload: { name: "../bad.sqlite" } })).status, 422);
+  } finally { await running.close(); db.close(); database.cleanup(); }
+  const bad = setup();
+  const blocked = path.join(bad.database.dir, "not-a-directory");
+  writeFileSync(blocked, "fixture");
+  const failed = await start(bad.db, bad.database.dbPath, { ...process.env, POS_BACKUP_DIR: blocked });
+  try {
+    const admin = await login(failed.url, "admin.adjust");
+    const result = await call(failed.url, "/backups", { token: admin, payload: {} });
+    assert.equal(result.status, 422);
+    assert.match(String((result.json.error as { message: string }).message), /Cadangan gagal dibuat/);
+  } finally { await failed.close(); bad.db.close(); bad.database.cleanup(); }
 });
