@@ -125,6 +125,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     let isActive = true;
     const seq = ++listSeqRef.current;
     setIsLoading(true);
+    setAllActiveProducts(null);
     Promise.all([
       dataSource.listCategories(),
       dataSource.listSuppliers(),
@@ -140,8 +141,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         setSuppliers(supplierRows);
         const sortedRows = sortProducts(productRows);
         setProducts(sortedRows);
-        if (appliedQuery === "") {
-          if (productRows.length < MAX_PRODUCTS) {
+        {
+          if (appliedQuery === "" && productRows.length < MAX_PRODUCTS) {
             setAllActiveProducts(sortedRows.filter((item) => item.active));
           } else {
             const collected: CatalogProduct[] = [];
@@ -853,7 +854,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
       )}
 
       {((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0)) && (() => {
-        const tagSource = allActiveProducts ?? products ?? [];
+        const tagSource = allActiveProducts ?? [];
         const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
         const batchTags = buildPriceTags(tagSource, selectedCategory);
         return (
@@ -877,6 +878,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
             </select>
             <Button
               variant="secondary"
+              disabled={allActiveProducts === null}
               onClick={() => {
                 if (batchTags.length === 0) {
                   setStatus({ tone: "warning", text: "Tidak ada produk aktif pada batch tag harga yang dipilih." });

@@ -509,6 +509,11 @@ describe("PR 50 UI integration", () => {
 
     const tagBtn = await screen.findByRole("button", { name: /Cetak \/ PDF Tag Harga \(105\)/ });
     expect(tagBtn).toBeTruthy();
+    listCatalogProducts.mockClear();
+    await user.type(screen.getByLabelText("Cari produk"), "Produk 1");
+    await user.click(screen.getByRole("button", { name: /^Cari$/ }));
+    await waitFor(() => expect(listCatalogProducts).toHaveBeenCalledWith({ includeInactive: false, limit: 100, offset: 100 }));
+    expect(await screen.findByRole("button", { name: /Cetak \/ PDF Tag Harga \(105\)/ })).toBeTruthy();
     expect(document.querySelector(".table-actions .btn")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Lihat struk/ }));
