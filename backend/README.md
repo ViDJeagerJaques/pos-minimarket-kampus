@@ -266,7 +266,7 @@ endpoint HTTP untuk ledger (TASK-026/025 akan memakainya).
   `batchRef`; batch berbeda untuk produk yang sama ditolak 409. Partial unique
   index `ux_movements_opening_product` menjamin maksimal satu OPENING per
   produk.
-- `reconcileProduct()` menghitung `opening + receipt + sale + adjustment`
+- `reconcileProduct()` menghitung `opening + receipt - sale + adjustment`
   lalu membandingkan dengan total ledger; `assertSufficientStock()` menolak
   permintaan di atas saldo (DEC-018, PROPOSED) tanpa mengubah ledger/audit.
 - `STOCK_OPENING_IMPORTED` adalah **usulan kontrak** (AUDIT_LOG.md AUD-04 belum

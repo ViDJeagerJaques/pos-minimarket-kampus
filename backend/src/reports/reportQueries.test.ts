@@ -186,7 +186,7 @@ test("AC-08.02: laporan stok dari ledger dengan saldo, komponen, dan sumber muta
     assert.equal(product1.onHand, 10);
     assert.equal(product1.opening, 10);
     assert.equal(product1.receipt, 5);
-    assert.equal(product1.sale, -5);
+    assert.equal(product1.sale, 5);
     assert.equal(product1.adjustment, 0);
     assert.equal(product1.matched, true);
     assert.equal(product1.low, false);

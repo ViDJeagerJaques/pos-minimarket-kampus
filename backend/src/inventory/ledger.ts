@@ -171,10 +171,10 @@ export function reconcileProduct(db: DatabaseSync, productId: unknown): Reconcil
 
   const opening = sumByKind(rows, "OPENING");
   const receipt = sumByKind(rows, "RECEIPT");
-  const sale = sumByKind(rows, "SALE");
+  const sale = Math.abs(sumByKind(rows, "SALE"));
   const adjustment = sumByKind(rows, "ADJUSTMENT");
   const ledgerOnHand = rows.reduce((total, row) => total + Number(row.delta), 0);
-  const computedOnHand = opening + receipt + sale + adjustment;
+  const computedOnHand = opening + receipt - sale + adjustment;
 
   const issues: string[] = [];
   const openingCount = rows.filter((row) => row.kind === "OPENING").length;

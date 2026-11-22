@@ -1241,6 +1241,15 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     );
   }
 
+  async function getRecentSales(): ReturnType<PosDataSource["getRecentSales"]> {
+    const rows = await request("GET", "/sales/recent", undefined, requireToken());
+    if (!Array.isArray(rows)) throw new ApiError(500, "INVALID_RESPONSE", "Daftar transaksi tidak valid.");
+    return rows.map(raw => {
+      if (!isRecord(raw) || !isPositiveInt(raw.saleId) || typeof raw.saleNo !== "string" || !isNonNegativeInt(raw.committedAtMs) || !isNonNegativeInt(raw.totalRp) || (raw.method !== "CASH" && raw.method !== "QRIS_MANUAL")) throw new ApiError(500, "INVALID_RESPONSE", "Transaksi tidak valid.");
+      return { saleId: raw.saleId, saleNo: raw.saleNo, committedAtMs: raw.committedAtMs, totalRp: raw.totalRp, method: raw.method };
+    });
+  }
+
   async function getSaleReceipt(saleId: number): Promise<ReceiptView> {
     if (!isPositiveInt(saleId)) {
       throw new ApiError(422, "VALIDATION_ERROR", "ID transaksi tidak valid.");
@@ -1348,6 +1357,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     prepareCheckout,
     commitCheckout,
     getCheckoutStatus,
+    getRecentSales,
     getSaleReceipt,
     printSaleReceipt,
     getPaymentReport,

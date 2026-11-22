@@ -148,3 +148,49 @@ test("TASK-021: akun nonaktif dan input/sale tidak valid ditolak tanpa data boco
     ctx.cleanup();
   }
 });
+
+
+test("Riwayat terbaru membatasi pemilik, mendukung ADMIN, dan hanya membaca DB", () => {
+  const ctx = setup();
+  try {
+    const before = counts(ctx.db);
+    const rows = ctx.print.getRecentSales(cashier);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].saleId, ctx.saleId);
+    assert.equal(rows[0].method, "CASH");
+    assert.deepEqual(ctx.print.getRecentSales(otherCashier), []);
+    assert.deepEqual(ctx.print.getRecentSales(admin), rows);
+    assert.deepEqual(counts(ctx.db), before);
+    ctx.db.prepare("UPDATE users SET active = 0 WHERE id = ?").run(cashier.userId);
+    assert.throws(() => ctx.print.getRecentSales(cashier), AuthRequiredError);
+  } finally { ctx.cleanup(); }
+});
+
+test("BUG-140: pembayaran ganda tetap menghasilkan 20 penjualan unik dengan metode pembayaran pertama", () => {
+  const ctx = setup();
+  try {
+    for (let id = 21; id <= 40; id++) {
+      const key = `recent-${id}`;
+      ctx.db.prepare(`INSERT INTO checkout_attempts
+        (attempt_key, shift_id, cashier_id, request_hash, prepared_at_ms)
+        VALUES (?, 10, ?, zeroblob(32), ?)`)
+        .run(key, cashier.userId, FIXED_NOW);
+      ctx.db.prepare(`INSERT INTO sales (id, sale_no, attempt_key, committed_at_ms, total_rp)
+        VALUES (?, ?, ?, ?, 5000)`)
+        .run(id, `S-${id}`, key, FIXED_NOW + id);
+      ctx.db.prepare("INSERT INTO payments (sale_id, method_code, amount_rp) VALUES (?, 'CASH', 5000)").run(id);
+    }
+    ctx.db.prepare(`INSERT INTO payments
+      (sale_id, method_code, amount_rp, verified_by, verified_at_ms)
+      VALUES (40, 'QRIS_MANUAL', 5000, ?, ?)`)
+      .run(cashier.userId, FIXED_NOW + 40);
+    const before = counts(ctx.db);
+    const rows = ctx.print.getRecentSales(cashier);
+    assert.equal(rows.length, 20);
+    assert.equal(new Set(rows.map(row => row.saleId)).size, 20);
+    assert.deepEqual(rows.map(row => row.saleId), Array.from({ length: 20 }, (_, i) => 40 - i));
+    assert.equal(rows.filter(row => row.saleId === 40).length, 1);
+    assert.equal(rows[0].method, "CASH");
+    assert.deepEqual(counts(ctx.db), before);
+  } finally { ctx.cleanup(); }
+});
