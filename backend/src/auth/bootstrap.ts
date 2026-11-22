@@ -84,7 +84,7 @@ export function bootstrapFirstAdmin(
     if (!table) {
       throw new Error("Tabel users tidak tersedia.");
     }
-    if (countRealUsers(db) > 0) {
+    if (!needsFirstAdminSetup(db)) {
       throw new ConflictError(
         "Bootstrap ADMIN hanya berlaku saat belum ada akun asli. Buat akun tambahan lewat endpoint ADMIN.",
         "username",

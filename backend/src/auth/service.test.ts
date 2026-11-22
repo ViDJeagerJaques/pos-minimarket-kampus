@@ -562,6 +562,14 @@ test("BUG-166: getBootstrapStatus mengembalikan needsSetup=true bila hanya ada b
         password: makeRuntimePassword("boot-status"),
       });
       assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: false });
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.tanpa.login",
+            password: makeRuntimePassword("boot-blocked"),
+          }),
+        /belum ada akun asli/,
+      );
     } finally {
       db.close();
     }
@@ -593,6 +601,14 @@ test("BUG-166: getBootstrapStatus mengembalikan needsSetup=false pada DB DEMO ya
         securityLog: createSecurityLogger(),
       });
       assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: false });
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.tanpa.login",
+            password: makeRuntimePassword("boot-blocked"),
+          }),
+        /belum ada akun asli/,
+      );
     } finally {
       db.close();
     }

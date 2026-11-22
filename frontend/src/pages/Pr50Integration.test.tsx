@@ -675,7 +675,14 @@ describe("PR 50 UI integration", () => {
       supplierIds: [],
       stockOnHand: 5,
     }));
+    const extra5 = first100.slice(0, 5).map((item, i) => ({
+      ...item,
+      id: 101 + i,
+      sku: `SKU-${101 + i}`,
+      name: `Produk ${101 + i}`,
+    }));
     const adminUser: SessionUser = { userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" };
+    let failTags = true;
     render(
       <ProductsPage
         dataSource={makeSource({
@@ -683,7 +690,10 @@ describe("PR 50 UI integration", () => {
           listSuppliers: async () => [],
           listCatalogProducts: vi.fn(async (q?: { offset?: number; includeInactive?: boolean }) => {
             if (q?.includeInactive === false && (q.offset ?? 0) === 100) {
-              throw new ApiError(500, "INTERNAL_ERROR", "Tag harga gagal dimuat.");
+              if (failTags) {
+                throw new ApiError(500, "INTERNAL_ERROR", "Tag harga gagal dimuat.");
+              }
+              return extra5;
             }
             return first100;
           }),
@@ -695,5 +705,9 @@ describe("PR 50 UI integration", () => {
     expect(await screen.findByText("SKU-001")).toBeTruthy();
     expect(await screen.findByText("Tag harga gagal dimuat.")).toBeTruthy();
     expect((screen.getByRole("button", { name: /Cetak \/ PDF Tag Harga/ }) as HTMLButtonElement).disabled).toBe(true);
+    failTags = false;
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+    const retriedTagBtn = await screen.findByRole("button", { name: /Cetak \/ PDF Tag Harga \(105\)/ });
+    expect((retriedTagBtn as HTMLButtonElement).disabled).toBe(false);
   });
 });

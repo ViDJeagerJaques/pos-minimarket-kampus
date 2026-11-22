@@ -875,7 +875,12 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
             Cetak atau simpan PDF tag harga rak dari database (layout header toko, nama produk, harga, barcode EAN-13, dan slogan).
           </p>
           {tagLoadError && (
-            <p className="field-error" role="alert">{tagLoadError}</p>
+            <div className="report-toolbar">
+              <p className="field-error" role="alert">{tagLoadError}</p>
+              <Button variant="secondary" onClick={invalidatePendingReadsAndRefresh}>
+                Coba lagi
+              </Button>
+            </div>
           )}
           <div className="report-toolbar">
             <label htmlFor="tag-category-filter" className="field-label">Batch tag harga</label>
