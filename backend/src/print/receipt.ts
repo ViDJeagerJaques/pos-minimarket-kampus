@@ -20,8 +20,13 @@ export function formatReceiptText(receipt: Receipt): string {
   const lines: string[] = [
     "=== STRUK DEMO ===",
     "Minimarket Kampus (DATA SINTETIS)",
+    "Belanja praktis untuk kebutuhan kampus",
+    "Alamat dan telepon: belum dikonfigurasi (DEMO)",
+    "ASLI — PRATINJAU VIRTUAL",
     `No. Penjualan : ${receipt.saleNo}`,
     `Waktu         : ${transactionTime(receipt.committedAtMs)}`,
+    ...(receipt.shiftId !== undefined ? [`Shift         : #${receipt.shiftId}`] : []),
+    ...(receipt.cashierUsername ? [`Kasir         : ${receipt.cashierUsername}`] : []),
     rule,
   ];
 
@@ -30,9 +35,13 @@ export function formatReceiptText(receipt: Receipt): string {
     lines.push(
       `  ${item.quantity} x ${rupiah(item.unitPriceRp)} = ${rupiah(item.lineTotalRp)}`,
     );
+    if (item.discountRp && item.discountRp > 0) {
+      lines.push(`  Pot (${item.discountPct ?? 0}%): -${rupiah(item.discountRp)}`);
+    }
   }
 
   lines.push(rule);
+  lines.push(`BARIS: ${receipt.items.length} · QTY: ${receipt.items.reduce((sum, item) => sum + item.quantity, 0)}`);
   lines.push(`TOTAL : ${rupiah(receipt.totalRp)}`);
   if (receipt.payment.method === "CASH") {
     lines.push(`METODE: TUNAI`);
@@ -47,5 +56,7 @@ export function formatReceiptText(receipt: Receipt): string {
   }
   lines.push(rule);
   lines.push("* Pratinjau virtual DEMO, bukan bukti pembayaran.");
+  lines.push("Terima kasih — Belanja praktis untuk kebutuhan kampus");
+  lines.push("Kebijakan retur: belum ditetapkan pengelola.");
   return `${lines.join("\n")}\n`;
 }

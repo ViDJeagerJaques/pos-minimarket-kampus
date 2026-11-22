@@ -13,7 +13,8 @@
  */
 "use strict";
 
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
+const { randomBytes } = require("node:crypto");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
@@ -58,11 +59,11 @@ function startBackend() {
   const configPath = path.join(dataDir, "config.json");
   if (!fs.existsSync(configPath)) fs.writeFileSync(configPath, JSON.stringify({ mode: "DEMO", apiPort: 0 }, null, 2), { flag: "wx" });
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  if (config.mode !== "DEMO" || !Number.isInteger(config.apiPort) || config.apiPort < 0 || config.apiPort > 65535) {
+  if (!["DEMO", "REAL"].includes(config.mode) || !Number.isInteger(config.apiPort) || config.apiPort < 0 || config.apiPort > 65535) {
     throw new Error("Konfigurasi DEMO tidak valid; pulihkan config.json dari cadangan.");
   }
-  const dbPath = path.join(dataDir, "pos-dev.sqlite");
-  const env = { ...process.env, POS_DB_PATH: dbPath, POS_DB_PROFILE: "development", POS_DATA_DIR: dataDir, POS_BACKUP_DIR: path.join(dataDir, "backups"), POS_RESTORE_TEST_DIR: path.join(dataDir, "restore-test") };
+  const dbPath = path.join(dataDir, config.mode === "DEMO" ? "pos-dev.sqlite" : "pos.sqlite");
+  const env = { ...process.env, POS_DB_PATH: dbPath, POS_DB_PROFILE: config.mode === "DEMO" ? "development" : "operational", POS_DATA_DIR: dataDir, POS_BACKUP_DIR: path.join(dataDir, "backups"), POS_RESTORE_TEST_DIR: path.join(dataDir, "restore-test") };
   delete env.NODE_OPTIONS;
   delete env.NODE_PATH;
 
@@ -76,6 +77,32 @@ function startBackend() {
   // tetap membuka jendela kasir dengan backend mati.
   if (migrate.status !== 0) {
     throw new Error(`Migrasi database gagal: ${(migrate.stderr || migrate.stdout || "").slice(0, 300)}`);
+  }
+  if (config.mode === "DEMO") {
+    const password = randomBytes(12).toString("base64url");
+    const seed = spawnSync(NODE_BIN, [path.join(ROOT, "backend", "db", "src", "cli.ts"), "seed", "--demo", "--json", "--db", dbPath], {
+      cwd: path.join(ROOT, "backend"), windowsHide: true, encoding: "utf8",
+      env: { ...env, POS_INSTALLER_DEMO_PASSWORD: password },
+    });
+    if (seed.status !== 0) throw new Error("Seed DEMO gagal; database tidak direset.");
+    if (JSON.parse(seed.stdout).seeded) {
+      if (BENCH) {
+        if (process.env.POS_INSTALLER_DEMO_CREDS_FILE) {
+          fs.writeFileSync(
+            process.env.POS_INSTALLER_DEMO_CREDS_FILE,
+            JSON.stringify({ demoPassword: password }),
+            "utf8",
+          );
+        }
+      } else {
+        dialog.showMessageBoxSync({
+          type: "info",
+          title: "Akun DEMO sintetis",
+          message: "Catat sandi DEMO sebelum melanjutkan",
+          detail: `Akun: demo.admin, demo.kasir.pagi, demo.kasir.sore\nSandi: ${password}\nSandi tidak disimpan sebagai teks. Ganti sandi lewat menu Akun bila diperlukan.`,
+        });
+      }
+    }
   }
 
   // BUG-127: kembalikan promise yang hanya resolve saat backend benar-benar

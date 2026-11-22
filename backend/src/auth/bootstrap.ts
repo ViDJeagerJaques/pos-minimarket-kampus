@@ -30,12 +30,16 @@ export function bootstrapFirstAdmin(
     if (!table) {
       throw new Error("Tabel users tidak tersedia.");
     }
-    const existing = db.prepare("SELECT COUNT(*) AS total FROM users").get() as {
+    const existing = db
+      .prepare(
+        "SELECT COUNT(*) AS total FROM users WHERE username NOT IN ('demo.admin', 'demo.kasir.pagi', 'demo.kasir.sore')",
+      )
+      .get() as {
       total: number;
     };
     if (Number(existing.total) > 0) {
       throw new ConflictError(
-        "Bootstrap ADMIN hanya berlaku saat belum ada akun. Buat akun tambahan lewat endpoint ADMIN.",
+        "Bootstrap ADMIN hanya berlaku saat belum ada akun asli. Buat akun tambahan lewat endpoint ADMIN.",
         "username",
       );
     }

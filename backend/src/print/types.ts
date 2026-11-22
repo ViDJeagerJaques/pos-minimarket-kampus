@@ -12,6 +12,8 @@ export type ReceiptItem = {
   quantity: number;
   unitPriceRp: number;
   lineTotalRp: number;
+  discountPct?: number;
+  discountRp?: number;
 };
 
 export type ReceiptPayment = {
@@ -28,6 +30,8 @@ export type Receipt = {
   saleNo: string;
   committedAtMs: number;
   totalRp: number;
+  shiftId?: number;
+  cashierUsername?: string;
   items: ReceiptItem[];
   payment: ReceiptPayment;
 };

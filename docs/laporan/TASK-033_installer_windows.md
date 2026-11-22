@@ -1,5 +1,26 @@
 # TASK-033 — Kandidat installer Windows dan pembaruan
 
+## Perubahan PR 50 dalam pengerjaan — 22 November 2026
+
+Keputusan David terbaru menggantikan rencana seed tanpa user: mode `DEMO`
+menyiapkan akun demo yang dapat login, empat produk beserta stok, satu shift
+kasir pagi aktif, dan satu penjualan tunai sintetis Rp6.000. Sandi dibuat acak
+per instalasi, ditampilkan sekali dalam dialog lokal, dan hanya hash disimpan
+di database; tidak ada sandi bawaan dalam repository. Catat sandi tersebut.
+Seed menggunakan penanda `demo_seed_runs`; data yang sudah terisi tidak diubah.
+Mode `REAL` tidak menjalankan seed dan menggunakan file `pos.sqlite` terpisah
+dari `pos-dev.sqlite` DEMO. Database real kosong tetap memakai setup admin.
+Mengganti mode bukan prosedur migrasi atau izin GO-LIVE.
+
+Untuk latihan kosong, gunakan direktori data uji baru melalui `--user-data-dir`
+dan config `{"mode":"REAL","apiPort":0}` sebelum membuka aplikasi. Jangan
+menghapus database lama atau mematikan constraint untuk mengulang demo.
+
+Verifikasi sementara: typecheck backend PASS, seed 6/6 PASS, regresi backend
+165/165 PASS. Integrasi dialog/installer baru dan bagian B–N belum diverifikasi.
+Bagian historis di bawah masih menggambarkan paket sebelum PR 50; laporan final
+akan diperbarui setelah seluruh pengujian gabungan selesai.
+
 Status: **REVIEW / PENDING LAPANGAN**. Data sintetis, bukan izin GO-LIVE.
 Basis: `e41f135`, branch `task/p32-033`. Acuan POS-10.01/AC-10.01,
 POS-10.02/AC-10.02, DEC-004/005 (ACCEPTED), DEC-011 (PROPOSED), DEC-015.
@@ -142,3 +163,14 @@ uji lokal, tidak boleh ikut Git. Bukti JSON tanpa kredensial disimpan di
 
 Syarat sebelum commit/push sesuai prompt: tes wajib termasuk bukti manual
 David. Belum ada PR/commit TASK-033 yang diklaim dari laporan ini.
+
+## Prosedur Mode DEMO vs Mode REAL (Bagian B)
+
+- **Mode DEMO (`mode: "DEMO"` di `config.json`)**: memakai database `pos-dev.sqlite` dengan profil `development`. Saat startup pertama kali (ketika belum ada user), `desktop/main.cjs` menjalankan `seed --demo --json` dengan sandi acak pada `POS_INSTALLER_DEMO_PASSWORD` dan menampilkan dialog info sandi sekali pakai untuk akun `demo.admin`, `demo.kasir.pagi`, dan `demo.kasir.sore` (kecuali saat `POS_ELECTRON_BENCH=1`, yang menulis ke `POS_INSTALLER_DEMO_CREDS_FILE` bila disediakan agar rehearsal headless tidak terblokir).
+- **Mode REAL (`mode: "REAL"` di `config.json`)**: memakai database `pos.sqlite` dengan profil `operational`. Tidak menjalankan `seed --demo`; jika belum ada akun admin, frontend menampilkan `SetupAdminPage` (`bootstrap-admin`) untuk membuat admin operasional pertama.
+
+## Catatan Hardware Kasir (Bagian M)
+
+- **Barcode scanner USB HID**: berfungsi sebagai keyboard input yang diakhiri `Enter` pada `BarcodeInput` (`F2` memfokuskan kembali kolom scan).
+- **Printer struk termal 58mm/80mm**: tata letak struk memakai lebar <=40 karakter (`formatReceiptText`), menampilkan rincian `BARIS`, `QTY`, metode bayar (`TUNAI` / `QRIS MANUAL`), dan fallback salin teks manual bila printer tidak tersedia.
+- **Layar pelanggan (customer display)**: tersedia pratinjau lokal dan jendela terpisah (`renderCustomerDisplayHtml`) untuk menampilkan ringkasan keranjang, promo, dan kembalian.

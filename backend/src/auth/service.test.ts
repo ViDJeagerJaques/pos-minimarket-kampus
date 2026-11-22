@@ -20,6 +20,7 @@ import {
   ValidationError,
 } from "./errors.ts";
 import { hashPassword } from "./password.ts";
+import { bootstrapFirstAdmin } from "./bootstrap.ts";
 import { createAuthService } from "./service.ts";
 import { createSessionStore, type Role, type SessionUser } from "./session.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
@@ -465,6 +466,37 @@ test("Bootstrap ADMIN bersamaan hanya mengizinkan satu ADMIN pertama", async () 
     try {
       assert.equal(countRows(db, "users"), 1);
       assert.equal(countRows(db, "audit_log"), 1);
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-004: bootstrap-admin berjalan pada DB berisi katalog/akun demo dan menolak jika sudah ada user asli", async () => {
+  const database = createTempDatabase("pos-bootstrap-demo-");
+  try {
+    migrateFresh(database);
+    const { seedDemo } = await import("../../db/src/seed.ts");
+    seedDemo({ dbPath: database.dbPath, allowDemo: true, env: {} });
+
+    const db = database.open();
+    try {
+      const admin = bootstrapFirstAdmin(db, {
+        username: "admin.asli",
+        password: makeRuntimePassword("boot-real"),
+      });
+      assert.equal(admin.username, "admin.asli");
+      assert.equal(admin.role, "ADMIN");
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.kedua",
+            password: makeRuntimePassword("boot-real-2"),
+          }),
+        /belum ada akun asli/,
+      );
     } finally {
       db.close();
     }

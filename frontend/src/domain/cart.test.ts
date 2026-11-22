@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { addProduct, setQuantity, type CartLine, type CartProduct } from "./cart";
 
+it("BUG-032: stok legacy nol tidak menghalangi pengurangan", () => {
+  const lines = [{ productId: 1, sku: "DEMO", name: "DEMO", unitPriceRp: 1000, quantity: 3, stockHint: 0 }];
+  expect(setQuantity(lines, 1, 2).ok).toBe(true);
+  expect(setQuantity(lines, 1, 4).ok).toBe(false);
+});
+
 const PRODUCT: CartProduct = {
   id: 1,
   sku: "SKU-STOK-3",

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { hashPassword } from "../../src/auth/password.ts";
 import { openDatabase, readUserVersion } from "./db.ts";
 import { assertOutsideSourceTree, REPO_ROOT, type Env } from "./paths.ts";
 
@@ -22,6 +23,7 @@ export type SeedOptions = {
   dbPath: string;
   /** Harus true; CLI hanya mengirim true bila flag --demo diberikan. */
   allowDemo: boolean;
+  installerPassword?: string;
   env?: Env;
   repoRoot?: string;
   now?: () => number;
@@ -203,6 +205,7 @@ export function seedDemo(options: SeedOptions): SeedResult {
     const before = collectCounts(db);
     const nonEmpty = Object.entries(before).filter(([, total]) => total > 0);
     if (nonEmpty.length > 0) {
+      if (options.installerPassword) return { dbPath: options.dbPath, seeded: false, skippedReason: "Database berisi data; tidak diubah.", counts: before };
       throw new SeedError(
         "Seed demo hanya untuk database kosong. Tabel berisi data: " +
           nonEmpty.map(([table, total]) => `${table}=${total}`).join(", "),
@@ -228,7 +231,7 @@ export function seedDemo(options: SeedOptions): SeedResult {
          VALUES (?, ?, ?, ?, 1, ?)`,
       );
       for (const user of DEMO_USERS) {
-        insertUser.run(user.id, user.username, DEMO_PASSWORD_HASH_PLACEHOLDER, user.role, DEMO_TS);
+        insertUser.run(user.id, user.username, options.installerPassword ? hashPassword(options.installerPassword) : DEMO_PASSWORD_HASH_PLACEHOLDER, user.role, DEMO_TS);
       }
 
       const insertCategory = db.prepare("INSERT INTO categories (id, name) VALUES (?, ?)");
@@ -274,6 +277,15 @@ export function seedDemo(options: SeedOptions): SeedResult {
         );
       }
 
+      if (options.installerPassword) {
+        const stamp = now();
+        db.prepare("INSERT INTO shifts (id, cashier_id, opened_at_ms, opening_cash_rp) VALUES (101, 2, ?, 100000)").run(stamp);
+        db.prepare("INSERT INTO checkout_attempts (attempt_key, shift_id, cashier_id, request_hash, prepared_at_ms) VALUES ('demo-install-sale', 101, 2, zeroblob(32), ?)").run(stamp);
+        db.prepare("INSERT INTO sales (id, sale_no, attempt_key, committed_at_ms, total_rp) VALUES (201, 'S-DEMO-000201', 'demo-install-sale', ?, 6000)").run(stamp);
+        db.prepare("INSERT INTO sale_items (id, sale_id, product_id, sku_snapshot, name_snapshot, quantity, unit_price_rp, line_total_rp) VALUES (301,201,1,'DEMO-001','DEMO Air Mineral Botol 600 ml',2,3000,6000)").run();
+        db.prepare("INSERT INTO payments (sale_id, method_code, amount_rp) VALUES (201,'CASH',6000)").run();
+        db.prepare("INSERT INTO inventory_movements (product_id,kind,delta,sale_item_id,actor_id,created_at_ms) VALUES (1,'SALE',-2,301,2,?)").run(stamp);
+      }
       const baselineCounts = collectCounts(db);
       db.prepare(
         "INSERT INTO demo_seed_runs (run_key, applied_at_ms, baseline_counts_json, baseline_user_version) VALUES (?, ?, ?, ?)",

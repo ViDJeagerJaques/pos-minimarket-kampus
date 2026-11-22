@@ -36,6 +36,14 @@ import {
   type AddResult,
   type CartLine,
 } from "../domain/cart";
+import {
+  buildCustomerDisplayState,
+  calculatePromoDiscountRp,
+  getCustomerPoints,
+  recordCustomerPoints,
+  renderCustomerDisplayHtml,
+  type PromoKind,
+} from "../domain/iposFeatures";
 
 interface CashierPageProps {
   dataSource: PosDataSource;
@@ -234,6 +242,10 @@ export function CashierPage({
   );
   const [priorQrisAttempt, setPriorQrisAttempt] = useState<PrepareCheckoutResult | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [customerCode, setCustomerCode] = useState("");
+  const [pointsNotice, setPointsNotice] = useState<string | null>(null);
+  const [promoKind, setPromoKind] = useState<PromoKind>("NONE");
+  const [showCustomerDisplay, setShowCustomerDisplay] = useState(false);
 
   const barcodeRef = useRef<HTMLInputElement>(null);
   const cashInputRef = useRef<HTMLInputElement>(null);
@@ -251,6 +263,8 @@ export function CashierPage({
   const snapshotDraftIdRef = useRef<string | null>(initialRecovery.draftId);
   const cashInputId = useId();
   const openingCashId = useId();
+  const customerCodeId = useId();
+  const promoSelectId = useId();
   sessionEpochRef.current = sessionEpoch;
   /** Draft dikunci sejak prepare sampai checkout selesai atau dibatalkan. */
   const isCheckoutActive = phase.kind !== "idle";
@@ -642,6 +656,15 @@ export function CashierPage({
     if (snapshotDraftIdRef.current !== null) {
       onDraftConsumed(snapshotDraftIdRef.current, snapshotLinesRef.current.map((line) => line.productId));
     }
+    const trimmedCustomer = customerCode.trim();
+    if (trimmedCustomer) {
+      const pts = recordCustomerPoints(trimmedCustomer, result.totalRp);
+      setPointsNotice(
+        `Poin pelanggan ${pts.customerCode}: +${pts.earned} poin (total ${pts.totalPoints} poin).`,
+      );
+    } else {
+      setPointsNotice(null);
+    }
     snapshotLinesRef.current = [];
     barcodeSeqRef.current += 1;
     setStatus({ tone: "success", text: `Transaksi ${result.saleNo} tersimpan di backend.` });
@@ -747,7 +770,11 @@ export function CashierPage({
             : "Upaya pengganti disiapkan. Isi ulang konfirmasi pembayaran.",
       });
       setPhase({ kind: "payment", attempt: fresh });
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.isSessionExpired) {
+        onSessionExpired();
+        return;
+      }
       // Jangan buka payment dengan kunci yang sudah ditolak; arahkan ke recovery.
       persistNoReplay(attempt.attemptKey, reason);
       setPhase({
@@ -1007,6 +1034,15 @@ export function CashierPage({
   }
 
   const totalRp = cartTotalRp(lines);
+  const promoDiscountRp = calculatePromoDiscountRp(lines, promoKind);
+  const netPreviewTotalRp = totalRp !== null ? Math.max(0, totalRp - promoDiscountRp) : null;
+  const normalizedCustomerCode = customerCode.trim().toUpperCase();
+  const currentCustomerPoints = normalizedCustomerCode ? getCustomerPoints(normalizedCustomerCode) : 0;
+  const customerDisplayState = buildCustomerDisplayState(
+    lines,
+    promoKind,
+    phase.kind === "success" ? phase.result.payment.changeRp : null,
+  );
   const itemCount = cartItemCount(lines);
   const isCartEmpty = lines.length === 0;
   const cashValue = parseRupiahInput(cashInput);
@@ -1041,8 +1077,21 @@ export function CashierPage({
     : null;
   const canResumeTimeout = timeoutConfirmation !== null;
 
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.key === "F2" && phase.kind === "idle") { event.preventDefault(); barcodeRef.current?.focus(); }
+      if (event.key === "F9" && phase.kind === "idle") { event.preventDefault(); void startCheckout(); }
+      if (event.key === "Escape" && phase.kind === "payment") { event.preventDefault(); closePayment(); }
+      if (event.key === "Enter" && phase.kind === "payment" && event.target === cashInputRef.current && canCommitPayment) { event.preventDefault(); void confirmCommit(); }
+    };
+    window.addEventListener("keydown", keyboard);
+    return () => window.removeEventListener("keydown", keyboard);
+  });
+
   return (
     <div className="cashier">
+      <p className="muted">F2 Cari/scan · F9 Bayar · Esc Kembali dari pembayaran · Enter Konfirmasi nominal</p>
       <section className="cashier__work panel" aria-label="Scan dan keranjang">
         <div className="shift-panel" aria-label="Shift kasir">
           {isDemo ? (
@@ -1107,6 +1156,41 @@ export function CashierPage({
           <span>TOTAL</span>
           <MoneyText amountRp={totalRp} className="money--total" />
         </div>
+        {promoDiscountRp > 0 && (
+          <p className="muted" role="status">
+            Potongan promo lokal (DEMO): -<MoneyText amountRp={promoDiscountRp} /> · Estimasi bersih:{" "}
+            <strong><MoneyText amountRp={netPreviewTotalRp} /></strong>
+          </p>
+        )}
+        <div className="summary__extras">
+          <label className="field-label" htmlFor={promoSelectId}>Promo lokal (DEMO)</label>
+          <select
+            id={promoSelectId}
+            className="input"
+            value={promoKind}
+            disabled={isCheckoutActive}
+            onChange={(event) => setPromoKind(event.target.value as PromoKind)}
+          >
+            <option value="NONE">Tanpa promo</option>
+            <option value="BUY_2_GET_1">Beli 2 gratis 1 (item termurah)</option>
+            <option value="TEBUS_MURAH">Tebus murah (hemat Rp5.000 min. Rp50.000)</option>
+          </select>
+          <label className="field-label" htmlFor={customerCodeId}>Kode pelanggan / poin (opsional)</label>
+          <input
+            id={customerCodeId}
+            className="input"
+            type="text"
+            value={customerCode}
+            disabled={isCheckoutActive}
+            onChange={(event) => setCustomerCode(event.target.value)}
+            placeholder="Mis. MHS001"
+          />
+          {normalizedCustomerCode && (
+            <p className="muted" role="status">
+              Pelanggan {normalizedCustomerCode}: <strong>{currentCustomerPoints} poin</strong> tersimpan.
+            </p>
+          )}
+        </div>
         <p className="summary__draft-note muted">
           Draft belum tersimpan sebagai transaksi sampai commit dikonfirmasi backend.
         </p>
@@ -1155,6 +1239,39 @@ export function CashierPage({
           >
             Batal draft
           </Button>
+          <Button
+            variant="secondary"
+            block
+            onClick={() => setShowCustomerDisplay((prev) => !prev)}
+          >
+            {showCustomerDisplay ? "Tutup layar pelanggan" : "Layar pelanggan"}
+          </Button>
+          {showCustomerDisplay && (
+            <section className="customer-display-preview panel" aria-label="Layar pelanggan">
+              <p>
+                <strong>Layar pelanggan</strong> · {customerDisplayState.items.length} baris ·{" "}
+                <MoneyText amountRp={customerDisplayState.totalRp} />
+              </p>
+              {customerDisplayState.promoLabel && (
+                <p className="muted">
+                  {customerDisplayState.promoLabel}: -<MoneyText amountRp={promoDiscountRp} />
+                </p>
+              )}
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const popup = window.open("", "pos-customer-display", "width=480,height=640");
+                  if (popup) {
+                    popup.document.open();
+                    popup.document.write(renderCustomerDisplayHtml(customerDisplayState));
+                    popup.document.close();
+                  }
+                }}
+              >
+                Buka jendela pelanggan
+              </Button>
+            </section>
+          )}
         </div>
       </aside>
 
@@ -1184,6 +1301,11 @@ export function CashierPage({
             <p>
               <span className="badge badge--warning">PENDING — belum ada penjualan</span> · Total:{" "}
               <MoneyText amountRp={phase.attempt.quote.totalRp} />
+            </p>
+            <p className="muted" role="note">
+              {paymentIsQris
+                ? "Pemeriksaan metode: pastikan pelanggan membayar lewat QRIS merchant, bukan uang tunai."
+                : "Pemeriksaan metode: pastikan pelanggan membayar tunai langsung, bukan transfer QRIS."}
             </p>
             <ul className="catalog-list">
               {phase.attempt.quote.items.map((item) => (
@@ -1239,9 +1361,9 @@ export function CashierPage({
                   className="input"
                   type="text"
                   inputMode="numeric"
-                  value={merchantAmountInput}
+                  value={merchantAmountInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
                   onChange={(event) => {
-                    setMerchantAmountInput(event.target.value);
+                    setMerchantAmountInput(event.target.value.replace(/\./g, ""));
                     setPaymentError(null);
                   }}
                   aria-describedby="qris-amount-hint"
@@ -1275,13 +1397,17 @@ export function CashierPage({
                   className="input"
                   type="text"
                   inputMode="numeric"
-                  value={cashInput}
+                  value={cashInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
                   onChange={(event) => {
-                    setCashInput(event.target.value);
+                    setCashInput(event.target.value.replace(/\./g, ""));
                     setPaymentError(null);
                   }}
                   aria-describedby="change-info"
                 />
+                <div className="dialog__actions" aria-label="Nominal tunai cepat">
+                  <Button onClick={() => setCashInput(String(phase.attempt.quote.totalRp))}>Uang pas</Button>
+                  {[10000, 20000, 50000, 100000].map(amount => <Button key={amount} onClick={() => setCashInput(String(amount))}>{amount.toLocaleString("id-ID")}</Button>)}
+                </div>
                 <p id="change-info" className="muted">
                   Kembalian: <MoneyText amountRp={quoteChangeRp} />
                 </p>
@@ -1480,10 +1606,16 @@ export function CashierPage({
                 <MoneyText amountRp={phase.result.payment.changeRp} />.
               </p>
             )}
+            {pointsNotice && (
+              <p className="badge badge--ok" role="status">
+                {pointsNotice}
+              </p>
+            )}
             <ReceiptPanel
               dataSource={dataSource}
               saleId={phase.result.saleId}
               onSessionExpired={onSessionExpired}
+              autoLoad
             />
             <div className="dialog__actions">
               <Button variant="primary" onClick={() => { const failedKey = removeRecovery(); openNextRecovery(failedKey ?? undefined); }}>

@@ -153,6 +153,7 @@ function main(argv: string[]): number {
     }
     case "seed": {
       const result = seedDemo({
+        installerPassword: process.env.POS_INSTALLER_DEMO_PASSWORD,
         dbPath: options.dbPath,
         allowDemo: options.demo,
         log: (line) => {

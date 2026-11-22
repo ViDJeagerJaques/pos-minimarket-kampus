@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "../api/errors";
 import type { DailyReport, PosDataSource } from "../api/types";
+import { buildCsv, buildExcelHtml, triggerFileDownload } from "../domain/iposFeatures";
 import { Button } from "./Button";
 import { MoneyText } from "./MoneyText";
 
@@ -155,6 +156,42 @@ export function DailyReportPanel({ dataSource, onSessionExpired }: DailyReportPa
               <p className="money money--total"><MoneyText amountRp={report.qrisManual.totalRp} /></p>
               <p className="muted">{report.qrisManual.count} transaksi · {report.qrisManual.verifiedCount} terverifikasi · tidak masuk kas fisik</p>
             </div>
+          </div>
+          <div className="dialog__actions">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const headers = ["No. Penjualan", "Waktu", "Shift", "Kasir", "Metode", "Total (Rp)"];
+                const rows = report.sales.map((s) => [
+                  s.saleNo,
+                  formatTime(s.committedAtMs),
+                  `#${s.shiftId}`,
+                  s.cashierUsername ?? "Kasir tidak diketahui",
+                  s.method === "CASH" ? "Tunai" : "QRIS manual",
+                  s.amountRp,
+                ]);
+                triggerFileDownload("laporan-penjualan-harian.csv", buildCsv(headers, rows), "text/csv;charset=utf-8");
+              }}
+            >
+              Ekspor CSV
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const headers = ["No. Penjualan", "Waktu", "Shift", "Kasir", "Metode", "Total (Rp)"];
+                const rows = report.sales.map((s) => [
+                  s.saleNo,
+                  formatTime(s.committedAtMs),
+                  `#${s.shiftId}`,
+                  s.cashierUsername ?? "Kasir tidak diketahui",
+                  s.method === "CASH" ? "Tunai" : "QRIS manual",
+                  s.amountRp,
+                ]);
+                triggerFileDownload("laporan-penjualan-harian.xls", buildExcelHtml("Laporan Penjualan Harian", headers, rows), "application/vnd.ms-excel;charset=utf-8");
+              }}
+            >
+              Ekspor Excel
+            </Button>
           </div>
           <h3 className="section-title">Rincian penjualan</h3>
           {report.salesTruncated && (

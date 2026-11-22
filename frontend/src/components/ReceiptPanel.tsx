@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../api/errors";
 import type { PosDataSource, PrintResult, ReceiptView } from "../api/types";
+import { buildDemoTaxInvoiceText } from "../domain/iposFeatures";
 import { Button } from "./Button";
 import { MoneyText } from "./MoneyText";
 
@@ -23,6 +24,7 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
   const [printResult, setPrintResult] = useState<PrintResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copyNote, setCopyNote] = useState<string | null>(null);
+  const [showTaxInvoice, setShowTaxInvoice] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
 
   const text = view?.text ?? printResult?.text ?? "";
@@ -140,7 +142,21 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
         <Button variant="secondary" disabled={isBusy || text.length === 0} onClick={copyText}>
           Salin teks (fallback manual)
         </Button>
+        {view && (
+          <Button variant="secondary" disabled={isBusy} onClick={() => setShowTaxInvoice((prev) => !prev)}>
+            {showTaxInvoice ? "Tutup faktur pajak" : "Faktur Pajak (Simulasi DEMO)"}
+          </Button>
+        )}
       </div>
+      {showTaxInvoice && view && (
+        <pre className="receipt-panel__text" data-testid="tax-invoice-text">
+          {buildDemoTaxInvoiceText({
+            saleNo: view.receipt.saleNo,
+            committedAtMs: view.receipt.committedAtMs,
+            totalRp: view.receipt.totalRp,
+          })}
+        </pre>
+      )}
     </section>
   );
 }

@@ -59,7 +59,7 @@ export function StockAdjustmentPage({ dataSource, currentUser, onSessionExpired 
     try { localStorage.setItem(storageKey, JSON.stringify(attempt)); setPending(attempt); void submit(attempt); }
     catch { setMessage("Catatan koreksi tidak dapat disimpan. Permintaan tidak dikirim."); }
   }
-  return <section className="panel"><h1>Koreksi Stok</h1>{dataSource.authMode === "DEMO" && <p>DEMO — koreksi tidak tersimpan.</p>}<p>Masukkan target stok absolut dan alasan koreksi.</p>
+  return <section className="panel adjustment-form"><h1>Koreksi Stok</h1>{dataSource.authMode === "DEMO" && <p>DEMO — koreksi tidak tersimpan.</p>}<p>Masukkan target stok absolut dan alasan koreksi.</p>
     <label htmlFor="adjust-product">Produk</label><select id="adjust-product" value={selected} disabled={busy || !!pending} onChange={e => setSelected(e.target.value)}><option value="">Pilih produk</option>{products.map(item => <option value={item.productId} key={item.productId}>{item.sku} — {item.name}</option>)}</select>
     {product && <p>Stok sekarang: {product.onHand}</p>}
     <label htmlFor="adjust-target">Target stok</label><input id="adjust-target" className="input" inputMode="numeric" value={target} disabled={busy || !!pending} onChange={e => setTarget(e.target.value)} />

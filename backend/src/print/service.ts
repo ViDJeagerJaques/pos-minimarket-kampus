@@ -24,6 +24,8 @@ type SaleRow = {
   total_rp: number;
   attempt_key: string;
   cashier_id: number;
+  shift_id: number;
+  cashier_username: string | null;
 };
 
 type ItemRow = {
@@ -84,8 +86,11 @@ export function createPrintService(
 
     const sale = db
       .prepare(
-        `SELECT s.id, s.sale_no, s.committed_at_ms, s.total_rp, s.attempt_key, a.cashier_id
-         FROM sales s JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
+        `SELECT s.id, s.sale_no, s.committed_at_ms, s.total_rp, s.attempt_key,
+                a.cashier_id, a.shift_id, u.username AS cashier_username
+         FROM sales s
+         JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
+         LEFT JOIN users u ON u.id = a.cashier_id
          WHERE s.id = ?`,
       )
       .get(saleId) as SaleRow | undefined;
@@ -132,6 +137,8 @@ export function createPrintService(
       saleNo: String(sale.sale_no),
       committedAtMs: Number(sale.committed_at_ms),
       totalRp: Number(sale.total_rp),
+      shiftId: Number(sale.shift_id),
+      cashierUsername: sale.cashier_username ?? undefined,
       items: items.map((item) => ({
         sku: String(item.sku),
         name: String(item.name),

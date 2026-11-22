@@ -19,6 +19,8 @@ export interface CartLine {
   name: string;
   unitPriceRp: number;
   quantity: number;
+  /** Diskon persentase per baris (0..100, default 0). */
+  discountPct?: number;
   /** Stok dari katalog saat barang dimuat; hanya petunjuk UI, bukan sumber kebenaran. */
   stockHint: number;
 }
@@ -65,7 +67,7 @@ export function setQuantity(lines: CartLine[], productId: number, quantity: numb
   if (!line || !Number.isSafeInteger(quantity) || quantity <= 0) {
     return { ok: false, reason: "INVALID_QUANTITY", lines };
   }
-  if (quantity > line.stockHint) {
+  if (quantity > line.quantity && quantity > line.stockHint) {
     return { ok: false, reason: "INSUFFICIENT_STOCK", lines };
   }
   return {
@@ -78,8 +80,29 @@ export function removeLine(lines: CartLine[], productId: number): CartLine[] {
   return lines.filter((line) => line.productId !== productId);
 }
 
+export function setDiscountPct(lines: CartLine[], productId: number, discountPct: number): CartLine[] {
+  const clamped = Number.isFinite(discountPct) ? Math.max(0, Math.min(100, Math.round(discountPct))) : 0;
+  return lines.map((line) => (line.productId === productId ? { ...line, discountPct: clamped } : line));
+}
+
+export function lineDiscountRp(line: CartLine): number {
+  const gross = multiplyRp(line.unitPriceRp, line.quantity);
+  if (gross === null) {
+    return 0;
+  }
+  const pct = line.discountPct ?? 0;
+  if (pct <= 0) {
+    return 0;
+  }
+  return Math.round((gross * Math.min(100, Math.max(0, pct))) / 100);
+}
+
 export function lineTotalRp(line: CartLine): number | null {
-  return multiplyRp(line.unitPriceRp, line.quantity);
+  const gross = multiplyRp(line.unitPriceRp, line.quantity);
+  if (gross === null) {
+    return null;
+  }
+  return gross - lineDiscountRp(line);
 }
 
 /** Total draft; null jika ada baris yang tidak bisa dihitung dengan aman. */

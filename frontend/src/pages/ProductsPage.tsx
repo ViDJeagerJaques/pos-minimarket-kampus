@@ -11,6 +11,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MoneyText } from "../components/MoneyText";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
+import { buildPriceTags, buildPriceTagsPrintHtml } from "../domain/priceTags";
 
 interface ProductsPageProps {
   dataSource: PosDataSource;
@@ -95,6 +96,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
   const [newBarcodes, setNewBarcodes] = useState("");
   const [categoryName, setCategoryName] = useState("");
   const [supplierName, setSupplierName] = useState("");
+  const [tagCategoryId, setTagCategoryId] = useState<string>("all");
 
   const submitLockRef = useRef(false);
   const listSeqRef = useRef(0);
@@ -738,6 +740,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
           </Button>
         </div>
       )}
+
       {!loadError && products === null && <p className="muted">Memuat katalog…</p>}
       {!loadError && products !== null && products.length === 0 && (
         <p className="muted">Belum ada produk yang cocok.</p>
@@ -820,6 +823,59 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
             </tbody>
           </table>
         </div>
+      )}
+
+      {products && products.length > 0 && (
+        <section className="panel" aria-label="Tag harga otomatis" style={{ marginTop: "20px" }}>
+          <h2 className="section-title">Tag Harga Otomatis (Ide 2)</h2>
+          <p className="muted">
+            Cetak atau simpan PDF tag harga rak dari database (layout header toko, nama produk, harga, barcode EAN-13, dan slogan).
+          </p>
+          <div className="report-toolbar">
+            <label htmlFor="tag-category-filter" className="field-label">Batch tag harga</label>
+            <select
+              id="tag-category-filter"
+              className="input"
+              value={tagCategoryId}
+              onChange={(event) => setTagCategoryId(event.target.value)}
+            >
+              <option value="all">Semua produk aktif</option>
+              {(categories ?? []).map((cat) => (
+                <option key={cat.id} value={String(cat.id)}>{cat.name}</option>
+              ))}
+            </select>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
+                const tags = buildPriceTags(products, selectedCategory);
+                if (tags.length === 0) {
+                  setStatus({ tone: "warning", text: "Tidak ada produk aktif pada batch tag harga yang dipilih." });
+                  return;
+                }
+                const html = buildPriceTagsPrintHtml(tags);
+                const win = window.open("", "_blank", "width=900,height=700");
+                if (win) {
+                  win.document.write(html);
+                  win.document.close();
+                  win.focus();
+                  win.print();
+                } else {
+                  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const anchor = document.createElement("a");
+                  anchor.href = url;
+                  anchor.download = "tag-harga.html";
+                  anchor.click();
+                  URL.revokeObjectURL(url);
+                }
+                setStatus({ tone: "success", text: `Tag harga disiapkan untuk ${tags.length} produk.` });
+              }}
+            >
+              Cetak / PDF Tag Harga ({buildPriceTags(products, tagCategoryId === "all" ? null : Number(tagCategoryId)).length})
+            </Button>
+          </div>
+        </section>
       )}
 
       {confirmation?.kind === "create-product" && (
