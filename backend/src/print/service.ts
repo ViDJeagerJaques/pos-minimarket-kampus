@@ -158,7 +158,10 @@ export function createPrintService(
       if (actor.role !== "ADMIN" && actor.role !== "CASHIER") throw new ForbiddenError("Akses transaksi ditolak.");
       const rows = db.prepare(`SELECT s.id, s.sale_no, s.committed_at_ms, s.total_rp, p.method_code
         FROM sales s JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
-        JOIN payments p ON p.sale_id = s.id
+        JOIN payments p ON p.id = (
+          SELECT first_payment.id FROM payments first_payment
+          WHERE first_payment.sale_id = s.id ORDER BY first_payment.id ASC LIMIT 1
+        )
         WHERE (? = 'ADMIN' OR a.cashier_id = ?)
         ORDER BY s.committed_at_ms DESC, s.id DESC LIMIT 20`).all(actor.role, actor.userId);
       return rows.map(row => ({ saleId: Number(row.id), saleNo: String(row.sale_no), committedAtMs: Number(row.committed_at_ms), totalRp: Number(row.total_rp), method: asPaymentMethod(String(row.method_code)) }));
