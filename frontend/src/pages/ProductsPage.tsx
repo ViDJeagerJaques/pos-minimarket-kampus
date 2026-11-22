@@ -77,6 +77,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
   const [allActiveProducts, setAllActiveProducts] = useState<CatalogProduct[] | null>(null);
+  const [tagLoadError, setTagLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -126,6 +127,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     const seq = ++listSeqRef.current;
     setIsLoading(true);
     setAllActiveProducts(null);
+    setTagLoadError(null);
     Promise.all([
       dataSource.listCategories(),
       dataSource.listSuppliers(),
@@ -141,7 +143,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         setSuppliers(supplierRows);
         const sortedRows = sortProducts(productRows);
         setProducts(sortedRows);
-        {
+        setLoadError(null);
+        setNewCategoryId((previous) =>
+          previous === "" && categoryRows[0] ? String(categoryRows[0].id) : previous,
+        );
+        try {
           if (appliedQuery === "" && productRows.length < MAX_PRODUCTS) {
             setAllActiveProducts(sortedRows.filter((item) => item.active));
           } else {
@@ -160,11 +166,16 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
             }
             setAllActiveProducts(sortProducts(collected));
           }
+          setTagLoadError(null);
+        } catch (error: unknown) {
+          if (!isActive || seq !== listSeqRef.current) return;
+          if (error instanceof ApiError && error.isSessionExpired) {
+            onSessionExpired();
+            return;
+          }
+          setAllActiveProducts(null);
+          setTagLoadError(error instanceof ApiError ? error.message : "Batch tag harga gagal dimuat.");
         }
-        setLoadError(null);
-        setNewCategoryId((previous) =>
-          previous === "" && categoryRows[0] ? String(categoryRows[0].id) : previous,
-        );
       })
       .catch((error: unknown) => {
         if (!isActive || seq !== listSeqRef.current) return;
@@ -853,7 +864,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         </div>
       )}
 
-      {((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0)) && (() => {
+      {((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0) || tagLoadError !== null) && (() => {
         const tagSource = allActiveProducts ?? [];
         const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
         const batchTags = buildPriceTags(tagSource, selectedCategory);
@@ -863,6 +874,9 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
           <p className="muted">
             Cetak atau simpan PDF tag harga rak dari database (layout header toko, nama produk, harga, barcode EAN-13, dan slogan).
           </p>
+          {tagLoadError && (
+            <p className="field-error" role="alert">{tagLoadError}</p>
+          )}
           <div className="report-toolbar">
             <label htmlFor="tag-category-filter" className="field-label">Batch tag harga</label>
             <select

@@ -31,6 +31,41 @@ function hasDemoSeedRun(db: DatabaseSync): boolean {
   return Boolean(run);
 }
 
+function countRealUsers(db: DatabaseSync): number {
+  const seededDemo = hasDemoSeedRun(db);
+  const existing = db
+    .prepare(
+      seededDemo
+        ? `SELECT COUNT(*) AS total FROM users
+           WHERE NOT (
+             (id = 1 AND username = 'demo.admin' AND role = 'ADMIN')
+             OR (id = 2 AND username = 'demo.kasir.pagi' AND role = 'CASHIER')
+             OR (id = 3 AND username = 'demo.kasir.sore' AND role = 'CASHIER')
+           )`
+        : "SELECT COUNT(*) AS total FROM users",
+    )
+    .get() as { total: number };
+  return Number(existing.total);
+}
+
+export function needsFirstAdminSetup(db: DatabaseSync): boolean {
+  const table = db
+    .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+    .get() as { found: number } | undefined;
+  if (!table) {
+    return false;
+  }
+  if (countRealUsers(db) > 0) {
+    return false;
+  }
+  const usable = db
+    .prepare(
+      "SELECT EXISTS(SELECT 1 FROM users WHERE active = 1 AND password_hash != 'DEMO_LOCKED_NO_LOGIN') AS has_usable",
+    )
+    .get() as { has_usable: number } | undefined;
+  return Number(usable?.has_usable ?? 0) === 0;
+}
+
 /**
  * Membuat akun ADMIN pertama secara atomik hanya ketika belum ada akun asli.
  * Dipakai bersama oleh CLI `bootstrap-admin` dan endpoint setup awal `POST /auth/bootstrap-admin`.
@@ -49,22 +84,7 @@ export function bootstrapFirstAdmin(
     if (!table) {
       throw new Error("Tabel users tidak tersedia.");
     }
-    const seededDemo = hasDemoSeedRun(db);
-    const existing = db
-      .prepare(
-        seededDemo
-          ? `SELECT COUNT(*) AS total FROM users
-             WHERE NOT (
-               (id = 1 AND username = 'demo.admin' AND role = 'ADMIN')
-               OR (id = 2 AND username = 'demo.kasir.pagi' AND role = 'CASHIER')
-               OR (id = 3 AND username = 'demo.kasir.sore' AND role = 'CASHIER')
-             )`
-          : "SELECT COUNT(*) AS total FROM users",
-      )
-      .get() as {
-      total: number;
-    };
-    if (Number(existing.total) > 0) {
+    if (countRealUsers(db) > 0) {
       throw new ConflictError(
         "Bootstrap ADMIN hanya berlaku saat belum ada akun asli. Buat akun tambahan lewat endpoint ADMIN.",
         "username",

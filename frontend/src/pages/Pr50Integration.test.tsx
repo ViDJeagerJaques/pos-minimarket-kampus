@@ -451,9 +451,28 @@ describe("PR 50 UI integration", () => {
       supplierIds: [],
       stockOnHand: 5,
     }));
-    const listCatalogProducts = vi.fn(async (query?: { offset?: number; includeInactive?: boolean }) => {
+    const extra6 = [
+      ...extra5,
+      {
+        id: 106,
+        categoryId: 1,
+        categoryName: "Minuman",
+        sku: "SKU-106",
+        name: "Produk Baru 106",
+        priceRp: 2500,
+        active: true,
+        barcodes: ["899000000106"],
+        supplierIds: [],
+        stockOnHand: 5,
+      },
+    ];
+    let searchTriggered = false;
+    const listCatalogProducts = vi.fn(async (query?: { offset?: number; includeInactive?: boolean; query?: string }) => {
+      if (query?.query) {
+        searchTriggered = true;
+      }
       if (query?.includeInactive === false && (query.offset ?? 0) === 100) {
-        return extra5;
+        return searchTriggered ? extra6 : extra5;
       }
       return first100;
     });
@@ -513,7 +532,13 @@ describe("PR 50 UI integration", () => {
     await user.type(screen.getByLabelText("Cari produk"), "Produk 1");
     await user.click(screen.getByRole("button", { name: /^Cari$/ }));
     await waitFor(() => expect(listCatalogProducts).toHaveBeenCalledWith({ includeInactive: false, limit: 100, offset: 100 }));
-    expect(await screen.findByRole("button", { name: /Cetak \/ PDF Tag Harga \(105\)/ })).toBeTruthy();
+    const refreshedTagBtn = await screen.findByRole("button", { name: /Cetak \/ PDF Tag Harga \(106\)/ });
+    const printDoc = { write: vi.fn(), close: vi.fn() };
+    const printWin = { document: printDoc, focus: vi.fn(), print: vi.fn() };
+    const openPrintSpy = vi.spyOn(window, "open").mockReturnValue(printWin as unknown as Window);
+    await user.click(refreshedTagBtn);
+    expect(printDoc.write).toHaveBeenCalledWith(expect.stringContaining("Produk Baru 106"));
+    openPrintSpy.mockRestore();
     expect(document.querySelector(".table-actions .btn")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Lihat struk/ }));
@@ -522,5 +547,153 @@ describe("PR 50 UI integration", () => {
     await screen.findByRole("option", { name: /SKU-001/ });
     await user.selectOptions(screen.getByLabelText("Produk"), "1");
     expect(await screen.findByText("Stok sekarang: 12")).toBeTruthy();
+  });
+
+  it("BUG-167, BUG-169, BUG-172: layar pelanggan sukses pakai total committed, gagal tag harga tidak sembunyikan tabel, dan next recovery tidak mewarisi customerCode", async () => {
+    localStorage.clear();
+    // BUG-167: promo lokal tidak memotong total yang sudah di-commit backend
+    const user = userEvent.setup();
+    const prepareCheckout = vi.fn(async () => PREPARE_OK);
+    const commitCheckout = vi.fn(async () => ({
+      attemptKey: PREPARE_OK.attemptKey,
+      requestHash: PREPARE_OK.requestHash,
+      status: "COMMITTED" as const,
+      replayed: false,
+      saleId: 501,
+      saleNo: "S-000501",
+      committedAtMs: 1_700_000_000_000,
+      totalRp: 15000,
+      payment: {
+        method: "CASH" as const,
+        amountRp: 15000,
+        cashReceivedRp: 20000,
+        changeRp: 5000,
+        verifiedBy: null,
+        verifiedAtMs: null,
+        evidenceRef: null,
+      },
+    }));
+    const { unmount } = render(
+      <CashierPage
+        dataSource={makeSource({ prepareCheckout, commitCheckout, getSaleReceipt: async () => RECEIPT_VIEW })}
+        lines={SAMPLE_LINES}
+        draftId="draft-1"
+        onDraftConsumed={vi.fn()}
+        onDraftRestore={vi.fn()}
+        onLinesChange={vi.fn()}
+        sessionEpoch={1}
+        cashierId={2}
+        onSessionExpired={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Lanjut pembayaran" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    await user.selectOptions(screen.getByLabelText(/Promo lokal/), "BUY_2_GET_1");
+    await user.click(screen.getByRole("button", { name: "Lanjut pembayaran" }));
+    await user.click(await screen.findByRole("button", { name: "Uang pas" }));
+    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(await screen.findByRole("button", { name: "Layar pelanggan" }));
+    expect(screen.getByRole("region", { name: "Layar pelanggan" }).textContent).toContain("Rp15.000");
+    unmount();
+
+    // BUG-172: openNextRecovery tidak mewarisi customerCode dari record sebelumnya
+    localStorage.clear();
+    localStorage.setItem(
+      "pos.checkout.recovery.2.co_1",
+      JSON.stringify({
+        attempt: { ...PREPARE_OK, attemptKey: "co_1" },
+        cashReceivedRp: 15000,
+        paymentConfirmation: { method: "CASH", cashReceivedRp: 15000 },
+        paymentState: "SUBMITTED",
+        snapshot: SAMPLE_LINES,
+        draftId: "draft-1",
+        customerCode: "MHS_FIRST",
+      }),
+    );
+    localStorage.setItem(
+      "pos.checkout.recovery.2.co_2",
+      JSON.stringify({
+        attempt: { ...PREPARE_OK, attemptKey: "co_2" },
+        cashReceivedRp: 15000,
+        paymentConfirmation: { method: "CASH", cashReceivedRp: 15000 },
+        paymentState: "SUBMITTED",
+        snapshot: SAMPLE_LINES,
+        draftId: "draft-2",
+      }),
+    );
+    const getCheckoutStatus = vi.fn(async (attemptKey: string) => ({
+      attemptKey,
+      requestHash: PREPARE_OK.requestHash,
+      status: "COMMITTED" as const,
+      replayed: true,
+      saleId: attemptKey === "co_1" ? 501 : 502,
+      saleNo: attemptKey === "co_1" ? "S-000501" : "S-000502",
+      committedAtMs: 1_700_000_000_000,
+      totalRp: 15000,
+      payment: {
+        method: "CASH" as const,
+        amountRp: 15000,
+        cashReceivedRp: 15000,
+        changeRp: 0,
+        verifiedBy: null,
+        verifiedAtMs: null,
+        evidenceRef: null,
+      },
+    }));
+    const { unmount: unmount2 } = render(
+      <CashierPage
+        dataSource={makeSource({ getCheckoutStatus, getSaleReceipt: async () => RECEIPT_VIEW })}
+        lines={[]}
+        draftId="draft-3"
+        onDraftConsumed={vi.fn()}
+        onDraftRestore={vi.fn()}
+        onLinesChange={vi.fn()}
+        sessionEpoch={1}
+        cashierId={2}
+        onSessionExpired={vi.fn()}
+      />,
+    );
+    await user.click(await screen.findByRole("button", { name: "Cek status upaya" }));
+    expect(await screen.findByText(/Poin pelanggan MHS_FIRST: \+1 poin/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Transaksi baru" }));
+    await user.click(await screen.findByRole("button", { name: "Cek status upaya" }));
+    await screen.findAllByText(/S-000502/);
+    expect(screen.queryByText(/Poin pelanggan MHS_FIRST/)).toBeNull();
+    unmount2();
+
+    // BUG-169: gagal memuat batch tag harga tidak menyembunyikan tabel katalog
+    const first100 = Array.from({ length: 100 }, (_, i) => ({
+      id: i + 1,
+      categoryId: 1,
+      categoryName: "Minuman",
+      sku: `SKU-${String(i + 1).padStart(3, "0")}`,
+      name: `Produk ${i + 1}`,
+      priceRp: 1000,
+      active: true,
+      barcodes: [],
+      supplierIds: [],
+      stockOnHand: 5,
+    }));
+    const adminUser: SessionUser = { userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" };
+    render(
+      <ProductsPage
+        dataSource={makeSource({
+          listCategories: async () => [{ id: 1, name: "Minuman" }],
+          listSuppliers: async () => [],
+          listCatalogProducts: vi.fn(async (q?: { offset?: number; includeInactive?: boolean }) => {
+            if (q?.includeInactive === false && (q.offset ?? 0) === 100) {
+              throw new ApiError(500, "INTERNAL_ERROR", "Tag harga gagal dimuat.");
+            }
+            return first100;
+          }),
+        })}
+        currentUser={adminUser}
+        onSessionExpired={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText("SKU-001")).toBeTruthy();
+    expect(await screen.findByText("Tag harga gagal dimuat.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Cetak \/ PDF Tag Harga/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

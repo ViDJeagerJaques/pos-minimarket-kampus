@@ -79,15 +79,28 @@ function startBackend() {
     throw new Error(`Migrasi database gagal: ${(migrate.stderr || migrate.stdout || "").slice(0, 300)}`);
   }
   if (config.mode === "DEMO") {
-    const password = randomBytes(12).toString("base64url");
+    let password = randomBytes(12).toString("base64url");
     const credsFile = BENCH ? process.env.POS_INSTALLER_DEMO_CREDS_FILE : "";
     let createdCredsFile = false;
-    if (credsFile && !fs.existsSync(credsFile)) {
-      fs.writeFileSync(credsFile, JSON.stringify({ demoPassword: password }), {
-        encoding: "utf8",
-        flag: "wx",
-      });
-      createdCredsFile = true;
+    if (credsFile) {
+      if (fs.existsSync(credsFile)) {
+        let parsedCreds;
+        try {
+          parsedCreds = JSON.parse(fs.readFileSync(credsFile, "utf8"));
+        } catch {
+          throw new Error("File kredensial DEMO tidak valid; periksa POS_INSTALLER_DEMO_CREDS_FILE.");
+        }
+        if (typeof parsedCreds?.demoPassword !== "string" || parsedCreds.demoPassword.length < 12) {
+          throw new Error("Sandi pada POS_INSTALLER_DEMO_CREDS_FILE tidak valid.");
+        }
+        password = parsedCreds.demoPassword;
+      } else {
+        fs.writeFileSync(credsFile, JSON.stringify({ demoPassword: password }), {
+          encoding: "utf8",
+          flag: "wx",
+        });
+        createdCredsFile = true;
+      }
     }
     const seed = spawnSync(NODE_BIN, [path.join(ROOT, "backend", "db", "src", "cli.ts"), "seed", "--demo", "--json", "--db", dbPath], {
       cwd: path.join(ROOT, "backend"), windowsHide: true, encoding: "utf8",

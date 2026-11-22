@@ -538,3 +538,65 @@ test("BUG-156: bootstrap menolak username demo cadangan dan akun non-seed bernam
     database.cleanup();
   }
 });
+
+test("BUG-166: getBootstrapStatus mengembalikan needsSetup=true bila hanya ada baris seed demo terkunci, dan false bila sudah ada akun usable atau akun asli", async () => {
+  const database = createTempDatabase("pos-bootstrap-status-bug166-");
+  try {
+    migrateFresh(database);
+    const { seedDemo } = await import("../../db/src/seed.ts");
+    seedDemo({ dbPath: database.dbPath, allowDemo: true, env: {} });
+
+    const db = database.open();
+    try {
+      const sessions = createSessionStore(db, {
+        secret: randomBytes(32),
+        ttlMs: 12 * 60 * 60 * 1000,
+      });
+      const auth = createAuthService(db, {
+        sessions,
+        securityLog: createSecurityLogger(),
+      });
+      assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: true });
+      auth.bootstrapAdmin({
+        username: "admin.asli",
+        password: makeRuntimePassword("boot-status"),
+      });
+      assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: false });
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-166: getBootstrapStatus mengembalikan needsSetup=false pada DB DEMO yang di-seed dengan installerPassword agar login langsung tersedia", async () => {
+  const database = createTempDatabase("pos-bootstrap-status-usable-");
+  try {
+    migrateFresh(database);
+    const { seedDemo } = await import("../../db/src/seed.ts");
+    seedDemo({
+      dbPath: database.dbPath,
+      allowDemo: true,
+      installerPassword: makeRuntimePassword("demo-usable"),
+      env: {},
+    });
+
+    const db = database.open();
+    try {
+      const sessions = createSessionStore(db, {
+        secret: randomBytes(32),
+        ttlMs: 12 * 60 * 60 * 1000,
+      });
+      const auth = createAuthService(db, {
+        sessions,
+        securityLog: createSecurityLogger(),
+      });
+      assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: false });
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});

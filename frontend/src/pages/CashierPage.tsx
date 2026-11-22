@@ -31,6 +31,7 @@ import {
   addProduct,
   cartItemCount,
   cartTotalRp,
+  lineTotalRp,
   removeLine,
   setQuantity,
   type AddResult,
@@ -307,6 +308,8 @@ export function CashierPage({
     recoveryKeyRef.current = next.key;
     snapshotLinesRef.current = next.snapshot;
     snapshotDraftIdRef.current = next.draftId;
+    snapshotCustomerCodeRef.current = next.customerCode ?? null;
+    setCustomerCode(next.customerCode ?? "");
     setPriorQrisConfirmation(next.priorQrisConfirmation ?? null);
     setPriorQrisReconciled(next.priorQrisReconciled ?? true);
     setPhase(next.phase);
@@ -666,7 +669,7 @@ export function CashierPage({
     if (snapshotDraftIdRef.current !== null) {
       onDraftConsumed(snapshotDraftIdRef.current, committedLines.map((line) => line.productId));
     }
-    const trimmedCustomer = (snapshotCustomerCodeRef.current ?? customerCode).trim();
+    const trimmedCustomer = (snapshotCustomerCodeRef.current ?? "").trim();
     if (trimmedCustomer) {
       const pts = recordCustomerPoints(trimmedCustomer, result.totalRp);
       setPointsNotice(
@@ -1050,12 +1053,19 @@ export function CashierPage({
   const netPreviewTotalRp = totalRp !== null ? Math.max(0, totalRp - promoDiscountRp) : null;
   const normalizedCustomerCode = customerCode.trim().toUpperCase();
   const currentCustomerPoints = normalizedCustomerCode ? getCustomerPoints(normalizedCustomerCode) : 0;
-  const customerDisplayLines = phase.kind === "success" ? phase.committedLines : lines;
-  const customerDisplayState = buildCustomerDisplayState(
-    customerDisplayLines,
-    promoKind,
-    phase.kind === "success" ? phase.result.payment.changeRp : null,
-  );
+  const customerDisplayState =
+    phase.kind === "success"
+      ? {
+          items: phase.committedLines.map((line) => ({
+            name: line.name,
+            quantity: line.quantity,
+            lineTotalRp: lineTotalRp(line) ?? 0,
+          })),
+          totalRp: phase.result.totalRp,
+          changeRp: phase.result.payment.changeRp,
+          promoLabel: null,
+        }
+      : buildCustomerDisplayState(lines, promoKind, null);
   const customerDisplayHtml = renderCustomerDisplayHtml(customerDisplayState);
 
   useEffect(() => {

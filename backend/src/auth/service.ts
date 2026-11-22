@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { writeAuthAudit } from "./audit.ts";
-import { bootstrapFirstAdmin, hasAnyUser } from "./bootstrap.ts";
+import { bootstrapFirstAdmin, needsFirstAdminSetup } from "./bootstrap.ts";
 import {
   AuthRequiredError,
   ConflictError,
@@ -123,7 +123,7 @@ export function createAuthService(db: DatabaseSync, deps: AuthServiceDeps) {
 
   return {
     getBootstrapStatus(): { needsSetup: boolean } {
-      return { needsSetup: !hasAnyUser(db) };
+      return { needsSetup: needsFirstAdminSetup(db) };
     },
 
     bootstrapAdmin(input: { username?: unknown; password?: unknown }): UserDto {
