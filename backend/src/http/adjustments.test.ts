@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -153,6 +153,15 @@ test("BUG-138 backup HTTP: ADMIN, verifikasi, restore salinan uji, dan tujuan ga
     const list = await call(running.url, "/backups", { token: admin });
     assert.equal((list.json.data as Array<{ name: string; valid: boolean }>)[0].name, name);
     assert.equal((list.json.data as Array<{ valid: boolean }>)[0].valid, true);
+    const backupFile = path.join(env.POS_BACKUP_DIR, name);
+    const original = readFileSync(backupFile);
+    assert.equal((await call(running.url, "/backups", { token: admin })).status, 200);
+    writeFileSync(backupFile, "rusak");
+    const corrupted = await call(running.url, "/backups", { token: admin });
+    assert.equal((corrupted.json.data as Array<{ valid: boolean }>)[0].valid, false);
+    writeFileSync(backupFile, original);
+    const restoredList = await call(running.url, "/backups", { token: admin });
+    assert.equal((restoredList.json.data as Array<{ valid: boolean }>)[0].valid, true);
     assert.equal((await call(running.url, "/backups/restore-test", { token: cashier, payload: { name } })).status, 403);
     const restore = await call(running.url, "/backups/restore-test", { token: admin, payload: { name } });
     assert.equal(restore.status, 200);

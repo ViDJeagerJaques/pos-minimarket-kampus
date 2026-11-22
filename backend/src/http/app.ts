@@ -680,6 +680,7 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   if (options.backupDbPath) {
     const dbPath = options.backupDbPath;
     const env = options.backupEnv ?? process.env;
+    const verificationCache = new Map<string, { size: number; mtimeMs: number; valid: boolean }>();
     function backupPath(name: unknown): string {
       if (typeof name !== "string" || !/^pos_[a-zA-Z0-9_-]+\.sqlite$/.test(name)) throw new ValidationError("Nama cadangan tidak valid.", "name");
       const root = backupRootFor(dbPath, env);
@@ -691,8 +692,18 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
       const root = backupRootFor(dbPath, env);
       if (!existsSync(root)) return { data: [] };
       return { data: readdirSync(root).filter(name => /^pos_[a-zA-Z0-9_-]+\.sqlite$/.test(name)).sort().reverse().map(name => {
-        try { verifyBackup(backupPath(name)); return { name, valid: true, createdAtMs: Math.trunc(statSync(backupPath(name)).mtimeMs) }; }
-        catch { return { name, valid: false, createdAtMs: null }; }
+        try {
+          const file = backupPath(name);
+          const stat = statSync(file);
+          let cached = verificationCache.get(name);
+          if (!cached || cached.size !== stat.size || cached.mtimeMs !== stat.mtimeMs) {
+            let valid = true;
+            try { verifyBackup(file); } catch { valid = false; }
+            cached = { size: stat.size, mtimeMs: stat.mtimeMs, valid };
+            verificationCache.set(name, cached);
+          }
+          return { name, valid: cached.valid, createdAtMs: cached.valid ? Math.trunc(stat.mtimeMs) : null };
+        } catch { verificationCache.delete(name); return { name, valid: false, createdAtMs: null }; }
       }) };
     } });
     routes.push({ method: "POST", pattern: /^\/backups$/, roles: ["ADMIN"], handler: ctx => {

@@ -27,17 +27,29 @@ export function StockAdjustmentPage({ dataSource, currentUser, onSessionExpired 
   const product = products.find(item => item.productId === Number(selected));
   async function load() { const report = await dataSource.getStockReport(); setProducts(report.products); }
   useEffect(() => { let active = true; dataSource.getStockReport().then(report => { if (active) setProducts(report.products); }).catch(error => { if (!active) return; if (error instanceof ApiError && error.isSessionExpired) onSessionExpired(); else setMessage("Gagal memuat stok."); }); return () => { active = false; }; }, [dataSource, onSessionExpired]);
+  function clearAttempt(attempt: AdjustmentInput) {
+    const raw = localStorage.getItem(storageKey);
+    if (raw && (JSON.parse(raw) as { adjustmentKey?: unknown }).adjustmentKey === attempt.adjustmentKey) {
+      localStorage.removeItem(storageKey);
+    }
+    setPending(current => current?.adjustmentKey === attempt.adjustmentKey ? null : current);
+  }
   async function submit(attempt: AdjustmentInput) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setMessage("");
     try {
       const result = await dataSource.adjustStock(attempt);
-      localStorage.removeItem(storageKey); setPending(null);
+      clearAttempt(attempt);
       setMessage(`Koreksi tersimpan. Stok ${result.previousOnHand} menjadi ${result.onHand}.`);
       try { await load(); } catch { setMessage(`Koreksi tersimpan. Stok ${result.previousOnHand} menjadi ${result.onHand}; muat ulang halaman untuk memperbarui daftar.`); }
     } catch (error) {
       if (error instanceof ApiError && error.isSessionExpired) onSessionExpired();
-      else if (error instanceof ApiError && (error.code === "DEMO_UNSUPPORTED" || (error.status >= 400 && error.status < 500))) { localStorage.removeItem(storageKey); setPending(null); setMessage(error.message); }
+      else if (error instanceof ApiError && (error.code === "DEMO_UNSUPPORTED" || (error.status >= 400 && error.status < 500))) {
+        clearAttempt(attempt); setMessage(error.message);
+        if (error.status === 409 && error.code === "CONFLICT") {
+          try { await load(); } catch { setMessage(`${error.message} Gagal memuat stok terbaru; buka ulang halaman sebelum mencoba lagi.`); setProducts([]); }
+        }
+      }
       else setMessage("Hasil belum pasti. Ulangi permintaan yang sama sebelum membuat koreksi baru.");
     } finally { lock.current = false; setBusy(false); }
   }
