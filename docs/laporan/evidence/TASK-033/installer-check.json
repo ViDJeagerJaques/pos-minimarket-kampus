@@ -1,5 +1,5 @@
 {
-  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-qp7dTc",
+  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-zbpZkl",
   "installers": [
     {
       "file": "POS-Minimarket-DEMO-0.1.0-demo-x64-Setup.exe",
@@ -19,6 +19,29 @@
       "check": "fresh DEMO install seeds accounts/data and logs in via packaged renderer",
       "status": "PASS",
       "nodeVersion": "v24.18.0"
+    },
+    {
+      "check": "REAL mode (pos.sqlite) SetupAdminPage + API smoke 8/8 PASS",
+      "status": "PASS"
+    },
+    {
+      "check": "snapshot database + configuration",
+      "status": "PASS",
+      "dbSha256": "8d22e3fae109c29a8f5f99b4f5acac863101ed628f876f0067a54e05a1df201d",
+      "configSha256": "c231160626a7f1ab5b27e14db617174fdfb8e5f5b6601a0e7bf7199f95015250"
+    },
+    {
+      "check": "upgrade keeps transactions, active shift, config; integrity=ok, FK=0",
+      "status": "PASS"
+    },
+    {
+      "check": "controlled installer abort after extraction",
+      "status": "PASS",
+      "exitCode": 42
+    },
+    {
+      "check": "rollback restores database + config on same installation; packaged renderer CASHIER login PASS",
+      "status": "PASS"
     }
   ],
   "limitations": [
