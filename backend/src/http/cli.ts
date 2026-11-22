@@ -136,6 +136,7 @@ async function main(argv: string[]): Promise<number> {
     // DEMO: adapter virtual (pratinjau), bukan printer fisik/ESC-POS.
     const print = createPrintService(db);
     const running = await startHttpServer({
+      backupDbPath: options.dbPath,
       auth,
       sessions,
       securityLog,

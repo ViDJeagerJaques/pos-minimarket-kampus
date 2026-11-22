@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import path from "node:path";
+import { backupRootFor, createBackup, verifyBackup, restoreBackupToTestCopy, InvalidBackupError } from "../backup/service.ts";
 import type { AuthService } from "../auth/service.ts";
 import { AuthError, InvalidCredentialsError, ValidationError } from "../auth/errors.ts";
 import type { Role, SessionStore, SessionUser } from "../auth/session.ts";
@@ -40,6 +43,9 @@ import type { ReceivingService } from "../receiving/service.ts";
  */
 
 export type HttpAppOptions = {
+  backupDbPath?: string;
+  verifyBackupForListing?: typeof verifyBackup;
+  backupEnv?: NodeJS.ProcessEnv;
   auth: AuthService;
   sessions: SessionStore;
   securityLog: SecurityLogger;
@@ -49,7 +55,7 @@ export type HttpAppOptions = {
   shift?: ShiftService;
   /** Service checkout TASK-016; bila tidak diisi, route checkout tidak aktif. */
   checkout?: CheckoutService;
-  /** Service laporan pembayaran TASK-037; ADMIN saja. */
+  /** Laporan pembayaran: ADMIN semua, CASHIER transaksi sendiri. */
   reports?: ReportService;
   /** Service struk/cetak ulang TASK-021; POST hanya CASHIER pemilik sale. */
   print?: PrintService;
@@ -482,7 +488,7 @@ function createReportRoutes(reports: ReportService): Route[] {
     {
       method: "GET",
       pattern: /^\/reports\/payments$/,
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "CASHIER"],
       handler: (ctx) => ({ data: reports.getPaymentReport(ctx.actor as SessionUser) }),
     },
     {
@@ -671,6 +677,51 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
         data: adjustments.adjustStock(ctx.actor as SessionUser, asObject(ctx.body)),
       }),
     });
+  }
+  if (options.backupDbPath) {
+    const dbPath = options.backupDbPath;
+    const env = options.backupEnv ?? process.env;
+    const verificationCache = new Map<string, { size: number; mtimeMs: number; valid: boolean }>();
+    function backupPath(name: unknown): string {
+      if (typeof name !== "string" || !/^pos_[a-zA-Z0-9_-]+\.sqlite$/.test(name)) throw new ValidationError("Nama cadangan tidak valid.", "name");
+      const root = backupRootFor(dbPath, env);
+      const candidate = path.join(root, name);
+      if (!existsSync(candidate) || path.dirname(realpathSync(candidate)) !== realpathSync(root)) throw new ValidationError("Cadangan tidak ditemukan.", "name");
+      return candidate;
+    }
+    routes.push({ method: "GET", pattern: /^\/backups$/, roles: ["ADMIN"], handler: () => {
+      const root = backupRootFor(dbPath, env);
+      if (!existsSync(root)) return { data: [] };
+      return { data: readdirSync(root).filter(name => /^pos_[a-zA-Z0-9_-]+\.sqlite$/.test(name)).sort().reverse().map(name => {
+        try {
+          const file = backupPath(name);
+          const stat = statSync(file);
+          let cached = verificationCache.get(name);
+          if (!cached || cached.size !== stat.size || cached.mtimeMs !== stat.mtimeMs) {
+            try {
+              (options.verifyBackupForListing ?? verifyBackup)(file);
+              cached = { size: stat.size, mtimeMs: stat.mtimeMs, valid: true };
+              verificationCache.set(name, cached);
+            } catch (error) {
+              verificationCache.delete(name);
+              if (!(error instanceof InvalidBackupError)) throw error;
+              cached = { size: stat.size, mtimeMs: stat.mtimeMs, valid: false };
+              verificationCache.set(name, cached);
+            }
+          }
+          return { name, valid: cached.valid, createdAtMs: cached.valid ? Math.trunc(stat.mtimeMs) : null };
+        } catch { verificationCache.delete(name); return { name, valid: false, createdAtMs: null }; }
+      }) };
+    } });
+    routes.push({ method: "POST", pattern: /^\/backups$/, roles: ["ADMIN"], handler: ctx => {
+      try { const report = createBackup({ dbPath, env, actorId: (ctx.actor as SessionUser).userId }); return { data: { name: report.fileName, valid: true, createdAtMs: report.createdAtMs } }; }
+      catch { throw new ValidationError("Cadangan gagal dibuat. Periksa tujuan dan izin penulisan.", "backup"); }
+    } });
+    routes.push({ method: "POST", pattern: /^\/backups\/restore-test$/, roles: ["ADMIN"], handler: ctx => {
+      const input = asObject(ctx.body);
+      try { const result = restoreBackupToTestCopy({ backupPath: backupPath(input.name), env }); return { data: { destinationPath: result.destinationPath } }; }
+      catch { throw new ValidationError("Pemulihan salinan uji gagal. Periksa cadangan dan tujuan.", "backup"); }
+    } });
   }
   if (options.receiving) {
     routes.push(...createReceivingRoutes(options.receiving));

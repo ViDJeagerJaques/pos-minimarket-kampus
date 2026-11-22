@@ -141,3 +141,10 @@ Ledger ADJUSTMENT, identitas retry, dan audit INVENTORY_ADJUSTED commit/rollback
 GET /sales/recent memerlukan sesi aktif. CASHIER hanya menerima penjualan miliknya berdasarkan checkout_attempts.cashier_id; ADMIN boleh membaca semua, mengikuti izin baca struk. Respons data berupa array maksimal 20 item: saleId, saleNo, committedAtMs, totalRp, method (CASH atau QRIS_MANUAL). Urutan committedAtMs DESC, id DESC. Daftar kosong menghasilkan []. Endpoint hanya membaca data dan tidak menyediakan pagination.
 
 Field sale pada laporan stok adalah jumlah terjual non-negatif. Saldo dihitung opening + receipt - sale + adjustment; delta pada riwayat mutasi SALE tetap negatif.
+
+
+## Koreksi, cadangan, dan QRIS kasir (BUG-137/138/139)
+
+- POST /inventory/adjustments tetap ADMIN dan menerima adjustmentKey, productId, expectedOnHand, targetOnHand dan reason. targetOnHand adalah saldo absolut. Retry dengan key dan payload yang sama mengembalikan hasil tersimpan.
+- GET /backups dan POST /backups hanya ADMIN; daftar hanya file di root backup yang dikonfigurasi dan hasil verifikasi. POST /backups/restore-test menerima {name} dari daftar dan membuat salinan uji pada root restore-test. Restore operasional tidak tersedia. Kegagalan tujuan dikembalikan sebagai error yang dapat ditampilkan.
+- GET /reports/payments: ADMIN melihat seluruh data; CASHIER hanya transaksi miliknya, berdasarkan checkout_attempts.cashier_id. Pembatasan berlaku untuk agregat dan rincian.

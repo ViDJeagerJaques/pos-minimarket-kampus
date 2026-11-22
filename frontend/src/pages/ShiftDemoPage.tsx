@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "../api/errors";
-import type { PosDataSource, SessionUser, ShiftClosePreview, ShiftClosing, ShiftSummary } from "../api/types";
+import type { PaymentReport, PosDataSource, SessionUser, ShiftClosePreview, ShiftClosing, ShiftSummary } from "../api/types";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MoneyText } from "../components/MoneyText";
@@ -14,6 +14,8 @@ interface Props {
 }
 
 export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPendingChange }: Props) {
+  const [paymentReport, setPaymentReport] = useState<PaymentReport | null>(null);
+  const [paymentError, setPaymentError] = useState("");
   const [shift, setShift] = useState<ShiftSummary | null>(null);
   const [preview, setPreview] = useState<ShiftClosePreview | null>(null);
   const [pending, setPending] = useState<PendingShiftClose | null>(null);
@@ -89,6 +91,17 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataSource, currentUser.userId, owner]);
 
+  useEffect(() => {
+    if (currentUser.role !== "CASHIER") return;
+    let active = true;
+    dataSource.getPaymentReport().then(report => { if (active) setPaymentReport(report); }).catch(error => {
+      if (!active) return;
+      if (error instanceof ApiError && error.isSessionExpired) onSessionExpired();
+      else setPaymentError("Rincian QRIS tidak dapat dimuat.");
+    });
+    return () => { active = false; };
+  }, [dataSource, currentUser.userId, currentUser.role, onSessionExpired]);
+
   async function checkStatus() {
     if (!pending || lock.current) return;
     lock.current = true; setBusy(true);
@@ -141,6 +154,16 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     </div>}
     {closing && <div><h2>Penutupan tersimpan</h2><p>Shift #{closing.shiftId} · CASH <MoneyText amountRp={closing.totals.cashRp} /> · QRIS <MoneyText amountRp={closing.totals.qrisManualRp} /></p>
       <p>Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih {closing.varianceRp === null ? "tidak dicatat" : <MoneyText amountRp={closing.varianceRp} />}</p></div>}
+    {currentUser.role === "CASHIER" && <section aria-label="Rincian QRIS terverifikasi">
+      <h2>Rincian QRIS terverifikasi</h2>
+      {dataSource.authMode === "DEMO" && <p>DEMO — data sintetis.</p>}
+      {paymentError && <p role="alert">{paymentError}</p>}
+      {paymentReport && <><p>Total QRIS: <MoneyText amountRp={paymentReport.qrisManual.totalRp} /> · {paymentReport.qrisManual.verifiedCount} terverifikasi</p>
+        {paymentReport.qrisSales.length < paymentReport.qrisManual.verifiedCount && <p>Menampilkan {paymentReport.qrisSales.length} dari {paymentReport.qrisManual.verifiedCount} transaksi terverifikasi.</p>}
+        {paymentReport.qrisSales.length === 0 ? <p>Belum ada transaksi QRIS terverifikasi.</p> : <div className="table-wrap"><table className="table" aria-label="Rincian QRIS terverifikasi"><thead><tr><th>No. penjualan</th><th>Waktu</th><th>Kasir verifikasi</th><th>Referensi bukti</th><th>Status</th><th>Total</th></tr></thead><tbody>
+        {paymentReport.qrisSales.map(sale => <tr key={sale.saleId}><td>{sale.saleNo}</td><td>{new Date(sale.verifiedAtMs).toLocaleString("id-ID")}</td><td>{sale.cashierUsername ?? `#${sale.verifiedBy}`}</td><td>{sale.evidenceRef ?? "—"}</td><td>Terverifikasi</td><td><MoneyText amountRp={sale.totalRp} /></td></tr>)}
+        </tbody></table></div>}</>}
+    </section>}
     {confirming && <ConfirmDialog title="Konfirmasi tutup shift" message="Tutup shift milik Anda dengan uang yang dihitung? Hasil akhir mengikuti transaksi tersimpan." confirmLabel="Ya, tutup shift" onCancel={() => setConfirming(false)} onConfirm={start} />}
   </section>;
 }

@@ -356,6 +356,10 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
 
     async getRecentSales() { return []; },
 
+    async adjustStock() { throw new ApiError(0, "DEMO_UNSUPPORTED", "Mode DEMO tidak menyimpan koreksi stok."); },
+    async listBackups() { return []; },
+    async createBackup() { throw new ApiError(0, "DEMO_UNSUPPORTED", "Mode DEMO tidak membuat cadangan."); },
+    async restoreBackupTest() { throw new ApiError(0, "DEMO_UNSUPPORTED", "Mode DEMO tidak memulihkan cadangan."); },
     async getSaleReceipt() {
       callLog.push({ operation: "getSaleReceipt", isMutation: false });
       await delay();

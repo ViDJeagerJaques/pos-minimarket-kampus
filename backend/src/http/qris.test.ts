@@ -69,6 +69,7 @@ test("TASK-037 HTTP QRIS: verifikasi manual, audit sesi, retry identik, laporan 
   const adminActor = { userId: 1, username: "admin.fixture", role: "ADMIN" as const };
   auth.createUser(adminActor, { username: "admin.qris", password: ADMIN_PASS, role: "ADMIN" });
   auth.createUser(adminActor, { username: "kasir.qris", password: CASHIER_PASS, role: "CASHIER" });
+  auth.createUser(adminActor, { username: "kasir.lain.qris", password: CASHIER_PASS, role: "CASHIER" });
 
       const running = await startHttpServer({
         auth,
@@ -90,6 +91,7 @@ test("TASK-037 HTTP QRIS: verifikasi manual, audit sesi, retry identik, laporan 
     }
     const adminToken = await login("admin.qris", ADMIN_PASS);
     const cashierToken = await login("kasir.qris", CASHIER_PASS);
+    const otherToken = await login("kasir.lain.qris", CASHIER_PASS);
     const cashierRow = db.prepare("SELECT id FROM users WHERE username = ?").get("kasir.qris") as { id: number };
     const cashierId = Number(cashierRow.id);
 
@@ -184,9 +186,11 @@ test("TASK-037 HTTP QRIS: verifikasi manual, audit sesi, retry identik, laporan 
     assert.equal(count(db, "payments"), 1);
     assert.equal(count(db, "inventory_movements"), 2);
 
-    // Laporan: QRIS dan CASH dipisah; ADMIN saja.
-    const denied = await call(running.url, "/reports/payments", { token: cashierToken });
-    assert.equal(denied.status, 403);
+    // Kasir dapat membaca laporan miliknya, ADMIN dapat membaca seluruhnya.
+    const ownReport = await call(running.url, "/reports/payments", { token: cashierToken });
+    assert.equal(ownReport.status, 200);
+    assert.equal(dataOf(ownReport).qrisManual.totalRp, 2500);
+    assert.equal(dataOf(ownReport).qrisSales[0].saleId, committed.saleId);
     const report = await call(running.url, "/reports/payments", { token: adminToken });
     assert.equal(report.status, 200);
     assert.equal(dataOf(report).qrisManual.totalRp, 2500);
@@ -195,6 +199,24 @@ test("TASK-037 HTTP QRIS: verifikasi manual, audit sesi, retry identik, laporan 
     assert.equal(dataOf(report).cash.totalRp, 0);
     assert.equal(dataOf(report).cash.count, 0);
     assert.equal(dataOf(report).qrisSales[0].cashierUsername, "kasir.qris");
+
+    const otherId = Number((db.prepare("SELECT id FROM users WHERE username = ?").get("kasir.lain.qris") as { id: number }).id);
+    db.prepare("INSERT INTO shifts (id, cashier_id, opened_at_ms, closed_at_ms, opening_cash_rp) VALUES (999, ?, ?, ?, 0)").run(otherId, FIXED_NOW - 100, FIXED_NOW - 50);
+    db.prepare("INSERT INTO checkout_attempts (attempt_key, shift_id, cashier_id, request_hash, prepared_at_ms) VALUES ('other-qris', 999, ?, zeroblob(32), ?)").run(otherId, FIXED_NOW - 100);
+    db.prepare("INSERT INTO sales (id, sale_no, attempt_key, committed_at_ms, total_rp) VALUES (999, 'S-OTHER', 'other-qris', ?, 7000)").run(FIXED_NOW - 60);
+    db.prepare("INSERT INTO payments (sale_id, method_code, amount_rp, verified_by, verified_at_ms) VALUES (999, 'QRIS_MANUAL', 7000, ?, ?)").run(otherId, FIXED_NOW - 60);
+    const ownerView = dataOf(await call(running.url, "/reports/payments", { token: cashierToken }));
+    const otherView = dataOf(await call(running.url, "/reports/payments", { token: otherToken }));
+    const adminView = dataOf(await call(running.url, "/reports/payments", { token: adminToken }));
+    assert.equal(ownerView.qrisManual.totalRp, 2500);
+    assert.deepEqual(ownerView.qrisSales.map((row: { saleId: number }) => row.saleId), [committed.saleId]);
+    assert.equal(otherView.qrisManual.totalRp, 7000);
+    assert.deepEqual(otherView.qrisSales.map((row: { saleId: number }) => row.saleId), [999]);
+    assert.equal(adminView.qrisManual.totalRp, 9500);
+    db.prepare("DELETE FROM payments WHERE sale_id = 999").run();
+    db.prepare("DELETE FROM sales WHERE id = 999").run();
+    db.prepare("DELETE FROM checkout_attempts WHERE attempt_key = 'other-qris'").run();
+    db.prepare("DELETE FROM shifts WHERE id = 999").run();
 
     // Checkout CASH masuk laporan kas, bukan QRIS.
     const cashAttempt = `cash-${randomBytes(6).toString("hex")}`;
