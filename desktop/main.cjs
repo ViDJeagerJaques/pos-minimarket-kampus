@@ -80,21 +80,27 @@ function startBackend() {
   }
   if (config.mode === "DEMO") {
     const password = randomBytes(12).toString("base64url");
+    const credsFile = BENCH ? process.env.POS_INSTALLER_DEMO_CREDS_FILE : "";
+    let createdCredsFile = false;
+    if (credsFile && !fs.existsSync(credsFile)) {
+      fs.writeFileSync(credsFile, JSON.stringify({ demoPassword: password }), {
+        encoding: "utf8",
+        flag: "wx",
+      });
+      createdCredsFile = true;
+    }
     const seed = spawnSync(NODE_BIN, [path.join(ROOT, "backend", "db", "src", "cli.ts"), "seed", "--demo", "--json", "--db", dbPath], {
       cwd: path.join(ROOT, "backend"), windowsHide: true, encoding: "utf8",
       env: { ...env, POS_INSTALLER_DEMO_PASSWORD: password },
     });
-    if (seed.status !== 0) throw new Error("Seed DEMO gagal; database tidak direset.");
+    if (seed.status !== 0) {
+      if (createdCredsFile) {
+        try { fs.unlinkSync(credsFile); } catch {}
+      }
+      throw new Error("Seed DEMO gagal; database tidak direset.");
+    }
     if (JSON.parse(seed.stdout).seeded) {
-      if (BENCH) {
-        if (process.env.POS_INSTALLER_DEMO_CREDS_FILE) {
-          fs.writeFileSync(
-            process.env.POS_INSTALLER_DEMO_CREDS_FILE,
-            JSON.stringify({ demoPassword: password }),
-            "utf8",
-          );
-        }
-      } else {
+      if (!BENCH) {
         dialog.showMessageBoxSync({
           type: "info",
           title: "Akun DEMO sintetis",
@@ -102,6 +108,8 @@ function startBackend() {
           detail: `Akun: demo.admin, demo.kasir.pagi, demo.kasir.sore\nSandi: ${password}\nSandi tidak disimpan sebagai teks. Ganti sandi lewat menu Akun bila diperlukan.`,
         });
       }
+    } else if (createdCredsFile) {
+      try { fs.unlinkSync(credsFile); } catch {}
     }
   }
 

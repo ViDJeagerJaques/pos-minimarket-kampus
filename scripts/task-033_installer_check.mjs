@@ -137,9 +137,10 @@ try {
   const demoLoginCredsPath = path.join(root, "demo-login-creds.json");
   writeFileSync(demoLoginCredsPath, JSON.stringify({ cashierUser: "demo.admin", cashierPass: demoPassword }));
   let base = await start(
-    { POS_INSTALLER_RENDERER_TEST: "1", POS_SPIKE_CREDS_FILE: demoLoginCredsPath },
+    { POS_INSTALLER_RENDERER_TEST: "1", POS_SPIKE_CREDS_FILE: demoLoginCredsPath, POS_INSTALLER_DEMO_CREDS_FILE: demoCredsPath },
     "POS_SPIKE renderer_login=PASS",
   );
+  assert.equal(JSON.parse(readFileSync(demoCredsPath, "utf8")).demoPassword, demoPassword, "Sandi DEMO yang sudah ter-seed harus dipertahankan");
   log("fresh DEMO install seeds accounts/data and logs in via packaged renderer", { nodeVersion: run(node, ["--version"]).trim() });
   await stop();
 

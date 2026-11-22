@@ -504,3 +504,37 @@ test("BUG-004: bootstrap-admin berjalan pada DB berisi katalog/akun demo dan men
     database.cleanup();
   }
 });
+
+test("BUG-156: bootstrap menolak username demo cadangan dan akun non-seed bernama demo memblokir bootstrap kedua", () => {
+  const database = createTempDatabase("pos-bootstrap-bug156-");
+  try {
+    migrateFresh(database);
+    const db = database.open();
+    try {
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "demo.admin",
+            password: makeRuntimePassword("boot-reserved"),
+          }),
+        /dicadangkan/,
+      );
+      // Simulasikan akun asli yang kebetulan bernama demo.admin tanpa demo_seed_runs.
+      db.prepare(
+        "INSERT INTO users (id, username, password_hash, role, active, created_at_ms) VALUES (1, 'demo.admin', 'hash', 'ADMIN', 1, 1000)",
+      ).run();
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.kedua",
+            password: makeRuntimePassword("boot-second"),
+          }),
+        /belum ada akun asli/,
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});

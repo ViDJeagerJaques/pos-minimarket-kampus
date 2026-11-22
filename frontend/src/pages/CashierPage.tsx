@@ -86,7 +86,7 @@ type CheckoutPhase =
       replacementReason?: string;
     }
   | { kind: "priceChanged"; attempt: PrepareCheckoutResult; previousTotalRp: number }
-  | { kind: "success"; result: CommitCheckoutResult };
+  | { kind: "success"; result: CommitCheckoutResult; committedLines: CartLine[] };
 
 const MSG_NOT_FOUND = "Barang tidak ditemukan. Periksa barcode atau cari nama barang.";
 const MSG_NO_STOCK = "Stok tidak cukup untuk jumlah ini.";
@@ -148,6 +148,7 @@ export function CashierPage({
   function readRecovery(excludeKey?: string): {
     phase: CheckoutPhase; key: string | null; snapshot: CartLine[]; draftId: string | null;
     priorQrisConfirmation?: PaymentConfirmation | null; priorQrisReconciled?: boolean;
+    customerCode?: string | null;
   } {
     try {
       const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
@@ -201,6 +202,9 @@ export function CashierPage({
                 evidenceRef: original.evidenceRef,
               }
             : null;
+        const savedCustomerCode = typeof saved.customerCode === "string" && saved.customerCode.trim()
+          ? saved.customerCode.trim()
+          : null;
         // Rekaman pengganti yang belum dikirim kembali ke form pembayaran,
         // bukan ke dialog "status belum diketahui".
         if (saved.paymentState === "UNSUBMITTED") {
@@ -209,12 +213,13 @@ export function CashierPage({
             key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null,
             priorQrisConfirmation,
             priorQrisReconciled: false,
+            customerCode: savedCustomerCode,
           };
         }
         const noReplay = saved.noReplay === true;
         const replacementReason = noReplay && typeof saved.replacementReason === "string"
           ? saved.replacementReason : undefined;
-        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp, paymentConfirmation, noReplay, replacementReason }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null };
+        return { phase: { kind: "timeout", attempt: saved.attempt, cashReceivedRp: saved.cashReceivedRp, paymentConfirmation, noReplay, replacementReason }, key, snapshot, draftId: typeof saved.draftId === "string" ? saved.draftId : null, customerCode: savedCustomerCode };
       }
       return { phase: { kind: "recoveryError" }, key, snapshot: [], draftId: null };
     } catch {
@@ -242,11 +247,13 @@ export function CashierPage({
   );
   const [priorQrisAttempt, setPriorQrisAttempt] = useState<PrepareCheckoutResult | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
-  const [customerCode, setCustomerCode] = useState("");
+  const [customerCode, setCustomerCode] = useState(initialRecovery.customerCode ?? "");
   const [pointsNotice, setPointsNotice] = useState<string | null>(null);
   const [promoKind, setPromoKind] = useState<PromoKind>("NONE");
   const [showCustomerDisplay, setShowCustomerDisplay] = useState(false);
 
+  const cashierRef = useRef<HTMLDivElement>(null);
+  const customerDisplayPopupRef = useRef<Window | null>(null);
   const barcodeRef = useRef<HTMLInputElement>(null);
   const cashInputRef = useRef<HTMLInputElement>(null);
   const isConfirmingCancelRef = useRef(false);
@@ -261,6 +268,7 @@ export function CashierPage({
   /** Garis draft yang benar-benar dikirim pada prepare; dipakai saat membersihkan draft. */
   const snapshotLinesRef = useRef<CartLine[]>(initialRecovery.snapshot);
   const snapshotDraftIdRef = useRef<string | null>(initialRecovery.draftId);
+  const snapshotCustomerCodeRef = useRef<string | null>(initialRecovery.customerCode ?? null);
   const cashInputId = useId();
   const openingCashId = useId();
   const customerCodeId = useId();
@@ -566,6 +574,7 @@ export function CashierPage({
     // Snapshot garis yang dikirim ke backend; commit hanya boleh menghapus ini.
     snapshotLinesRef.current = lines;
     snapshotDraftIdRef.current = draftId;
+    snapshotCustomerCodeRef.current = customerCode.trim() || null;
     setPhase({ kind: "preparing" });
     try {
       // attemptKey baru dibuat sekali per niat; retry memakai kunci yang sama.
@@ -646,17 +655,18 @@ export function CashierPage({
     } catch {
       setStorageWarning("Rekaman pemulihan tidak dapat dihapus. Catatan tetap tersimpan dan dapat muncul kembali setelah halaman dibuka ulang.");
     }
+    const committedLines = snapshotLinesRef.current.length > 0 ? snapshotLinesRef.current : lines;
     recoveryEpochRef.current += 1;
-    setPhase({ kind: "success", result });
+    setPhase({ kind: "success", result, committedLines });
     setPriorQrisConfirmation(null);
     setPriorQrisReconciled(false);
     setPriorQrisAttempt(null);
     // Draft dibersihkan HANYA setelah backend mengonfirmasi COMMITTED, dan hanya
     // garis yang masuk snapshot prepare. Baris lain tidak ikut terhapus.
     if (snapshotDraftIdRef.current !== null) {
-      onDraftConsumed(snapshotDraftIdRef.current, snapshotLinesRef.current.map((line) => line.productId));
+      onDraftConsumed(snapshotDraftIdRef.current, committedLines.map((line) => line.productId));
     }
-    const trimmedCustomer = customerCode.trim();
+    const trimmedCustomer = (snapshotCustomerCodeRef.current ?? customerCode).trim();
     if (trimmedCustomer) {
       const pts = recordCustomerPoints(trimmedCustomer, result.totalRp);
       setPointsNotice(
@@ -665,6 +675,7 @@ export function CashierPage({
     } else {
       setPointsNotice(null);
     }
+    snapshotCustomerCodeRef.current = null;
     snapshotLinesRef.current = [];
     barcodeSeqRef.current += 1;
     setStatus({ tone: "success", text: `Transaksi ${result.saleNo} tersimpan di backend.` });
@@ -747,6 +758,7 @@ export function CashierPage({
             paymentConfirmation.method === "QRIS_MANUAL" ? paymentConfirmation : null,
           snapshot: snapshotLinesRef.current,
           draftId: snapshotDraftIdRef.current,
+          customerCode: snapshotCustomerCodeRef.current,
         }),
       );
       recoveryKeyRef.current = key;
@@ -905,7 +917,7 @@ export function CashierPage({
           originalQrisConfirmation: parsed.originalQrisConfirmation,
         };
       }
-      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, paymentConfirmation, paymentState: "SUBMITTED", ...link, snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current }));
+      localStorage.setItem(key, JSON.stringify({ attempt, cashReceivedRp, paymentConfirmation, paymentState: "SUBMITTED", ...link, snapshot: snapshotLinesRef.current, draftId: snapshotDraftIdRef.current, customerCode: snapshotCustomerCodeRef.current }));
       // Quote baru sudah terlindungi sebelum rekaman lama dihapus.
       if (recoveryKeyRef.current && recoveryKeyRef.current !== key) removeRecovery();
       recoveryKeyRef.current = key;
@@ -1038,11 +1050,25 @@ export function CashierPage({
   const netPreviewTotalRp = totalRp !== null ? Math.max(0, totalRp - promoDiscountRp) : null;
   const normalizedCustomerCode = customerCode.trim().toUpperCase();
   const currentCustomerPoints = normalizedCustomerCode ? getCustomerPoints(normalizedCustomerCode) : 0;
+  const customerDisplayLines = phase.kind === "success" ? phase.committedLines : lines;
   const customerDisplayState = buildCustomerDisplayState(
-    lines,
+    customerDisplayLines,
     promoKind,
     phase.kind === "success" ? phase.result.payment.changeRp : null,
   );
+  const customerDisplayHtml = renderCustomerDisplayHtml(customerDisplayState);
+
+  useEffect(() => {
+    const popup = customerDisplayPopupRef.current;
+    if (!popup) return;
+    if (popup.closed) {
+      customerDisplayPopupRef.current = null;
+      return;
+    }
+    popup.document.open();
+    popup.document.write(customerDisplayHtml);
+    popup.document.close();
+  }, [customerDisplayHtml]);
   const itemCount = cartItemCount(lines);
   const isCartEmpty = lines.length === 0;
   const cashValue = parseRupiahInput(cashInput);
@@ -1080,8 +1106,14 @@ export function CashierPage({
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
-      if (event.key === "F2" && phase.kind === "idle") { event.preventDefault(); barcodeRef.current?.focus(); }
-      if (event.key === "F9" && phase.kind === "idle") { event.preventDefault(); void startCheckout(); }
+      const root = cashierRef.current;
+      if (!root) return;
+      if (event.target instanceof Node && event.target !== document.body && !root.contains(event.target)) {
+        return;
+      }
+      const dialogOpen = isConfirmingCancel || isConfirmingCancelRef.current || root.querySelector('[role="dialog"]') !== null;
+      if (event.key === "F2" && phase.kind === "idle" && !dialogOpen) { event.preventDefault(); barcodeRef.current?.focus(); }
+      if (event.key === "F9" && phase.kind === "idle" && !dialogOpen) { event.preventDefault(); void startCheckout(); }
       if (event.key === "Escape" && phase.kind === "payment") { event.preventDefault(); closePayment(); }
       if (event.key === "Enter" && phase.kind === "payment" && event.target === cashInputRef.current && canCommitPayment) { event.preventDefault(); void confirmCommit(); }
     };
@@ -1090,7 +1122,7 @@ export function CashierPage({
   });
 
   return (
-    <div className="cashier">
+    <div className="cashier" ref={cashierRef}>
       <p className="muted">F2 Cari/scan · F9 Bayar · Esc Kembali dari pembayaran · Enter Konfirmasi nominal</p>
       <section className="cashier__work panel" aria-label="Scan dan keranjang">
         <div className="shift-panel" aria-label="Shift kasir">
@@ -1173,7 +1205,7 @@ export function CashierPage({
           >
             <option value="NONE">Tanpa promo</option>
             <option value="BUY_2_GET_1">Beli 2 gratis 1 (item termurah)</option>
-            <option value="TEBUS_MURAH">Tebus murah (hemat Rp5.000 min. Rp50.000)</option>
+            <option value="TEBUS_MURAH">Tebus murah (hemat Rp2.000 min. Rp50.000)</option>
           </select>
           <label className="field-label" htmlFor={customerCodeId}>Kode pelanggan / poin (opsional)</label>
           <input
@@ -1261,9 +1293,10 @@ export function CashierPage({
                 variant="secondary"
                 onClick={() => {
                   const popup = window.open("", "pos-customer-display", "width=480,height=640");
-                  if (popup) {
+                  customerDisplayPopupRef.current = popup;
+                  if (popup && !popup.closed) {
                     popup.document.open();
-                    popup.document.write(renderCustomerDisplayHtml(customerDisplayState));
+                    popup.document.write(customerDisplayHtml);
                     popup.document.close();
                   }
                 }}

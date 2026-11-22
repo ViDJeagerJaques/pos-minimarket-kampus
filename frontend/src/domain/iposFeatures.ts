@@ -154,7 +154,9 @@ export function renderCustomerDisplayHtml(state: CustomerDisplayState): string {
 }
 
 function escapeCsvCell(value: string | number | null | undefined): string {
-  const text = value === null || value === undefined ? "" : String(value);
+  const raw = value === null || value === undefined ? "" : String(value);
+  const text =
+    typeof value === "string" && /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   if (/[",\n\r]/.test(text)) {
     return `"${text.replaceAll('"', '""')}"`;
   }

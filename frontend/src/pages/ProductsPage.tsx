@@ -76,6 +76,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
   const [categories, setCategories] = useState<CategorySummary[] | null>(null);
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
+  const [allActiveProducts, setAllActiveProducts] = useState<CatalogProduct[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -133,11 +134,32 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         limit: MAX_PRODUCTS,
       }),
     ])
-      .then(([categoryRows, supplierRows, productRows]) => {
+      .then(async ([categoryRows, supplierRows, productRows]) => {
         if (!isActive || seq !== listSeqRef.current) return;
         setCategories(categoryRows);
         setSuppliers(supplierRows);
-        setProducts(sortProducts(productRows));
+        const sortedRows = sortProducts(productRows);
+        setProducts(sortedRows);
+        if (appliedQuery === "") {
+          if (productRows.length < MAX_PRODUCTS) {
+            setAllActiveProducts(sortedRows.filter((item) => item.active));
+          } else {
+            const collected: CatalogProduct[] = [];
+            let offset = 0;
+            while (true) {
+              const page = await dataSource.listCatalogProducts({
+                includeInactive: false,
+                limit: MAX_PRODUCTS,
+                offset,
+              });
+              if (!isActive || seq !== listSeqRef.current) return;
+              collected.push(...page);
+              if (page.length < MAX_PRODUCTS) break;
+              offset += MAX_PRODUCTS;
+            }
+            setAllActiveProducts(sortProducts(collected));
+          }
+        }
         setLoadError(null);
         setNewCategoryId((previous) =>
           previous === "" && categoryRows[0] ? String(categoryRows[0].id) : previous,
@@ -170,6 +192,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         ? previous
         : sortProducts(previous.map((item) => (item.id === updated.id ? updated : item))),
     );
+    setAllActiveProducts((previous) => {
+      if (previous === null) return previous;
+      const without = previous.filter((item) => item.id !== updated.id);
+      return updated.active ? sortProducts([...without, updated]) : without;
+    });
     setEdit((previous) =>
       previous !== null && previous.product.id === updated.id
         ? { ...previous, product: updated }
@@ -825,7 +852,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         </div>
       )}
 
-      {products && products.length > 0 && (
+      {((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0)) && (() => {
+        const tagSource = allActiveProducts ?? products ?? [];
+        const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
+        const batchTags = buildPriceTags(tagSource, selectedCategory);
+        return (
         <section className="panel" aria-label="Tag harga otomatis" style={{ marginTop: "20px" }}>
           <h2 className="section-title">Tag Harga Otomatis (Ide 2)</h2>
           <p className="muted">
@@ -847,13 +878,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
             <Button
               variant="secondary"
               onClick={() => {
-                const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
-                const tags = buildPriceTags(products, selectedCategory);
-                if (tags.length === 0) {
+                if (batchTags.length === 0) {
                   setStatus({ tone: "warning", text: "Tidak ada produk aktif pada batch tag harga yang dipilih." });
                   return;
                 }
-                const html = buildPriceTagsPrintHtml(tags);
+                const html = buildPriceTagsPrintHtml(batchTags);
                 const win = window.open("", "_blank", "width=900,height=700");
                 if (win) {
                   win.document.write(html);
@@ -869,14 +898,15 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
                   anchor.click();
                   URL.revokeObjectURL(url);
                 }
-                setStatus({ tone: "success", text: `Tag harga disiapkan untuk ${tags.length} produk.` });
+                setStatus({ tone: "success", text: `Tag harga disiapkan untuk ${batchTags.length} produk.` });
               }}
             >
-              Cetak / PDF Tag Harga ({buildPriceTags(products, tagCategoryId === "all" ? null : Number(tagCategoryId)).length})
+              Cetak / PDF Tag Harga ({batchTags.length})
             </Button>
           </div>
         </section>
-      )}
+        );
+      })()}
 
       {confirmation?.kind === "create-product" && (
         <ConfirmDialog

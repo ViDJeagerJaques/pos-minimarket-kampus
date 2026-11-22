@@ -51,6 +51,24 @@ describe("iposFeatures (Ide 3 & Ide 7)", () => {
     expect(csv).toContain("No,Total");
     expect(csv).toContain("S-001,10000");
 
+    const safeCsv = buildCsv(
+      ["Ref", "Selisih"],
+      [
+        ["=1+1", -5000],
+        ["+SUM(A1:A2)", 0],
+        ["-cmd", 10],
+        ["@evil", 20],
+        ["\tcmd", 30],
+        ["\rcmd", 40],
+      ],
+    );
+    expect(safeCsv).toContain("'=1+1,-5000");
+    expect(safeCsv).toContain("'+SUM(A1:A2),0");
+    expect(safeCsv).toContain("'-cmd,10");
+    expect(safeCsv).toContain("'@evil,20");
+    expect(safeCsv).toContain("'\tcmd,30");
+    expect(safeCsv).toContain('"\'\rcmd",40');
+
     const xls = buildExcelHtml("Laporan Uji", ["No", "Total"], [["S-001", 10000]]);
     expect(xls).toContain("<table");
     expect(xls).toContain("Laporan Uji");

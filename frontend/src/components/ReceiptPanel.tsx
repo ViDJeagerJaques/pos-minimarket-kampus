@@ -111,7 +111,8 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
       </p>
       {view && (
         <p className="receipt-panel__summary">
-          <strong>{view.receipt.saleNo}</strong> · <MoneyText amountRp={view.receipt.totalRp} /> ·{" "}
+          <span className="badge badge--ok">Asli</span> · <strong>{view.receipt.saleNo}</strong> ·{" "}
+          <MoneyText amountRp={view.receipt.totalRp} /> ·{" "}
           {view.receipt.payment.method === "CASH" ? "Tunai" : "QRIS manual"}
         </p>
       )}

@@ -60,10 +60,21 @@ export function StockAdjustmentPage({ dataSource, currentUser, onSessionExpired 
     catch { setMessage("Catatan koreksi tidak dapat disimpan. Permintaan tidak dikirim."); }
   }
   return <section className="panel adjustment-form"><h1>Koreksi Stok</h1>{dataSource.authMode === "DEMO" && <p>DEMO — koreksi tidak tersimpan.</p>}<p>Masukkan target stok absolut dan alasan koreksi.</p>
-    <label htmlFor="adjust-product">Produk</label><select id="adjust-product" value={selected} disabled={busy || !!pending} onChange={e => setSelected(e.target.value)}><option value="">Pilih produk</option>{products.map(item => <option value={item.productId} key={item.productId}>{item.sku} — {item.name}</option>)}</select>
-    {product && <p>Stok sekarang: {product.onHand}</p>}
-    <label htmlFor="adjust-target">Target stok</label><input id="adjust-target" className="input" inputMode="numeric" value={target} disabled={busy || !!pending} onChange={e => setTarget(e.target.value)} />
-    <label htmlFor="adjust-reason">Alasan</label><input id="adjust-reason" className="input" value={reason} disabled={busy || !!pending} onChange={e => setReason(e.target.value)} />
+    <div className="adjustment-form__field">
+      <label htmlFor="adjust-product">Produk</label>
+      <div className="adjustment-form__product-row">
+        <select id="adjust-product" value={selected} disabled={busy || !!pending} onChange={e => setSelected(e.target.value)}><option value="">Pilih produk</option>{products.map(item => <option value={item.productId} key={item.productId}>{item.sku} — {item.name}</option>)}</select>
+        {product && <p className="adjustment-form__stock-badge">Stok sekarang: {product.onHand}</p>}
+      </div>
+    </div>
+    <div className="adjustment-form__field">
+      <label htmlFor="adjust-target">Target stok</label>
+      <input id="adjust-target" className="input" inputMode="numeric" value={target} disabled={busy || !!pending} onChange={e => setTarget(e.target.value)} />
+    </div>
+    <div className="adjustment-form__field">
+      <label htmlFor="adjust-reason">Alasan</label>
+      <input id="adjust-reason" className="input" value={reason} disabled={busy || !!pending} onChange={e => setReason(e.target.value)} />
+    </div>
     <button type="button" disabled={busy || !!pending || recovery.blocked || !product || !/^\d+$/.test(target) || !reason.trim()} onClick={start}>Simpan koreksi</button>
     {recovery.blocked && <p role="alert">Catatan koreksi tidak dapat dibaca. Jangan membuat koreksi baru sebelum rekonsiliasi.</p>}
     {pending && <div><p>Upaya {pending.adjustmentKey} belum dipastikan. Produk #{pending.productId}, stok {pending.expectedOnHand} menjadi {pending.targetOnHand}.</p><button type="button" disabled={busy} onClick={() => void submit(pending)}>Ulangi permintaan yang sama</button></div>}

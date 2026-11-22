@@ -224,6 +224,8 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       const limit = Number.isSafeInteger(limitRaw)
         ? Math.min(Math.max(limitRaw, 1), MAX_LIMIT)
         : DEFAULT_LIMIT;
+      const offsetRaw = options.offset ?? 0;
+      const offset = Number.isSafeInteger(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
       const rows = DEMO_PRODUCTS.filter((item) => {
         if (options.includeInactive !== true && !item.active) return false;
         if (barcode.length > 0 && !item.barcodes.includes(barcode)) return false;
@@ -236,7 +238,7 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
         }
         return true;
       });
-      return rows.slice(0, limit).map(toCatalogProduct);
+      return rows.slice(offset, offset + limit).map(toCatalogProduct);
     },
 
     async createProduct(_input: CreateProductInput): Promise<CatalogProduct> {
