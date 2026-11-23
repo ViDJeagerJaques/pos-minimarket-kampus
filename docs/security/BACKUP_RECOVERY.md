@@ -55,9 +55,11 @@ Periksa hasil: `integrity = ok`, `foreignKeyViolations = 0`, `schemaVersion` ses
 Salinan ke media kedua (manual, setelah ada persetujuan):
 ```powershell
 Copy-Item "<file-backup>.sqlite" "E:\POS-Backup\<nama>.sqlite"
-Get-FileHash "E:\POS-Backup\<nama>.sqlite" -Algorithm SHA256
+Copy-Item "<file-backup>.sqlite.json" "E:\POS-Backup\<nama>.sqlite.json"
+$manifest = Get-Content "E:\POS-Backup\<nama>.sqlite.json" | ConvertFrom-Json
+Get-FileHash "E:\POS-Backup\$($manifest.fileName)" -Algorithm SHA256
 ```
-Hash tujuan harus sama dengan manifest. Bila beda atau media gagal, laporkan "cadangan kedua belum ada".
+Hash tujuan harus sama dengan `sha256` pada manifest **yang ikut tersalin ke media kedua**. Bila beda, manifest hilang, atau media gagal, laporkan "cadangan kedua belum ada".
 
 ## 5. Latihan restore di DB uji (boleh dijalankan operator)
 
@@ -68,7 +70,7 @@ node db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
 node db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
 ```
 
-Perintah hanya membuat salinan baru dengan prefix `restored_`. Tidak menimpa DB aktif maupun backup. Periksa: `integrity=ok`, FK 0, `sha256` sama dengan sumber, jumlah baris tiap tabel sama, dan contoh transaksi/stok sesuai titik backup.
+Perintah hanya membuat salinan baru dengan prefix `restored_`. Tidak menimpa DB aktif maupun backup. Periksa: `integrity=ok`, FK 0, `sha256` sama dengan sumber, jumlah baris **hanya untuk 11 tabel yang dihitung backend** (`users`, `products`, `sales`, `sale_items`, `payments`, `shifts`, `checkout_attempts`, `inventory_movements`, `goods_receipts`, `receipt_items`, `audit_log` — `REQUIRED_BACKUP_TABLES` di `backend/src/backup/service.ts`), dan contoh transaksi/stok sesuai titik backup. Tabel lain di skema (mis. `sessions`, `categories`, `shift_closings`, `checkout_attempt_quotes`, `inventory_adjustments`) tidak dibandingkan per baris, tetapi **tercakup oleh kesamaan SHA-256 seluruh file cadangan**.
 
 Bukti latihan nyata ada di `docs/laporan/evidence/TASK-030/`: `qa-source-snapshot.json` dan `qa-restored-snapshot.json` identik (3 sale, 3 item, 3 payment, 2 shift, 10 mutasi, saldo per SKU sama, sale terakhir `S-QA-000203` pada `1762995781000`).
 
@@ -85,16 +87,16 @@ Bukti latihan nyata ada di `docs/laporan/evidence/TASK-030/`: `qa-source-snapsho
 
 ## 7. Upgrade, rollback, dan migrasi
 
-1. Jadwalkan setelah shift ditutup. Catat versi lama/baru dan commit.
-2. Tutup aplikasi. Buat snapshot pra-upgrade terverifikasi (Bagian 4) dan latih restore (Bagian 5).
-3. Jalankan migrasi pada **salinan uji** dulu:
+1. Jadwalkan setelah shift ditutup. Catat versi lama/baru dan commit. **Siapkan/pathkan versi kandidat lebih dulu** (source checkout atau paket uji) sebelum menjalankan langkah apa pun yang memakai perintah `migrate` kandidat; jangan menjalankan `migrate` dari versi lama sebagai "uji migrasi".
+2. Tutup aplikasi. Buat snapshot pra-upgrade terverifikasi (Bagian 4) dan latih restore (Bagian 5). Untuk paket desktop, snapshot juga bisa dibuat dengan `node maintenance.mjs snapshot "<direktori-data-absolut>"` memakai `resources/runtime/node.exe` (khusus mode DEMO).
+3. Dengan **versi kandidat yang sudah dipasang di lingkungan uji**, jalankan migrasi dan verifikasi pada salinan uji:
    ```powershell
    node db/src/cli.ts migrate --db "<salinan>.sqlite"
    node db/src/cli.ts verify --db "<salinan>.sqlite" --json
    ```
-   Untuk paket desktop, snapshot pra-upgrade juga bisa dibuat dengan `node maintenance.mjs snapshot "<direktori-data-absolut>"` memakai `resources/runtime/node.exe` (khusus mode DEMO).
-4. Pasang versi baru tanpa menghapus data. Jalankan migrasi pada data operasional hanya setelah langkah 3 lulus.
-5. Rollback: kembalikan **executable dan database** dari snapshot pra-upgrade. Mengembalikan executable saja tidak membalik migrasi skema. Verifikasi dengan `verify` dan smoke test Bagian 6.
+   Pastikan perintah berasal dari kandidat (cek commit/versi di lingkungan uji).
+4. Pasang kandidat ke lingkungan operasional tanpa menghapus data. Jalankan `migrate` pada data operasional **hanya setelah langkah 3 lulus dengan kandidat yang sama**. Penulis tetap ditutup sampai verifikasi operasional selesai.
+5. Rollback: **ikuti Bagian 6 langkah 2 dan 5** — matikan aplikasi beserta semua penulis, lalu kembalikan executable **dan** database dari snapshot pra-upgrade dengan WAL/SHM diperlakukan sebagai satu set (atomic replace setelah penulis mati, bukan `restore-test`). Mengembalikan executable saja tidak membalik migrasi skema. Simpan file versi gagal, lalu jalankan `verify` dan smoke test Bagian 6.
 6. Bukti latihan: `upgrade-migrate.log`, `rollback-restore.json`, dan `rollback-snapshot.json` di `docs/laporan/evidence/TASK-030/` menunjukkan migrasi tanpa perubahan skema dan hasil rollback identik dengan sumber. **Upgrade dengan migrasi skema baru belum diuji.**
 
 ## 8. Kasus gagal

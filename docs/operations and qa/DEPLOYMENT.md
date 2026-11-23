@@ -72,12 +72,24 @@ node maintenance.mjs snapshot "<direktori-data-absolut>" # paket desktop, mode D
    Untuk paket desktop: `node maintenance.mjs snapshot "<direktori-data-absolut>"` dengan `resources/runtime/node.exe` (mode DEMO).
 4. Latih restore ke salinan uji sebelum menyentuh data operasional:
    ```powershell
+   # Sumber checkout
+   cd backend
    node db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
    node db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
    ```
-5. Uji migrasi pada salinan dulu, lalu pasang versi baru dan jalankan migrasi pada data operasional. Jangan memilih opsi uninstall yang menghapus data.
-6. Titik verifikasi: login offline, akun ADMIN/CASHIER, sale historis, stok/ledger, shift tertutup, cetak ulang struk, dan backup baru berhasil.
-7. **Rollback bila gagal:** tutup aplikasi, kembalikan executable **dan** database dari snapshot pra-upgrade (penggantian file DB manual dengan WAL/SHM konsisten; bukan `restore-test`), lalu jalankan `verify` dan smoke test. Simpan salinan versi gagal untuk investigasi. Hentikan cutover bila verifikasi rollback gagal.
+   Bentuk paket desktop (sudah diverifikasi pada 23 November 2026 dengan salinan layout paket: `resources/runtime/node.exe` v24.18.0 menjalankan `db/src/cli.ts` langsung, `restore-test` dan `verify` exit 0):
+   ```powershell
+   cd "<install>\resources\backend"
+   $env:POS_DATA_DIR = "$env:APPDATA\PosMinimarketKampus-DEMO"
+   $env:POS_BACKUP_DIR = "$env:POS_DATA_DIR\backups"
+   $env:POS_RESTORE_TEST_DIR = "$env:POS_DATA_DIR\restore-test"
+   "<install>\resources\runtime\node.exe" db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
+   "<install>\resources\runtime\node.exe" db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
+   ```
+   `<install>` adalah folder aplikasi terpasang; `node.exe` dan `db/src/cli.ts` ikut dalam `extraResources` (`desktop/package.json`). Jangan menjalankan perintah ini dari folder instalasi utama/ASAR.
+5. Uji migrasi versi kandidat pada salinan dulu (lihat `../security/BACKUP_RECOVERY.md` §7), lalu pasang versi baru dan jalankan migrasi pada data operasional. Jangan memilih opsi uninstall yang menghapus data. **Aplikasi/backend penulis tetap ditutup** sampai langkah 6 selesai; jangan buka kasir untuk "cek cepat".
+6. Titik verifikasi dengan penulis tetap mati: `verify --json`, sale historis, stok/ledger, shift tertutup, dan manifest backup baru. Login/offline, cetak ulang struk, dan smoke test lain yang memulai backend **hanya boleh dilakukan setelah semua pemeriksaan ini lulus**; bila perlu buka aplikasi, lakukan pada salinan uji atau langsung umumkan maintenance berakhir setelah verifikasi lulus.
+7. **Rollback bila gagal:** sebelum mengganti DB, catat apakah ada penjualan yang tercatat setelah snapshot. Karena penulis ditahan pada langkah 5–6, seharusnya tidak ada; jika tetap ada, **jangan langsung mengganti DB** — ekspor daftar `sale_id`/nomor/harga dan eskalasi rekonsiliasi pengelola. Jika tidak ada, ikuti prosedur §6 BACKUP_RECOVERY: tutup aplikasi dan semua penulis, kembalikan executable **dan** database dari snapshot pra-upgrade dengan WAL/SHM sebagai satu set (bukan `restore-test`), lalu jalankan `verify` dan smoke test. Simpan salinan versi gagal untuk investigasi. Hentikan cutover bila verifikasi rollback gagal.
 8. Bukti latihan pada salinan ada di `docs/laporan/evidence/TASK-030/` (`upgrade-migrate.log`, `rollback-restore.json`, `rollback-snapshot.json`). Upgrade dengan migrasi skema baru **belum diuji**.
 
 ## 6. Migrasi dan cutover dari POS lama
