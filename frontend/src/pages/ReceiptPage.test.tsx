@@ -145,3 +145,60 @@ it("BUG-180: menampilkan pesan kosong hari ini dan paginasi slide samping bila t
   expect(await screen.findByText("Halaman 2 dari 2")).toBeTruthy();
   expect(screen.getByRole("button", { name: "S-000120" })).toBeTruthy();
 });
+
+it("BUG-186, BUG-187, BUG-188: batas tengah malam lokal berikutnya, deduplikasi batch, dan manajemen fokus modal", async () => {
+  const user = userEvent.setup();
+  const now = new Date();
+  const nextMidnightMs = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  const lastMsToday = nextMidnightMs - 1;
+  const firstMsTomorrow = nextMidnightMs;
+
+  const batch1 = Array.from({ length: 100 }, (_, i) => ({
+    saleId: 1000 - i,
+    saleNo: `S-${1000 - i}`,
+    committedAtMs: lastMsToday,
+    totalRp: 5000,
+    method: "CASH" as const,
+  }));
+  const batch2 = [
+    batch1[99]!,
+    {
+      saleId: 899,
+      saleNo: "S-899",
+      committedAtMs: lastMsToday,
+      totalRp: 5000,
+      method: "CASH" as const,
+    },
+    {
+      saleId: 898,
+      saleNo: "S-898",
+      committedAtMs: firstMsTomorrow,
+      totalRp: 5000,
+      method: "CASH" as const,
+    },
+  ];
+  const getRecentSales = vi.fn(async (opts?: { offset?: number }) =>
+    (opts?.offset ?? 0) === 0 ? batch1 : batch2,
+  );
+  const getSaleReceipt = vi.fn(async () => VIEW);
+  render(<ReceiptPage dataSource={source({ getRecentSales, getSaleReceipt })} onSessionExpired={vi.fn()} />);
+
+  const opener = await screen.findByRole("button", { name: "S-1000" });
+  expect(screen.queryByRole("button", { name: "S-898" })).toBeNull();
+  expect(screen.getByText("Halaman 1 dari 6")).toBeTruthy();
+
+  opener.focus();
+  await user.click(opener);
+  const dialog = await screen.findByRole("dialog");
+  await screen.findByTestId("receipt-text");
+  expect(dialog.contains(document.activeElement)).toBe(true);
+
+  for (let i = 0; i < 6; i += 1) {
+    await user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  }
+
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(opener);
+});

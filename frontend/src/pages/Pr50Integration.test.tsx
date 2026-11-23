@@ -744,7 +744,7 @@ describe("PR 50 UI integration", () => {
         dataSource={makeSource({
           listCategories: async () => [{ id: 1, name: "Minuman" }],
           listSuppliers: async () => [],
-          listCatalogProducts: async () => products100,
+          listCatalogProducts: async (query) => ((query?.offset ?? 0) >= 100 ? [] : products100),
         })}
         currentUser={adminUser}
         onSessionExpired={vi.fn()}
@@ -761,7 +761,7 @@ describe("PR 50 UI integration", () => {
         dataSource={makeSource({
           listCategories: async () => [{ id: 1, name: "Minuman" }],
           listSuppliers: async () => [],
-          listCatalogProducts: async () => products100,
+          listCatalogProducts: async (query) => ((query?.offset ?? 0) >= 100 ? [] : products100),
         })}
         currentUser={adminUser}
         onSessionExpired={vi.fn()}
@@ -787,5 +787,33 @@ describe("PR 50 UI integration", () => {
     );
     expect(await screen.findByRole("table", { name: "Daftar barang" })).toBeTruthy();
     expect(screen.queryByText(/Menampilkan 100 produk pertama/)).toBeNull();
+  });
+
+  it("BUG-185: loadError dan tombol Coba lagi tetap tampil di view=manage dan bisa memulihkan katalog", async () => {
+    const user = userEvent.setup();
+    const adminUser: SessionUser = { userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" };
+    let fail = true;
+    render(
+      <ProductsPage
+        dataSource={makeSource({
+          listCategories: async () => {
+            if (fail) throw new ApiError(500, "INTERNAL_ERROR", "Katalog gagal dimuat.");
+            return [{ id: 1, name: "Minuman" }];
+          },
+          listSuppliers: async () => [],
+          listCatalogProducts: async () => [],
+        })}
+        currentUser={adminUser}
+        onSessionExpired={vi.fn()}
+        view="manage"
+      />,
+    );
+
+    expect(await screen.findByText("Katalog gagal dimuat.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Simpan produk" }) as HTMLButtonElement).disabled).toBe(true);
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+    expect(await screen.findByRole("option", { name: "Minuman" })).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Daftar barang" })).toBeNull();
   });
 });

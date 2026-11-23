@@ -153,6 +153,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
             setAllActiveProducts(sortedRows.filter((item) => item.active));
           } else {
             const collected: CatalogProduct[] = [];
+            const seenIds = new Set<number>();
             let offset = 0;
             while (true) {
               const page = await dataSource.listCatalogProducts({
@@ -161,8 +162,15 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
                 offset,
               });
               if (!isActive || seq !== listSeqRef.current) return;
-              collected.push(...page);
-              if (page.length < MAX_PRODUCTS) break;
+              let added = 0;
+              for (const item of page) {
+                if (!seenIds.has(item.id)) {
+                  seenIds.add(item.id);
+                  collected.push(item);
+                  added += 1;
+                }
+              }
+              if (page.length < MAX_PRODUCTS || added === 0) break;
               offset += MAX_PRODUCTS;
             }
             setAllActiveProducts(sortProducts(collected));
@@ -629,6 +637,16 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
       )}
 
       {status && <StatusMessage tone={status.tone} text={status.text} />}
+      {loadError && (
+        <div className="account-load-error">
+          <p className="field-error" role="alert">
+            {loadError}
+          </p>
+          <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
+            Coba lagi
+          </Button>
+        </div>
+      )}
 
       {view !== "manage" && (
       <>
@@ -776,17 +794,6 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
           Tampilkan semua
         </Button>
       </form>
-
-      {loadError && (
-        <div className="account-load-error">
-          <p className="field-error" role="alert">
-            {loadError}
-          </p>
-          <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
-            Coba lagi
-          </Button>
-        </div>
-      )}
 
       {!loadError && products === null && <p className="muted">Memuat katalog…</p>}
       {!loadError && products !== null && products.length === 0 && (

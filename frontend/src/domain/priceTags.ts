@@ -140,8 +140,8 @@ export function buildPriceTagsPdfBlob(tags: PriceTag[]): Blob {
     doc.setFont("courier", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(51, 65, 85);
-    doc.text(`Barcode: ${tag.barcode || "-"}`, x + 3, y + 36);
-    doc.text(`SKU: ${tag.sku}`, x + 3, y + 40);
+    doc.text(`Barcode: ${tag.barcode || "-"}`, x + 3, y + 36, { maxWidth: cardW - 6 });
+    doc.text(`SKU: ${tag.sku}`, x + 3, y + 40, { maxWidth: cardW - 6 });
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);

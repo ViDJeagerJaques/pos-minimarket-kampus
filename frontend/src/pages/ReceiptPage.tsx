@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PosDataSource } from "../api/types";
 import { ApiError } from "../api/errors";
 import { Button } from "../components/Button";
@@ -21,8 +21,13 @@ function parseSaleId(raw: string): number | null {
 
 function getTodayRangeMs(): { startMs: number; endMs: number } {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  return { startMs: start, endMs: start + 24 * 60 * 60 * 1000 };
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+  return {
+    startMs: new Date(year, month, day).getTime(),
+    endMs: new Date(year, month, day + 1).getTime(),
+  };
 }
 
 export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) {
@@ -36,6 +41,11 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
   const [page, setPage] = useState(0);
   const [slideDir, setSlideDir] = useState<"next" | "prev">("next");
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
   useEffect(() => {
     let active = true;
     const { startMs, endMs } = getTodayRangeMs();
@@ -46,6 +56,7 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
 
     async function loadToday() {
       const collected: Awaited<ReturnType<PosDataSource["getRecentSales"]>> = [];
+      const seenSaleIds = new Set<number>();
       let offset = 0;
       while (true) {
         const rows = await dataSource.getRecentSales({
@@ -55,10 +66,12 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
           offset,
         });
         if (!active) return;
-        const todayRows = rows.filter(
-          (row) => row.committedAtMs >= startMs && row.committedAtMs < endMs,
-        );
-        collected.push(...todayRows);
+        for (const row of rows) {
+          if (row.committedAtMs >= startMs && row.committedAtMs < endMs && !seenSaleIds.has(row.saleId)) {
+            seenSaleIds.add(row.saleId);
+            collected.push(row);
+          }
+        }
         if (rows.length < FETCH_LIMIT) break;
         offset += FETCH_LIMIT;
       }
@@ -83,16 +96,51 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
   }, [dataSource, onSessionExpired]);
 
   useEffect(() => {
-    if (saleId === null) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSaleId(null);
+    if (saleId !== null) {
+      if (!wasOpenRef.current) {
+        wasOpenRef.current = true;
+        closeBtnRef.current?.focus();
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+      return;
+    }
+    if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      openerRef.current?.focus();
+      openerRef.current = null;
+    }
   }, [saleId]);
+
+  function openReceipt(id: number): void {
+    if (saleId === null && document.activeElement instanceof HTMLElement) {
+      openerRef.current = document.activeElement;
+    }
+    setSaleId(id);
+  }
+
+  function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSaleId(null);
+      return;
+    }
+    if (event.key === "Tab" && dialogRef.current) {
+      const focusables = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -103,7 +151,7 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
       return;
     }
     setMessage(null);
-    setSaleId(parsed);
+    openReceipt(parsed);
   }
 
   const totalPages = Math.max(1, Math.ceil(recent.length / PAGE_SIZE));
@@ -154,9 +202,15 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
               </thead>
               <tbody>
                 {pageItems.map((sale) => (
-                  <tr key={sale.saleId} onClick={() => setSaleId(sale.saleId)}>
+                  <tr key={sale.saleId} onClick={() => openReceipt(sale.saleId)}>
                     <td>
-                      <button type="button" onClick={() => setSaleId(sale.saleId)}>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openReceipt(sale.saleId);
+                        }}
+                      >
                         {sale.saleNo}
                       </button>
                     </td>
@@ -206,10 +260,18 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
 
       {saleId !== null && (
         <div className="dialog-backdrop">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="receipt-modal-title">
+          <div
+            ref={dialogRef}
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-modal-title"
+            onKeyDown={handleDialogKeyDown}
+          >
             <div className="dialog__header">
               <h2 id="receipt-modal-title" className="dialog__title">Struk transaksi</h2>
               <Button
+                ref={closeBtnRef}
                 variant="secondary"
                 className="dialog__close"
                 aria-label="Tutup struk"
