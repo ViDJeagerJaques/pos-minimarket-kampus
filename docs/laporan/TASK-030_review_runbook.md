@@ -72,6 +72,12 @@ Perintah yang benar-benar dijalankan: `node backend/qa/qa_runner.ts reset --db <
 | BUG-202 | `New-Item -ItemType Directory -Force -Path $destinationDir` sebelum `Copy-Item` | `docs/security/BACKUP_RECOVERY.md` | Diuji di PowerShell dengan folder tujuan belum ada: `Copy-Item` sukses setelah folder dibuat |
 | BUG-203 | `$copiedHash` dan `$manifest.sha256` ditampilkan berdampingan + `if (...) { throw }` | `docs/security/BACKUP_RECOVERY.md` | Diuji di PowerShell pada file sintetis: kedua hash tampil sama, `HASH_MATCH=PASS` |
 
+### Ronde 4
+
+| Bug | Perubahan | File | Verifikasi |
+|---|---|---|---|
+| BUG-204 | Kedua `Copy-Item` pada salinan media kedua memakai `-ErrorAction Stop`; teks menjelaskan pemeriksaan hash hanya jalan setelah kedua salinan sukses | `docs/security/BACKUP_RECOVERY.md` | Diuji di PowerShell: `Copy-Item` tanpa `-ErrorAction Stop` lanjut (`LANJUT_JALAN=true`), dengan `-ErrorAction Stop` berhenti (`BERHENTI=true`) |
+
 ## 4. Git
 
 Branch `task/p33-030` dari `origin/master` @ `8048bca`. Commit/PR akan dicantumkan setelah perintah Git dijalankan.

@@ -57,15 +57,15 @@ Salinan ke media kedua (manual, setelah ada persetujuan):
 $destinationDir = "E:\POS-Backup"
 $destination = "$destinationDir\<nama>.sqlite"
 New-Item -ItemType Directory -Force -Path $destinationDir | Out-Null
-Copy-Item "<file-backup>.sqlite" $destination
-Copy-Item "<file-backup>.sqlite.json" "$destination.json"
+Copy-Item "<file-backup>.sqlite" $destination -ErrorAction Stop
+Copy-Item "<file-backup>.sqlite.json" "$destination.json" -ErrorAction Stop
 $manifest = Get-Content "$destination.json" | ConvertFrom-Json
 $copiedHash = (Get-FileHash $destination -Algorithm SHA256).Hash
 Write-Output "manifest.sha256 = $($manifest.sha256)"
 Write-Output "copied.sha256   = $copiedHash"
 if ($copiedHash -ne $manifest.sha256) { throw "Hash cadangan kedua tidak cocok dengan manifest." }
 ```
-Hash file yang benar-benar disalin (`$destination`) ditampilkan berdampingan dengan `$manifest.sha256` dan dibandingkan; bila beda, perintah melempar error. Jangan mengambil nama file dari manifest untuk mencari file di media kedua. Bila manifest hilang, media gagal, atau hash beda, laporkan "cadangan kedua belum ada".
+Kedua `Copy-Item` memakai `-ErrorAction Stop` agar eksekusi berhenti bila sumber hilang atau tujuan gagal ditulis; pemeriksaan manifest/hash hanya berjalan jika kedua salinan berhasil. Hash file yang benar-benar disalin (`$destination`) ditampilkan berdampingan dengan `$manifest.sha256` dan dibandingkan; bila beda, perintah melempar error. Jangan mengambil nama file dari manifest untuk mencari file di media kedua. Bila manifest hilang, media gagal, atau hash beda, laporkan "cadangan kedua belum ada".
 
 ## 5. Latihan restore di DB uji (boleh dijalankan operator)
 
