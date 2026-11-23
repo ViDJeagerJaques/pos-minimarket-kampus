@@ -26,13 +26,15 @@ Tidak ada perubahan kode, skema, API, atau aturan uang/stok. Semua perintah di r
 | Kriteria / ID | Latihan yang dijalankan | Hasil nyata | Keputusan |
 |---|---|---|---|
 | AC-09.01 / BAK-01 | QA fixture TASK-006 di DB uji `pos-qa-task030` → `qa_runner.ts reset --confirm-dev-reset` → `db/src/cli.ts backup --json` | `qa-reset.json`: seeded=true; `qa-backup.json`: `integrity=ok`, FK=0, schema=3, SHA-256 `30f700ee…`, manifest valid | **PASS (DEMO/DB uji)** |
-| AC-09.02 / BAK-03 | `db/src/cli.ts restore-test --backup "pos_2026-11-23T11-14-19-210Z-77ddba26.sqlite" --json` + `verify --json` pada salinan | `qa-source-snapshot.json` = `qa-restored-snapshot.json`: 4 user, 8 produk, 3 sale, 3 item, 3 payment, 2 shift, 10 mutasi, saldo per SKU identik, sale terakhir `S-QA-000203` @ `1762995781000` | **PASS (DB uji terpisah)** |
+| AC-09.02 / BAK-03 | `db/src/cli.ts restore-test --backup "C:\Users\UsEr\AppData\Local\Temp\pos-qa-task030\backups\pos_2026-11-23T11-14-19-210Z-77ddba26.sqlite" --json` + `verify --json` pada salinan | `qa-source-snapshot.json` = `qa-restored-snapshot.json`: 4 user, 8 produk, 3 sale, 3 item, 3 payment, 2 shift, 10 mutasi, saldo per SKU identik, sale terakhir `S-QA-000203` @ `1762995781000` | **PASS (DB uji terpisah)** |
 | AC-09.02 / BAK-04 | File cadangan rusak (bukan SQLite) → `restore-test` | `restore-rusak.log`: `GAGAL: Cadangan gagal integrity_check: file is not a database`, exit 1; hash DB aktif sebelum = sesudah; jumlah salinan uji tetap 1 | **PASS (simulasi)** |
 | AC-10.02 / BAK-06 | Salinan QA → `migrate` → anggap "upgrade" → `restore-test` dari snapshot pra-upgrade | `upgrade-migrate.log`: tidak ada migrasi baru, schema 3; `rollback-restore.json` sukses; `rollback-snapshot.json` = sumber | **PASS Partial** — rollback tersimulasi tanpa migrasi skema baru |
 | AC-09.01 (operator Naazmi) | Naazmi mengikuti runbook tanpa bantuan penulis | **Belum dilakukan.** Saya melakukan self-rehearsal dari runbook; penandatanganan independen Naazmi belum ada | **PENDING / BLOCKED** |
 | BAK-02, BAK-05, BAK-07 | Media dicabut, listrik mati, hilangnya disk | Tidak dijalankan | **PENDING LAPANGAN** |
 
-Perintah yang benar-benar dijalankan: `node backend/qa/qa_runner.ts reset --db <pos-qa-…> --confirm-dev-reset` dengan `POS_DB_PROFILE=development`; `node backend/db/src/cli.ts migrate --no-backup`; `backup --json`; `restore-test --backup "pos_2026-11-23T11-14-19-210Z-77ddba26.sqlite" --json`; `verify --json`; `Get-FileHash` sebelum/sesudah restore-rusak. Output lengkap ada di `docs/laporan/evidence/TASK-030/`.
+Path lengkap pada BAK-03 adalah path historis yang tercatat di `qa-backup.json`; operator menggantinya dengan path cadangan di lingkungannya.
+
+Perintah yang benar-benar dijalankan: `node backend/qa/qa_runner.ts reset --db <pos-qa-…> --confirm-dev-reset` dengan `POS_DB_PROFILE=development`; `node backend/db/src/cli.ts migrate --no-backup`; `backup --json`; `restore-test --backup "C:\Users\UsEr\AppData\Local\Temp\pos-qa-task030\backups\pos_2026-11-23T11-14-19-210Z-77ddba26.sqlite" --json`; `verify --json`; `Get-FileHash` sebelum/sesudah restore-rusak. Output lengkap ada di `docs/laporan/evidence/TASK-030/`.
 
 ## 3. Hal yang belum disetujui / belum dibuktikan
 
@@ -53,6 +55,15 @@ Perintah yang benar-benar dijalankan: `node backend/qa/qa_runner.ts reset --db <
 | BUG-195 | Perbandingan jumlah baris hanya 11 `REQUIRED_BACKUP_TABLES`; SHA-256 mencakup seluruh file | `docs/security/BACKUP_RECOVERY.md` | `backend/src/backup/service.ts` daftar tabel + `sha256File` |
 | BUG-196 | Versi kandidat dipasang/dipathkan dulu; migrasi dijalankan dari kandidat pada salinan uji sebelum data operasional | `docs/security/BACKUP_RECOVERY.md` | Review urutan langkah 1–4 |
 | BUG-197 | Rollback merujuk Bagian 6: matikan aplikasi & penulis, WAL/SHM satu set, lalu verify + smoke test | `docs/security/BACKUP_RECOVERY.md` | Review langkah 5 |
+
+### Ronde 2
+
+| Bug | Perubahan | File | Verifikasi |
+|---|---|---|---|
+| BUG-198 | Perintah BAK-03 memakai path lengkap dari bukti `qa-backup.json` | `docs/laporan/TASK-030_review_runbook.md` | `destinationPath` pada `qa-backup.json` |
+| BUG-199 | Menghapus `cd backend` kedua pada langkah 4; operator tetap di folder `backend` dari langkah 3 | `docs/operations and qa/DEPLOYMENT.md` | Review blok langkah 3–4 |
+| BUG-200 | Perintah paket desktop memakai operator panggil `&` sebelum path `node.exe` yang dikutip | `docs/operations and qa/DEPLOYMENT.md` | Diuji di PowerShell: `& "<path>\node.exe" --version` exit 0 |
+| BUG-201 | Hash media kedua menargetkan `$destination` hasil Copy-Item, bukan `$manifest.fileName` | `docs/security/BACKUP_RECOVERY.md` | Review blok salinan media kedua |
 
 ## 4. Git
 

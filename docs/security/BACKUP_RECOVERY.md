@@ -54,12 +54,13 @@ Periksa hasil: `integrity = ok`, `foreignKeyViolations = 0`, `schemaVersion` ses
 
 Salinan ke media kedua (manual, setelah ada persetujuan):
 ```powershell
-Copy-Item "<file-backup>.sqlite" "E:\POS-Backup\<nama>.sqlite"
-Copy-Item "<file-backup>.sqlite.json" "E:\POS-Backup\<nama>.sqlite.json"
-$manifest = Get-Content "E:\POS-Backup\<nama>.sqlite.json" | ConvertFrom-Json
-Get-FileHash "E:\POS-Backup\$($manifest.fileName)" -Algorithm SHA256
+$destination = "E:\POS-Backup\<nama>.sqlite"
+Copy-Item "<file-backup>.sqlite" $destination
+Copy-Item "<file-backup>.sqlite.json" "$destination.json"
+$manifest = Get-Content "$destination.json" | ConvertFrom-Json
+Get-FileHash $destination -Algorithm SHA256
 ```
-Hash tujuan harus sama dengan `sha256` pada manifest **yang ikut tersalin ke media kedua**. Bila beda, manifest hilang, atau media gagal, laporkan "cadangan kedua belum ada".
+Hash file yang benar-benar disalin (`$destination`) harus sama dengan `sha256` pada manifest **yang ikut tersalin ke media kedua**. Jangan mengambil nama file dari manifest untuk mencari file di media kedua. Bila beda, manifest hilang, atau media gagal, laporkan "cadangan kedua belum ada".
 
 ## 5. Latihan restore di DB uji (boleh dijalankan operator)
 

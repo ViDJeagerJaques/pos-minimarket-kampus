@@ -72,8 +72,7 @@ node maintenance.mjs snapshot "<direktori-data-absolut>" # paket desktop, mode D
    Untuk paket desktop: `node maintenance.mjs snapshot "<direktori-data-absolut>"` dengan `resources/runtime/node.exe` (mode DEMO).
 4. Latih restore ke salinan uji sebelum menyentuh data operasional:
    ```powershell
-   # Sumber checkout
-   cd backend
+   # Sumber checkout (masih di folder backend dari langkah 3)
    node db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
    node db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
    ```
@@ -83,8 +82,8 @@ node maintenance.mjs snapshot "<direktori-data-absolut>" # paket desktop, mode D
    $env:POS_DATA_DIR = "$env:APPDATA\PosMinimarketKampus-DEMO"
    $env:POS_BACKUP_DIR = "$env:POS_DATA_DIR\backups"
    $env:POS_RESTORE_TEST_DIR = "$env:POS_DATA_DIR\restore-test"
-   "<install>\resources\runtime\node.exe" db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
-   "<install>\resources\runtime\node.exe" db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
+   & "<install>\resources\runtime\node.exe" db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
+   & "<install>\resources\runtime\node.exe" db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
    ```
    `<install>` adalah folder aplikasi terpasang; `node.exe` dan `db/src/cli.ts` ikut dalam `extraResources` (`desktop/package.json`). Jangan menjalankan perintah ini dari folder instalasi utama/ASAR.
 5. Uji migrasi versi kandidat pada salinan dulu (lihat `../security/BACKUP_RECOVERY.md` §7), lalu pasang versi baru dan jalankan migrasi pada data operasional. Jangan memilih opsi uninstall yang menghapus data. **Aplikasi/backend penulis tetap ditutup** sampai langkah 6 selesai; jangan buka kasir untuk "cek cepat".
