@@ -1,3 +1,4 @@
+import { jsPDF } from "jspdf";
 import type { CatalogProduct } from "../api/types";
 import { formatRupiah } from "./money";
 
@@ -93,4 +94,60 @@ ${cards}
 </div>
 </body>
 </html>`;
+}
+
+export function buildPriceTagsPdfBlob(tags: PriceTag[]): Blob {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const marginX = 10;
+  const marginY = 10;
+  const gapX = 5;
+  const gapY = 5;
+  const cols = 3;
+  const rows = 5;
+  const perPage = cols * rows;
+  const cardW = (210 - marginX * 2 - gapX * (cols - 1)) / cols;
+  const cardH = (297 - marginY * 2 - gapY * (rows - 1)) / rows;
+
+  tags.forEach((tag, index) => {
+    if (index > 0 && index % perPage === 0) {
+      doc.addPage();
+    }
+    const slot = index % perPage;
+    const col = slot % cols;
+    const row = Math.floor(slot / cols);
+    const x = marginX + col * (cardW + gapX);
+    const y = marginY + row * (cardH + gapY);
+
+    doc.setDrawColor(17, 24, 39);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(x, y, cardW, cardH, 2, 2);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(17, 24, 39);
+    doc.text(tag.storeName.toUpperCase(), x + 3, y + 6);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(x + 3, y + 8, x + cardW - 3, y + 8);
+
+    doc.setFontSize(9.5);
+    const nameLines = doc.splitTextToSize(tag.name, cardW - 6) as string[];
+    doc.text(nameLines.slice(0, 2), x + 3, y + 13);
+
+    doc.setFontSize(16);
+    doc.setTextColor(15, 81, 50);
+    doc.text(tag.formattedPrice, x + 3, y + 29);
+
+    doc.setFont("courier", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`Barcode: ${tag.barcode || "-"}`, x + 3, y + 36);
+    doc.text(`SKU: ${tag.sku}`, x + 3, y + 40);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(71, 85, 105);
+    doc.text(tag.slogan, x + 3, y + cardH - 3, { maxWidth: cardW - 6 });
+  });
+
+  return doc.output("blob");
 }

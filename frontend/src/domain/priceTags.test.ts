@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogProduct } from "../api/types";
-import { buildPriceTags, buildPriceTagsPrintHtml } from "./priceTags";
+import { buildPriceTags, buildPriceTagsPdfBlob, buildPriceTagsPrintHtml } from "./priceTags";
 
 const PRODUCTS: CatalogProduct[] = [
   {
@@ -65,5 +65,16 @@ describe("priceTags (Ide 2)", () => {
     expect(html).toContain("Rp3.500");
     expect(html).toContain("8992753184200");
     expect(html).toContain("Belanja praktis untuk kebutuhan kampus");
+  });
+
+  it("BUG-182: menghasilkan Blob PDF asli yang memuat header %PDF dan tag produk terpilih", async () => {
+    const blob = buildPriceTagsPdfBlob(buildPriceTags(PRODUCTS, null));
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("application/pdf");
+    const buffer = await blob.arrayBuffer();
+    const text = new TextDecoder("latin1").decode(buffer);
+    expect(text.startsWith("%PDF-")).toBe(true);
+    expect(text).toContain("Air Mineral 600ml");
+    expect(text).toContain("Rp3.500");
   });
 });

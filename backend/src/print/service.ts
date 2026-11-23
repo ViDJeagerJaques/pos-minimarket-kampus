@@ -10,7 +10,10 @@ import type { PrintResult, PrinterAdapter, Receipt, ReceiptView } from "./types.
 export type RecentSale = { saleId: number; saleNo: string; committedAtMs: number; totalRp: number; method: CheckoutPaymentMethod };
 
 export type PrintService = {
-  getRecentSales(actor: SessionUser): RecentSale[];
+  getRecentSales(
+    actor: SessionUser,
+    options?: { startMs?: number; endMs?: number; limit?: number; offset?: number },
+  ): RecentSale[];
   /** Membaca struk dari sale COMMITTED (ADMIN boleh membaca, tidak boleh mencetak). */
   getReceipt(actor: SessionUser, saleId: unknown): ReceiptView;
   /** Mencetak/cetak ulang. Hanya CASHIER pemilik sale. Tidak menulis DB. */
@@ -160,9 +163,30 @@ export function createPrintService(
   }
 
   return {
-    getRecentSales(actor) {
+    getRecentSales(actor, options = {}) {
       assertActiveActor(actor);
       if (actor.role !== "ADMIN" && actor.role !== "CASHIER") throw new ForbiddenError("Akses transaksi ditolak.");
+      const rawLimit = options.limit;
+      const limit = rawLimit === undefined ? 20 : rawLimit;
+      if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 100) {
+        throw new PrintValidationError("limit tidak valid.");
+      }
+      const rawOffset = options.offset;
+      const offset = rawOffset === undefined ? 0 : rawOffset;
+      if (!Number.isSafeInteger(offset) || offset < 0) {
+        throw new PrintValidationError("offset tidak valid.");
+      }
+      const startMs = options.startMs === undefined ? null : options.startMs;
+      const endMs = options.endMs === undefined ? null : options.endMs;
+      if (startMs !== null && (!Number.isSafeInteger(startMs) || startMs < 0)) {
+        throw new PrintValidationError("startMs tidak valid.");
+      }
+      if (endMs !== null && (!Number.isSafeInteger(endMs) || endMs < 0)) {
+        throw new PrintValidationError("endMs tidak valid.");
+      }
+      if (startMs !== null && endMs !== null && endMs <= startMs) {
+        throw new PrintValidationError("Rentang tanggal tidak valid.");
+      }
       const rows = db.prepare(`SELECT s.id, s.sale_no, s.committed_at_ms, s.total_rp, p.method_code
         FROM sales s JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
         JOIN payments p ON p.id = (
@@ -170,7 +194,18 @@ export function createPrintService(
           WHERE first_payment.sale_id = s.id ORDER BY first_payment.id ASC LIMIT 1
         )
         WHERE (? = 'ADMIN' OR a.cashier_id = ?)
-        ORDER BY s.committed_at_ms DESC, s.id DESC LIMIT 20`).all(actor.role, actor.userId);
+          AND (? IS NULL OR s.committed_at_ms >= ?)
+          AND (? IS NULL OR s.committed_at_ms < ?)
+        ORDER BY s.committed_at_ms DESC, s.id DESC LIMIT ? OFFSET ?`).all(
+          actor.role,
+          actor.userId,
+          startMs,
+          startMs,
+          endMs,
+          endMs,
+          limit,
+          offset,
+        );
       return rows.map(row => ({ saleId: Number(row.id), saleNo: String(row.sale_no), committedAtMs: Number(row.committed_at_ms), totalRp: Number(row.total_rp), method: asPaymentMethod(String(row.method_code)) }));
     },
     getReceipt(actor, saleIdInput) {

@@ -433,7 +433,7 @@ export interface PosDataSource {
   commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult>;
   getCheckoutStatus(attemptKey: string): Promise<CheckoutStatusResult>;
   /** TASK-021: baca struk dari sale tersimpan (reprint tidak membuat sale baru). */
-  getRecentSales(): Promise<Array<{ saleId: number; saleNo: string; committedAtMs: number; totalRp: number; method: "CASH" | "QRIS_MANUAL" }>>;
+  getRecentSales(options?: { startMs?: number; endMs?: number; limit?: number; offset?: number }): Promise<Array<{ saleId: number; saleNo: string; committedAtMs: number; totalRp: number; method: "CASH" | "QRIS_MANUAL" }>>;
   getSaleReceipt(saleId: number): Promise<ReceiptView>;
   printSaleReceipt(saleId: number): Promise<PrintResult>;
   /** Laporan ADMIN: omzet CASH dan QRIS dipisah (TASK-037). */
