@@ -182,4 +182,84 @@ describe("TASK-040 Dashboard ADMIN", () => {
     expect(stock.products[0]?.low).toBe(true);
   });
 
+  it("BUG-179: mengekspor ringkasan penjualan CSV dan Excel dengan nama laporan-penjualan-YYYY-MM-DD", async () => {
+    const blobs: Blob[] = [];
+    const createObjectURL = vi.fn((blob: Blob) => {
+      blobs.push(blob);
+      return "blob:dash-url";
+    });
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const downloads: string[] = [];
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+
+    const api = source();
+    show(api);
+    await loaded();
+    fireEvent.change(screen.getByLabelText("Tanggal penjualan"), { target: { value: "2026-11-17" } });
+    await userEvent.click(screen.getByRole("button", { name: "Perbarui dashboard" }));
+    await loaded();
+
+    await userEvent.click(screen.getByRole("button", { name: "Ekspor CSV" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ekspor Excel" }));
+
+    expect(downloads).toEqual(["laporan-penjualan-2026-11-17.csv", "laporan-penjualan-2026-11-17.xls"]);
+    const csvText = await blobs[0]!.text();
+    expect(csvText).toContain("10000");
+    expect(csvText).toContain("#10");
+    expect(csvText).toContain("#11");
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("BUG-179: tombol ekspor nonaktif saat kosong dan mencatat pembatasan backend saat salesTruncated", async () => {
+    const { unmount } = show(source({
+      getDailyReport: vi.fn(async () => ({
+        ...DAILY,
+        totalRp: 0,
+        saleCount: 0,
+        sales: [],
+        cash: { totalRp: 0, count: 0 },
+        qrisManual: { totalRp: 0, count: 0, verifiedCount: 0 },
+      })),
+    }));
+    await loaded();
+    expect((screen.getByRole("button", { name: "Ekspor CSV" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Ekspor Excel" }) as HTMLButtonElement).disabled).toBe(true);
+    unmount();
+
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn((b: Blob) => { blobs.push(b); return "blob:trunc"; }), revokeObjectURL: vi.fn() });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    show(source({ getDailyReport: vi.fn(async () => ({ ...DAILY, salesTruncated: true })) }));
+    await loaded();
+    await userEvent.click(screen.getByRole("button", { name: "Ekspor CSV" }));
+    expect(await blobs[0]!.text()).toContain("Rincian dibatasi backend");
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("BUG-181: ganti periode Hari, Bulan, Tahun mengubah rentang backend dan judul kartu", async () => {
+    const api = source();
+    show(api);
+    await loaded();
+
+    await userEvent.selectOptions(screen.getByLabelText("Periode"), "month");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Omzet bulan ini" })).toBeTruthy());
+    const now = new Date();
+    expect(api.getDailyReport).toHaveBeenLastCalledWith({
+      startMs: new Date(now.getFullYear(), now.getMonth(), 1).getTime(),
+      endMs: new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime(),
+    });
+
+    await userEvent.selectOptions(screen.getByLabelText("Periode"), "year");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Omzet tahun ini" })).toBeTruthy());
+    expect(api.getDailyReport).toHaveBeenLastCalledWith({
+      startMs: new Date(now.getFullYear(), 0, 1).getTime(),
+      endMs: new Date(now.getFullYear() + 1, 0, 1).getTime(),
+    });
+  });
+
 });
