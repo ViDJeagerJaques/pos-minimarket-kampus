@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ApiError } from "../api/errors";
 import type { PosDataSource, StockReport, StockMovementEntry } from "../api/types";
+import { buildCsv, buildExcelHtml, triggerFileDownload } from "../domain/iposFeatures";
 import { Button } from "./Button";
 
 interface StockReportPanelProps {
@@ -127,6 +128,44 @@ export function StockReportPanel({ dataSource, onSessionExpired }: StockReportPa
               </table>
             </div>
           )}
+          <div className="dialog__actions">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const headers = ["SKU", "Nama", "Stok Awal", "Penerimaan", "Penjualan", "Koreksi", "Saldo"];
+                const rows = report.products.map((p) => [
+                  p.sku,
+                  p.name,
+                  p.opening,
+                  p.receipt,
+                  p.sale,
+                  p.adjustment,
+                  p.onHand,
+                ]);
+                triggerFileDownload("laporan-stok.csv", buildCsv(headers, rows), "text/csv;charset=utf-8");
+              }}
+            >
+              Ekspor CSV
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const headers = ["SKU", "Nama", "Stok Awal", "Penerimaan", "Penjualan", "Koreksi", "Saldo"];
+                const rows = report.products.map((p) => [
+                  p.sku,
+                  p.name,
+                  p.opening,
+                  p.receipt,
+                  p.sale,
+                  p.adjustment,
+                  p.onHand,
+                ]);
+                triggerFileDownload("laporan-stok.xls", buildExcelHtml("Laporan Stok", headers, rows), "application/vnd.ms-excel;charset=utf-8");
+              }}
+            >
+              Ekspor Excel
+            </Button>
+          </div>
           {report.products.map((product) => (
             <details key={product.productId} className="stock-movements">
               <summary>Mutasi {product.sku} — {product.name}</summary>

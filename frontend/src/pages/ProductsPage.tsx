@@ -11,6 +11,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MoneyText } from "../components/MoneyText";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
+import { buildPriceTags, buildPriceTagsPrintHtml } from "../domain/priceTags";
 
 interface ProductsPageProps {
   dataSource: PosDataSource;
@@ -75,6 +76,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
   const [categories, setCategories] = useState<CategorySummary[] | null>(null);
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
+  const [allActiveProducts, setAllActiveProducts] = useState<CatalogProduct[] | null>(null);
+  const [tagLoadError, setTagLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -95,6 +98,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
   const [newBarcodes, setNewBarcodes] = useState("");
   const [categoryName, setCategoryName] = useState("");
   const [supplierName, setSupplierName] = useState("");
+  const [tagCategoryId, setTagCategoryId] = useState<string>("all");
 
   const submitLockRef = useRef(false);
   const listSeqRef = useRef(0);
@@ -122,6 +126,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
     let isActive = true;
     const seq = ++listSeqRef.current;
     setIsLoading(true);
+    setAllActiveProducts(null);
+    setTagLoadError(null);
     Promise.all([
       dataSource.listCategories(),
       dataSource.listSuppliers(),
@@ -131,15 +137,45 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         limit: MAX_PRODUCTS,
       }),
     ])
-      .then(([categoryRows, supplierRows, productRows]) => {
+      .then(async ([categoryRows, supplierRows, productRows]) => {
         if (!isActive || seq !== listSeqRef.current) return;
         setCategories(categoryRows);
         setSuppliers(supplierRows);
-        setProducts(sortProducts(productRows));
+        const sortedRows = sortProducts(productRows);
+        setProducts(sortedRows);
         setLoadError(null);
         setNewCategoryId((previous) =>
           previous === "" && categoryRows[0] ? String(categoryRows[0].id) : previous,
         );
+        try {
+          if (appliedQuery === "" && productRows.length < MAX_PRODUCTS) {
+            setAllActiveProducts(sortedRows.filter((item) => item.active));
+          } else {
+            const collected: CatalogProduct[] = [];
+            let offset = 0;
+            while (true) {
+              const page = await dataSource.listCatalogProducts({
+                includeInactive: false,
+                limit: MAX_PRODUCTS,
+                offset,
+              });
+              if (!isActive || seq !== listSeqRef.current) return;
+              collected.push(...page);
+              if (page.length < MAX_PRODUCTS) break;
+              offset += MAX_PRODUCTS;
+            }
+            setAllActiveProducts(sortProducts(collected));
+          }
+          setTagLoadError(null);
+        } catch (error: unknown) {
+          if (!isActive || seq !== listSeqRef.current) return;
+          if (error instanceof ApiError && error.isSessionExpired) {
+            onSessionExpired();
+            return;
+          }
+          setAllActiveProducts(null);
+          setTagLoadError(error instanceof ApiError ? error.message : "Batch tag harga gagal dimuat.");
+        }
       })
       .catch((error: unknown) => {
         if (!isActive || seq !== listSeqRef.current) return;
@@ -168,6 +204,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         ? previous
         : sortProducts(previous.map((item) => (item.id === updated.id ? updated : item))),
     );
+    setAllActiveProducts((previous) => {
+      if (previous === null) return previous;
+      const without = previous.filter((item) => item.id !== updated.id);
+      return updated.active ? sortProducts([...without, updated]) : without;
+    });
     setEdit((previous) =>
       previous !== null && previous.product.id === updated.id
         ? { ...previous, product: updated }
@@ -738,6 +779,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
           </Button>
         </div>
       )}
+
       {!loadError && products === null && <p className="muted">Memuat katalog…</p>}
       {!loadError && products !== null && products.length === 0 && (
         <p className="muted">Belum ada produk yang cocok.</p>
@@ -821,6 +863,71 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
           </table>
         </div>
       )}
+
+      {((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0) || tagLoadError !== null) && (() => {
+        const tagSource = allActiveProducts ?? [];
+        const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
+        const batchTags = buildPriceTags(tagSource, selectedCategory);
+        return (
+        <section className="panel" aria-label="Tag harga otomatis" style={{ marginTop: "20px" }}>
+          <h2 className="section-title">Tag Harga Otomatis (Ide 2)</h2>
+          <p className="muted">
+            Cetak atau simpan PDF tag harga rak dari database (layout header toko, nama produk, harga, barcode EAN-13, dan slogan).
+          </p>
+          {tagLoadError && (
+            <div className="report-toolbar">
+              <p className="field-error" role="alert">{tagLoadError}</p>
+              <Button variant="secondary" onClick={invalidatePendingReadsAndRefresh}>
+                Coba lagi
+              </Button>
+            </div>
+          )}
+          <div className="report-toolbar">
+            <label htmlFor="tag-category-filter" className="field-label">Batch tag harga</label>
+            <select
+              id="tag-category-filter"
+              className="input"
+              value={tagCategoryId}
+              onChange={(event) => setTagCategoryId(event.target.value)}
+            >
+              <option value="all">Semua produk aktif</option>
+              {(categories ?? []).map((cat) => (
+                <option key={cat.id} value={String(cat.id)}>{cat.name}</option>
+              ))}
+            </select>
+            <Button
+              variant="secondary"
+              disabled={allActiveProducts === null}
+              onClick={() => {
+                if (batchTags.length === 0) {
+                  setStatus({ tone: "warning", text: "Tidak ada produk aktif pada batch tag harga yang dipilih." });
+                  return;
+                }
+                const html = buildPriceTagsPrintHtml(batchTags);
+                const win = window.open("", "_blank", "width=900,height=700");
+                if (win) {
+                  win.document.write(html);
+                  win.document.close();
+                  win.focus();
+                  win.print();
+                } else {
+                  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const anchor = document.createElement("a");
+                  anchor.href = url;
+                  anchor.download = "tag-harga.html";
+                  anchor.click();
+                  URL.revokeObjectURL(url);
+                }
+                setStatus({ tone: "success", text: `Tag harga disiapkan untuk ${batchTags.length} produk.` });
+              }}
+            >
+              Cetak / PDF Tag Harga ({batchTags.length})
+            </Button>
+          </div>
+        </section>
+        );
+      })()}
 
       {confirmation?.kind === "create-product" && (
         <ConfirmDialog

@@ -20,6 +20,7 @@ import {
   ValidationError,
 } from "./errors.ts";
 import { hashPassword } from "./password.ts";
+import { bootstrapFirstAdmin } from "./bootstrap.ts";
 import { createAuthService } from "./service.ts";
 import { createSessionStore, type Role, type SessionUser } from "./session.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
@@ -465,6 +466,149 @@ test("Bootstrap ADMIN bersamaan hanya mengizinkan satu ADMIN pertama", async () 
     try {
       assert.equal(countRows(db, "users"), 1);
       assert.equal(countRows(db, "audit_log"), 1);
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-004: bootstrap-admin berjalan pada DB berisi katalog/akun demo dan menolak jika sudah ada user asli", async () => {
+  const database = createTempDatabase("pos-bootstrap-demo-");
+  try {
+    migrateFresh(database);
+    const { seedDemo } = await import("../../db/src/seed.ts");
+    seedDemo({ dbPath: database.dbPath, allowDemo: true, env: {} });
+
+    const db = database.open();
+    try {
+      const admin = bootstrapFirstAdmin(db, {
+        username: "admin.asli",
+        password: makeRuntimePassword("boot-real"),
+      });
+      assert.equal(admin.username, "admin.asli");
+      assert.equal(admin.role, "ADMIN");
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.kedua",
+            password: makeRuntimePassword("boot-real-2"),
+          }),
+        /belum ada akun asli/,
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-156: bootstrap menolak username demo cadangan dan akun non-seed bernama demo memblokir bootstrap kedua", () => {
+  const database = createTempDatabase("pos-bootstrap-bug156-");
+  try {
+    migrateFresh(database);
+    const db = database.open();
+    try {
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "demo.admin",
+            password: makeRuntimePassword("boot-reserved"),
+          }),
+        /dicadangkan/,
+      );
+      // Simulasikan akun asli yang kebetulan bernama demo.admin tanpa demo_seed_runs.
+      db.prepare(
+        "INSERT INTO users (id, username, password_hash, role, active, created_at_ms) VALUES (1, 'demo.admin', 'hash', 'ADMIN', 1, 1000)",
+      ).run();
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.kedua",
+            password: makeRuntimePassword("boot-second"),
+          }),
+        /belum ada akun asli/,
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-166: getBootstrapStatus mengembalikan needsSetup=true bila hanya ada baris seed demo terkunci, dan false bila sudah ada akun usable atau akun asli", async () => {
+  const database = createTempDatabase("pos-bootstrap-status-bug166-");
+  try {
+    migrateFresh(database);
+    const { seedDemo } = await import("../../db/src/seed.ts");
+    seedDemo({ dbPath: database.dbPath, allowDemo: true, env: {} });
+
+    const db = database.open();
+    try {
+      const sessions = createSessionStore(db, {
+        secret: randomBytes(32),
+        ttlMs: 12 * 60 * 60 * 1000,
+      });
+      const auth = createAuthService(db, {
+        sessions,
+        securityLog: createSecurityLogger(),
+      });
+      assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: true });
+      auth.bootstrapAdmin({
+        username: "admin.asli",
+        password: makeRuntimePassword("boot-status"),
+      });
+      assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: false });
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.tanpa.login",
+            password: makeRuntimePassword("boot-blocked"),
+          }),
+        /belum ada akun asli/,
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("BUG-166: getBootstrapStatus mengembalikan needsSetup=false pada DB DEMO yang di-seed dengan installerPassword agar login langsung tersedia", async () => {
+  const database = createTempDatabase("pos-bootstrap-status-usable-");
+  try {
+    migrateFresh(database);
+    const { seedDemo } = await import("../../db/src/seed.ts");
+    seedDemo({
+      dbPath: database.dbPath,
+      allowDemo: true,
+      installerPassword: makeRuntimePassword("demo-usable"),
+      env: {},
+    });
+
+    const db = database.open();
+    try {
+      const sessions = createSessionStore(db, {
+        secret: randomBytes(32),
+        ttlMs: 12 * 60 * 60 * 1000,
+      });
+      const auth = createAuthService(db, {
+        sessions,
+        securityLog: createSecurityLogger(),
+      });
+      assert.deepEqual(auth.getBootstrapStatus(), { needsSetup: false });
+      assert.throws(
+        () =>
+          bootstrapFirstAdmin(db, {
+            username: "admin.tanpa.login",
+            password: makeRuntimePassword("boot-blocked"),
+          }),
+        /belum ada akun asli/,
+      );
     } finally {
       db.close();
     }

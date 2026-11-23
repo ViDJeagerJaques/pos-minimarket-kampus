@@ -69,16 +69,16 @@ async function install(file, failure = false) {
   return code;
 }
 let app;
-async function start(extraEnv = {}, waitToken = "POS_SPIKE window_ready") {
+async function start(extraEnv = {}, waitToken = "POS_SPIKE window_ready", targetDataDir = dataDir) {
   const socket = createServer();
   await new Promise(resolve => socket.listen(0, "127.0.0.1", resolve));
   const port = socket.address().port;
   await new Promise(resolve => socket.close(resolve));
   // Port sintetis eksplisit; konfigurasi lain dipertahankan.
-  const config = existsSync(path.join(dataDir, "config.json")) ? JSON.parse(readFileSync(path.join(dataDir, "config.json"))) : { mode: "DEMO", marker: "TASK033-synthetic" };
+  const config = existsSync(path.join(targetDataDir, "config.json")) ? JSON.parse(readFileSync(path.join(targetDataDir, "config.json"))) : { mode: "DEMO", marker: "TASK033-synthetic" };
   config.apiPort = port;
-  writeFileSync(path.join(dataDir, "config.json"), JSON.stringify(config, null, 2));
-  app = spawn(path.join(installDir, "POS Minimarket Kampus DEMO.exe"), [`--user-data-dir=${dataDir}`], {
+  writeFileSync(path.join(targetDataDir, "config.json"), JSON.stringify(config, null, 2));
+  app = spawn(path.join(installDir, "POS Minimarket Kampus DEMO.exe"), [`--user-data-dir=${targetDataDir}`], {
     windowsHide: true,
     env: {
       ...process.env,
@@ -125,16 +125,39 @@ function state() {
 try {
   assertNoExistingDemoInstall();
   await install(installers[0]);
+  const demoCredsPath = path.join(root, "demo-creds.json");
+  await start({ POS_INSTALLER_DEMO_CREDS_FILE: demoCredsPath }, "POS_SPIKE window_ready");
+  await stop();
+  const { demoPassword } = JSON.parse(readFileSync(demoCredsPath, "utf8"));
+  assert.ok(typeof demoPassword === "string" && demoPassword.length >= 12, "Sandi DEMO acak wajib dibuat");
+  const seededState = state();
+  assert.ok(seededState.users.some(u => u.username === "demo.admin"), "Akun demo.admin harus ter-seed");
+  assert.ok(seededState.users.some(u => u.username === "demo.kasir.pagi"), "Akun demo.kasir.pagi harus ter-seed");
+  assert.ok(seededState.products.length > 0 && seededState.sales.length > 0 && seededState.shifts.length > 0, "Data DEMO (produk, shift, penjualan) harus ter-seed");
+  const demoLoginCredsPath = path.join(root, "demo-login-creds.json");
+  writeFileSync(demoLoginCredsPath, JSON.stringify({ cashierUser: "demo.admin", cashierPass: demoPassword }));
+  let base = await start(
+    { POS_INSTALLER_RENDERER_TEST: "1", POS_SPIKE_CREDS_FILE: demoLoginCredsPath, POS_INSTALLER_DEMO_CREDS_FILE: demoCredsPath },
+    "POS_SPIKE renderer_login=PASS",
+  );
+  assert.equal(JSON.parse(readFileSync(demoCredsPath, "utf8")).demoPassword, demoPassword, "Sandi DEMO yang sudah ter-seed harus dipertahankan");
+  log("fresh DEMO install seeds accounts/data and logs in via packaged renderer", { nodeVersion: run(node, ["--version"]).trim() });
+  await stop();
+
+  // Verifikasi mode REAL (pos.sqlite) tetap menampilkan layar SetupAdminPage, tidak men-seed akun DEMO, dan lolos smoke 8/8.
+  const realDataDir = path.join(root, "real-data");
+  mkdirSync(realDataDir);
+  writeFileSync(path.join(realDataDir, "config.json"), JSON.stringify({ mode: "REAL", apiPort: 0 }, null, 2));
   const setupCredsPath = path.join(root, "setup-creds.json");
   const setupAdminUser = "admin.setup";
   const setupAdminPass = `Adm-${randomBytes(8).toString("hex")}`;
   writeFileSync(setupCredsPath, JSON.stringify({ adminUser: setupAdminUser, adminPass: setupAdminPass }));
-  let base = await start(
+  const realBase = await start(
     { POS_INSTALLER_RENDERER_TEST: "1", POS_INSTALLER_SETUP_FIRST: "1", POS_SPIKE_CREDS_FILE: setupCredsPath },
     "POS_SPIKE renderer_setup_and_login=PASS",
+    realDataDir,
   );
-  log("fresh install shows first-admin setup, creates admin, and logs in via packaged renderer", { nodeVersion: run(node, ["--version"]).trim() });
-  // Gunakan smoke TASK-031 dengan ADMIN yang baru dibuat lewat layar setup UI.
+  const realDbPath = path.join(realDataDir, "pos.sqlite");
   let smoke = readFileSync("scripts/task-031_electron_smoke.mjs", "utf8")
     .replace('const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");', `const root = ${JSON.stringify(resources)};`)
     .replace(/const adminUser = .*;/, `const adminUser = ${JSON.stringify(setupAdminUser)};`)
@@ -143,11 +166,17 @@ try {
   const smokePath = path.join(root, "smoke.mjs");
   writeFileSync(smokePath, smoke);
   const credsPath = path.join(root, "creds.json");
-  const smokeOutput = run(node, [smokePath], { env: { ...process.env, POS_SPIKE_DB: dbPath, POS_SPIKE_API_BASE: base, POS_SPIKE_CREDS_FILE: credsPath } });
+  const smokeOutput = run(node, [smokePath], { env: { ...process.env, POS_SPIKE_DB: realDbPath, POS_SPIKE_API_BASE: realBase, POS_SPIKE_CREDS_FILE: credsPath } });
   writeFileSync(path.join(root, "smoke.log"), smokeOutput);
   assert.match(smokeOutput, /PASS total 8 smoke/);
-  log("installed API smoke 8/8: login, scan, CASH, VIRTUAL print, SQLite");
   await stop();
+  const realDb = new DatabaseSync(realDbPath, { readOnly: true });
+  try {
+    const realUsers = realDb.prepare("SELECT username FROM users").all().map(u => u.username);
+    assert.ok(realUsers.includes(setupAdminUser), "Admin REAL harus dibuat lewat SetupAdminPage");
+    assert.equal(realUsers.includes("demo.admin"), false, "Mode REAL tidak boleh men-seed demo.admin");
+  } finally { realDb.close(); }
+  log("REAL mode (pos.sqlite) SetupAdminPage + API smoke 8/8 PASS");
   const original = state();
   const originalConfig = readFileSync(path.join(dataDir, "config.json"));
   const snapshot = JSON.parse(run(node, [path.join(resources, "maintenance.mjs"), "snapshot", dataDir]));
@@ -177,9 +206,10 @@ try {
   copyFileSync(configBackup, path.join(dataDir, "config.json"));
   assert.deepEqual(state(), original);
   assert.deepEqual(readFileSync(path.join(dataDir, "config.json")), originalConfig);
-  base = await start({ POS_INSTALLER_RENDERER_TEST: "1", POS_SPIKE_CREDS_FILE: credsPath }, "POS_SPIKE renderer_login=PASS");
-  const creds = JSON.parse(readFileSync(credsPath));
-  const response = await fetch(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: creds.cashierUser, password: creds.cashierPass }) });
+  const rollbackCredsPath = path.join(root, "rollback-cashier-creds.json");
+  writeFileSync(rollbackCredsPath, JSON.stringify({ cashierUser: "demo.kasir.pagi", cashierPass: demoPassword }));
+  base = await start({ POS_INSTALLER_RENDERER_TEST: "1", POS_SPIKE_CREDS_FILE: rollbackCredsPath }, "POS_SPIKE renderer_login=PASS");
+  const response = await fetch(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "demo.kasir.pagi", password: demoPassword }) });
   assert.equal(response.status, 200);
   await stop();
   log("rollback restores database + config on same installation; packaged renderer CASHIER login PASS");

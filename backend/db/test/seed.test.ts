@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { verifyPassword } from "../../src/auth/password.ts";
 import { test } from "node:test";
 import { openDatabase } from "../src/db.ts";
 import {
@@ -8,6 +10,27 @@ import {
   seedDemo,
 } from "../src/seed.ts";
 import { createTempDatabase, migrateFresh } from "./helpers.ts";
+
+test("installer DEMO: akun login, katalog, stok, shift, sale atomik dan sekali saja", () => {
+  const database = createTempDatabase();
+  const password = randomBytes(18).toString("hex");
+  try {
+    migrateFresh(database);
+    const first = seedDemo({ dbPath: database.dbPath, allowDemo: true, env: {}, installerPassword: password });
+    assert.equal(first.counts.sales, 1);
+    assert.equal(first.counts.shifts, 1);
+    const second = seedDemo({ dbPath: database.dbPath, allowDemo: true, env: {}, installerPassword: password });
+    assert.equal(second.seeded, false);
+    assert.deepEqual(first.counts, second.counts);
+    const db = openDatabase(database.dbPath);
+    try {
+      const row = db.prepare("SELECT password_hash FROM users WHERE username='demo.admin'").get() as { password_hash: string };
+      assert.equal(verifyPassword(password, row.password_hash), true);
+      assert.equal(db.prepare("PRAGMA integrity_check").get()?.integrity_check, "ok");
+      assert.equal(db.prepare("PRAGMA foreign_key_check").all().length, 0);
+    } finally { db.close(); }
+  } finally { database.cleanup(); }
+});
 
 test("seed demo idempotent: dua kali jalan tidak menggandakan data", () => {
   const database = createTempDatabase();

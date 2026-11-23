@@ -111,6 +111,16 @@ function assertLimit(value: number | undefined): number {
   return Math.min(value, MAX_LIMIT);
 }
 
+function assertOffset(value: number | undefined): number {
+  if (value === undefined) {
+    return 0;
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ValidationError("offset harus bilangan bulat tidak negatif.", "offset");
+  }
+  return value;
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
@@ -408,6 +418,7 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
     const actor = requireVerifiedActor(actorInput);
     const includeInactive = canSeeInactive(actor, options.includeInactive);
     const limit = assertLimit(options.limit);
+    const offset = assertOffset(options.offset);
     const barcode =
       options.barcode === undefined || options.barcode === "" ? null : normalizeBarcode(options.barcode);
     // Tipe runtime diperiksa sebelum `trim()` agar input non-string tetap
@@ -436,8 +447,8 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
            AND (? IS NULL OR EXISTS (
                  SELECT 1 FROM product_barcodes b
                  WHERE b.product_id = p.id AND b.barcode = ?))
-         ORDER BY p.active DESC, p.name COLLATE NOCASE
-         LIMIT ?`,
+         ORDER BY p.active DESC, p.name COLLATE NOCASE, p.id ASC
+         LIMIT ? OFFSET ?`,
       )
       .all(
         includeInactive ? 1 : 0,
@@ -447,6 +458,7 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
         barcode,
         barcode,
         limit,
+        offset,
       ) as ProductRow[];
     return rows.map(toProductDto);
   }

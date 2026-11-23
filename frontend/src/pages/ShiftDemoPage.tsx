@@ -146,6 +146,11 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
       <input id={cashId} className="input" inputMode="numeric" value={cash} onChange={(e) => setCash(e.target.value)} />
       {cash !== "" && !valid && <p role="alert">Masukkan bilangan rupiah bulat dari 0 sampai 1.000.000.000.</p>}
       {valid && <p>Perkiraan selisih: <MoneyText amountRp={value - preview.expectedCashRp} /></p>}
+      {valid && preview.qrisTotalRp > 0 && value - preview.expectedCashRp !== 0 && Math.abs(value - preview.expectedCashRp) === preview.qrisTotalRp && (
+        <p className="muted" role="note">
+          Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={preview.qrisTotalRp} />). Periksa apakah ada transaksi QRIS yang salah dicatat sebagai Tunai atau sebaliknya.
+        </p>
+      )}
       <Button variant="primary" disabled={!valid || busy} onClick={() => setConfirming(true)}>Tutup shift</Button>
     </>}
     {pending && <div><p>Upaya penutupan shift #{pending.shiftId}: <code>{pending.closeKey}</code>. Jangan membuat penutupan baru.</p>
@@ -153,7 +158,12 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
       {checked && <Button disabled={busy} onClick={() => void submit(pending)}>Ulangi permintaan yang sama</Button>}
     </div>}
     {closing && <div><h2>Penutupan tersimpan</h2><p>Shift #{closing.shiftId} · CASH <MoneyText amountRp={closing.totals.cashRp} /> · QRIS <MoneyText amountRp={closing.totals.qrisManualRp} /></p>
-      <p>Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih {closing.varianceRp === null ? "tidak dicatat" : <MoneyText amountRp={closing.varianceRp} />}</p></div>}
+      <p>Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih {closing.varianceRp === null ? "tidak dicatat" : <MoneyText amountRp={closing.varianceRp} />}</p>
+      {closing.totals.qrisManualRp > 0 && closing.varianceRp !== null && closing.varianceRp !== 0 && Math.abs(closing.varianceRp) === closing.totals.qrisManualRp && (
+        <p className="muted" role="note">
+          Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={closing.totals.qrisManualRp} />). Periksa kemungkinan salah klasifikasi Tunai/QRIS.
+        </p>
+      )}</div>}
     {currentUser.role === "CASHIER" && <section aria-label="Rincian QRIS terverifikasi">
       <h2>Rincian QRIS terverifikasi</h2>
       {dataSource.authMode === "DEMO" && <p>DEMO — data sintetis.</p>}

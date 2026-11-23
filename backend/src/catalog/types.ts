@@ -63,4 +63,5 @@ export type LookupOptions = {
   /** Hanya ADMIN. CASHIER yang meminta ini ditolak 403. */
   includeInactive?: boolean;
   limit?: number;
+  offset?: number;
 };

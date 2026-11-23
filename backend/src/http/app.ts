@@ -334,6 +334,9 @@ function catalogQuery(ctx: RequestContext) {
   const rawLimit = ctx.searchParams.get("limit");
   const limit =
     rawLimit === null || rawLimit.trim() === "" ? undefined : Number(rawLimit);
+  const rawOffset = ctx.searchParams.get("offset");
+  const offset =
+    rawOffset === null || rawOffset.trim() === "" ? undefined : Number(rawOffset);
   const includeInactiveRaw = ctx.searchParams.get("includeInactive");
   return {
     query: ctx.searchParams.get("query") ?? undefined,
@@ -341,6 +344,7 @@ function catalogQuery(ctx: RequestContext) {
     // Parser boolean eksplisit: nilai lain dianggap false, bukan truthy.
     includeInactive: includeInactiveRaw === "true" || includeInactiveRaw === "1",
     limit,
+    offset,
   };
 }
 

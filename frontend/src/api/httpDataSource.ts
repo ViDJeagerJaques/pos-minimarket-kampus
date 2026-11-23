@@ -1087,6 +1087,9 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     if (query.limit !== undefined) {
       params.set("limit", String(query.limit));
     }
+    if (query.offset !== undefined) {
+      params.set("offset", String(query.offset));
+    }
     const suffix = params.toString().length > 0 ? `?${params.toString()}` : "";
     const data = await request("GET", `/products${suffix}`, undefined, activeToken);
     if (!Array.isArray(data)) {

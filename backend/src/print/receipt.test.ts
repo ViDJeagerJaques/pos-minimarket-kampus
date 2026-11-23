@@ -24,6 +24,7 @@ const RECEIPT: Receipt = {
 test("TASK-021: struk virtual memuat nomor jual dan harga historis serta label DEMO", () => {
   const text = formatReceiptText(RECEIPT);
   assert.match(text, /STRUK DEMO/);
+  assert.match(text, /BARIS: 1 · QTY: 2/);
   assert.match(text, /No\. Penjualan : S-000020/);
   assert.match(text, /Fixture Produk \(FX-001\)/);
   assert.match(text, /2 x Rp2500 = Rp5000/);

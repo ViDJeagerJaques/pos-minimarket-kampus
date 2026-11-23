@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../api/errors";
 import type { PaymentReport, PosDataSource, SessionUser } from "../api/types";
+import { buildCsv, buildExcelHtml, triggerFileDownload } from "../domain/iposFeatures";
 import { Button } from "../components/Button";
 import { DailyReportPanel } from "../components/DailyReportPanel";
 import { MoneyText } from "../components/MoneyText";
@@ -157,6 +158,40 @@ export function ReportsPage({ dataSource, currentUser, onSessionExpired }: Repor
             Total seluruh pembayaran: <MoneyText amountRp={report.totalRp} />. Kas dan QRIS
             direkonsiliasi terpisah sesuai SOP yang belum disahkan.
           </p>
+          <div className="dialog__actions">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const headers = ["No. Penjualan", "Waktu", "Kasir Verifikasi", "Referensi Bukti", "Total (Rp)"];
+                const rows = report.qrisSales.map((s) => [
+                  s.saleNo,
+                  formatTime(s.verifiedAtMs),
+                  s.cashierUsername ?? `#${s.verifiedBy}`,
+                  s.evidenceRef ?? "",
+                  s.totalRp,
+                ]);
+                triggerFileDownload("laporan-qris.csv", buildCsv(headers, rows), "text/csv;charset=utf-8");
+              }}
+            >
+              Ekspor CSV
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const headers = ["No. Penjualan", "Waktu", "Kasir Verifikasi", "Referensi Bukti", "Total (Rp)"];
+                const rows = report.qrisSales.map((s) => [
+                  s.saleNo,
+                  formatTime(s.verifiedAtMs),
+                  s.cashierUsername ?? `#${s.verifiedBy}`,
+                  s.evidenceRef ?? "",
+                  s.totalRp,
+                ]);
+                triggerFileDownload("laporan-qris.xls", buildExcelHtml("Laporan Pembayaran QRIS", headers, rows), "application/vnd.ms-excel;charset=utf-8");
+              }}
+            >
+              Ekspor Excel
+            </Button>
+          </div>
         </>
       )}
 

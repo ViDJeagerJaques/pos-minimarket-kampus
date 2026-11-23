@@ -1,34 +1,34 @@
 {
-  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-TRs7w5",
+  "root": "C:\\Users\\USER\\AppData\\Local\\Temp\\task033-op21Om",
   "installers": [
     {
       "file": "POS-Minimarket-DEMO-0.1.0-demo-x64-Setup.exe",
-      "sha256": "43ee62a9c46ef72db5e39bf2e9c224b16511b61a96520fe6d851567a1da8e955"
+      "sha256": "fc4102c93fc66bcb02f1678541ed14675a05ec083d73015843464848f43edb9f"
     },
     {
       "file": "POS-Minimarket-DEMO-0.1.1-demo-x64-Setup.exe",
-      "sha256": "154e78691ffbddb37646ac76b96c0524072ae5715f2007c31db304b1483fc584"
+      "sha256": "ccdf38713d73fc69e9d940cfcd8d73176fa92308180ae77434047a6b2acbea9d"
     },
     {
       "file": "POS-Minimarket-DEMO-0.1.2-failure-x64-Setup.exe",
-      "sha256": "ebaa1dd932fe2a69929f3fa0f176d59896d4f344275908b2168ff1d14268ea69"
+      "sha256": "2082cf1c7b58840a5b2685f148b1c7b1d6b2d65a2d4809f5b016b9724116ceda"
     }
   ],
   "checks": [
     {
-      "check": "fresh install shows first-admin setup, creates admin, and logs in via packaged renderer",
+      "check": "fresh DEMO install seeds accounts/data and logs in via packaged renderer",
       "status": "PASS",
       "nodeVersion": "v24.18.0"
     },
     {
-      "check": "installed API smoke 8/8: login, scan, CASH, VIRTUAL print, SQLite",
+      "check": "REAL mode (pos.sqlite) SetupAdminPage + API smoke 8/8 PASS",
       "status": "PASS"
     },
     {
       "check": "snapshot database + configuration",
       "status": "PASS",
-      "dbSha256": "b8eebd84a1d7c14f869bbd8adc2326d6d1d2fe896e87ab025dd5f521fedc2e5d",
-      "configSha256": "b6544b435b564c2029554fcc3374bfce46f546b0e095bff8c33356bbf98abe5d"
+      "dbSha256": "d8992a794c184d732d6d61cfc5614efd97579a8d7a31618184c3bcbd59ba7f85",
+      "configSha256": "1f3da60c2de68aca45f6015b4820a277449d49a5949391bde7d25ea7a5cd1ff0"
     },
     {
       "check": "upgrade keeps transactions, active shift, config; integrity=ok, FK=0",

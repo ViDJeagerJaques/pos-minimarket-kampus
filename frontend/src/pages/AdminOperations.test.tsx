@@ -15,7 +15,8 @@ describe("BUG-137/138 layar admin", () => {
     source.adjustStock = vi.fn(() => new Promise<{ productId: number; previousOnHand: number; onHand: number; delta: number; duplicate: boolean }>(r => { resolve = r; }));
     const user = userEvent.setup();
     render(<StockAdjustmentPage dataSource={source} currentUser={{ userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" }} onSessionExpired={vi.fn()} />);
-    await user.selectOptions(await screen.findByLabelText("Produk"), "1");
+    await screen.findByRole("option", { name: /D-1/ });
+    await user.selectOptions(screen.getByLabelText("Produk"), "1");
     await user.type(screen.getByLabelText("Target stok"), "3");
     await user.type(screen.getByLabelText("Alasan"), "Selisih");
     await user.click(screen.getByRole("button", { name: "Simpan koreksi" }));
@@ -66,7 +67,8 @@ describe("BUG-137/138 layar admin", () => {
     source.adjustStock = vi.fn().mockRejectedValue(new ApiError(409, "CONFLICT", "Stok berubah"));
     const user = userEvent.setup();
     render(<StockAdjustmentPage dataSource={source} currentUser={{ userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" }} onSessionExpired={vi.fn()} />);
-    await user.selectOptions(await screen.findByLabelText("Produk"), "1");
+    await screen.findByRole("option", { name: /D-1/ });
+    await user.selectOptions(screen.getByLabelText("Produk"), "1");
     await user.type(screen.getByLabelText("Target stok"), "3");
     await user.type(screen.getByLabelText("Alasan"), "Selisih");
     await user.click(screen.getByRole("button", { name: "Simpan koreksi" }));

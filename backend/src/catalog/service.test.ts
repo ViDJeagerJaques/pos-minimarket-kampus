@@ -642,6 +642,19 @@ test("Pemeliharaan barcode/supplier, pencarian manual, escape LIKE, dan limit", 
     );
     // limit di atas batas dipotong ke 100, bukan error.
     assert.equal(service.listProducts(cashier, { limit: 500 }).length <= 100, true);
+
+    assert.throws(
+      () => service.listProducts(cashier, { offset: -1 }),
+      (error: unknown) => isCatalogError(error, ValidationError, "VALIDATION_ERROR", "offset"),
+    );
+    const page1 = service.listProducts(cashier, { limit: 2, offset: 0 });
+    const page2 = service.listProducts(cashier, { limit: 2, offset: 2 });
+    assert.equal(page1.length, 2);
+    assert.equal(page2.length >= 1, true);
+    assert.equal(
+      page1.some((row) => page2.some((other) => other.id === row.id)),
+      false,
+    );
   } finally {
     db.close();
     database.cleanup();

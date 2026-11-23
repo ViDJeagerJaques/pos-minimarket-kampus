@@ -76,6 +76,7 @@ export interface CatalogQuery {
   barcode?: string;
   includeInactive?: boolean;
   limit?: number;
+  offset?: number;
 }
 
 /** `GET /shifts/current` / `POST /shifts/open` TASK-014. ID dipertahankan setelah restart. */

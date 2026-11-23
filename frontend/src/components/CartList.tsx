@@ -8,12 +8,20 @@ interface CartListProps {
   onIncrease: (productId: number) => void;
   onDecrease: (productId: number) => void;
   onRemove: (productId: number) => void;
+  onDiscountChange?: (productId: number, discountPct: number) => void;
   /** Dinonaktifkan saat checkout berjalan agar draft tidak berubah setelah quote. */
   disabled?: boolean;
 }
 
-/** Tabel keranjang draft: nama, harga satuan, qty, subtotal, hapus. */
-export function CartList({ lines, onIncrease, onDecrease, onRemove, disabled = false }: CartListProps) {
+/** Tabel keranjang draft: nama, harga satuan, qty, pot %, subtotal, hapus. */
+export function CartList({
+  lines,
+  onIncrease,
+  onDecrease,
+  onRemove,
+  onDiscountChange,
+  disabled = false,
+}: CartListProps) {
   if (lines.length === 0) {
     return <p className="cart__empty muted">Keranjang kosong. Scan barcode atau cari barang untuk mulai.</p>;
   }
@@ -28,6 +36,9 @@ export function CartList({ lines, onIncrease, onDecrease, onRemove, disabled = f
             </th>
             <th scope="col" className="num">
               Qty
+            </th>
+            <th scope="col" className="num">
+              Pot (%)
             </th>
             <th scope="col" className="num">
               Subtotal
@@ -69,6 +80,27 @@ export function CartList({ lines, onIncrease, onDecrease, onRemove, disabled = f
                     +
                   </Button>
                 </div>
+              </td>
+              <td className="num">
+                {onDiscountChange ? (
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    className="input input--compact"
+                    style={{ width: "64px", textAlign: "right" }}
+                    value={line.discountPct ?? 0}
+                    disabled={disabled}
+                    aria-label={`Potongan persen ${line.name}`}
+                    onChange={(event) => {
+                      const parsed = Number.parseInt(event.target.value, 10);
+                      onDiscountChange(line.productId, Number.isNaN(parsed) ? 0 : parsed);
+                    }}
+                  />
+                ) : (
+                  <span>{line.discountPct ?? 0}%</span>
+                )}
               </td>
               <td className="num">
                 <MoneyText amountRp={lineTotalRp(line)} />
