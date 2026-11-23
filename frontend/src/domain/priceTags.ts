@@ -140,13 +140,22 @@ export function buildPriceTagsPdfBlob(tags: PriceTag[]): Blob {
     doc.setFont("courier", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(51, 65, 85);
-    doc.text(`Barcode: ${tag.barcode || "-"}`, x + 3, y + 36, { maxWidth: cardW - 6 });
-    doc.text(`SKU: ${tag.sku}`, x + 3, y + 40, { maxWidth: cardW - 6 });
+    const barcodeText = `Barcode: ${tag.barcode || "-"}`;
+    const barcodeLines = doc.splitTextToSize(barcodeText, cardW - 6) as string[];
+    const barcodeY = y + 33.5;
+    doc.text(barcodeLines, x + 3, barcodeY, { maxWidth: cardW - 6 });
+    const lineHeightMm = (doc.getFontSize() * doc.getLineHeightFactor()) / doc.internal.scaleFactor;
+    const barcodeHeight = barcodeLines.length * lineHeightMm;
+    const skuLines = doc.splitTextToSize(`SKU: ${tag.sku}`, cardW - 6) as string[];
+    const skuY = barcodeY + barcodeHeight + 1.2;
+    doc.text(skuLines, x + 3, skuY, { maxWidth: cardW - 6 });
+    const skuHeight = skuLines.length * lineHeightMm;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(71, 85, 105);
-    doc.text(tag.slogan, x + 3, y + cardH - 3, { maxWidth: cardW - 6 });
+    const footerY = Math.max(y + cardH - 3, skuY + skuHeight + 1.2);
+    doc.text(tag.slogan, x + 3, footerY, { maxWidth: cardW - 6 });
   });
 
   return doc.output("blob");

@@ -77,4 +77,27 @@ describe("priceTags (Ide 2)", () => {
     expect(text).toContain("Air Mineral 600ml");
     expect(text).toContain("Rp3.500");
   });
+
+  it("BUG-189: menggeser posisi SKU dan footer berdasarkan tinggi barcode panjang yang membungkus", async () => {
+    const shortBlob = buildPriceTagsPdfBlob(buildPriceTags([PRODUCTS[0]!], null));
+    const longBarcodeProduct: CatalogProduct = {
+      ...PRODUCTS[0]!,
+      barcodes: ["8".repeat(64)],
+      sku: "SKU-LONG-BARCODE",
+    };
+    const longBlob = buildPriceTagsPdfBlob(buildPriceTags([longBarcodeProduct], null));
+    const shortText = new TextDecoder("latin1").decode(await shortBlob.arrayBuffer());
+    const longText = new TextDecoder("latin1").decode(await longBlob.arrayBuffer());
+
+    const extractSkuY = (pdfText: string, sku: string): number => {
+      const escaped = sku.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = pdfText.match(new RegExp(`([0-9.]+) ([0-9.]+) Td\\s*\\(SKU: ${escaped}\\)`));
+      expect(match).not.toBeNull();
+      return Number(match![2]);
+    };
+
+    const shortSkuY = extractSkuY(shortText, "DEMO-001");
+    const longSkuY = extractSkuY(longText, "SKU-LONG-BARCODE");
+    expect(longSkuY).toBeLessThan(shortSkuY - 10);
+  });
 });
