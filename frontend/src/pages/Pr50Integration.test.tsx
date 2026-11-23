@@ -17,6 +17,7 @@ import type {
 import { DailyReportPanel } from "../components/DailyReportPanel";
 import { ReceiptPanel } from "../components/ReceiptPanel";
 import { StockReportPanel } from "../components/StockReportPanel";
+import { NAV_BY_ROLE } from "../app/navigation";
 import type { CartLine } from "../domain/cart";
 import { CashierPage } from "./CashierPage";
 import { ProductsPage } from "./ProductsPage";
@@ -533,12 +534,21 @@ describe("PR 50 UI integration", () => {
     await user.click(screen.getByRole("button", { name: /^Cari$/ }));
     await waitFor(() => expect(listCatalogProducts).toHaveBeenCalledWith({ includeInactive: false, limit: 100, offset: 100 }));
     const refreshedTagBtn = await screen.findByRole("button", { name: /Cetak \/ PDF Tag Harga \(106\)/ });
-    const printDoc = { write: vi.fn(), close: vi.fn() };
-    const printWin = { document: printDoc, focus: vi.fn(), print: vi.fn() };
-    const openPrintSpy = vi.spyOn(window, "open").mockReturnValue(printWin as unknown as Window);
+    const createObjectURL = vi.fn(() => "blob:pdf-url");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    let downloadedName = "";
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      downloadedName = this.download;
+    });
     await user.click(refreshedTagBtn);
-    expect(printDoc.write).toHaveBeenCalledWith(expect.stringContaining("Produk Baru 106"));
-    openPrintSpy.mockRestore();
+    expect(downloadedName).toBe("tag-harga.pdf");
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const pdfBlob = (createObjectURL.mock.calls[0] as unknown[] | undefined)?.[0];
+    expect(pdfBlob).toBeInstanceOf(Blob);
+    expect((pdfBlob as Blob).type).toBe("application/pdf");
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
     expect(document.querySelector(".table-actions .btn")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Lihat struk/ }));
@@ -709,5 +719,101 @@ describe("PR 50 UI integration", () => {
     await user.click(screen.getByRole("button", { name: "Coba lagi" }));
     const retriedTagBtn = await screen.findByRole("button", { name: /Cetak \/ PDF Tag Harga \(105\)/ });
     expect((retriedTagBtn as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("BUG-176 & BUG-178: menu Daftar Barang khusus ADMIN, memisahkan tabel barang, dan menampilkan pemberitahuan 100 produk", async () => {
+    expect(NAV_BY_ROLE.ADMIN.map((item) => item.label)).toContain("Daftar Barang");
+    expect(NAV_BY_ROLE.CASHIER.map((item) => item.label)).not.toContain("Daftar Barang");
+
+    const adminUser: SessionUser = { userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" };
+    const products100 = Array.from({ length: 100 }, (_, i) => ({
+      id: i + 1,
+      categoryId: 1,
+      categoryName: "Minuman",
+      sku: `SKU-${String(i + 1).padStart(3, "0")}`,
+      name: `Produk ${i + 1}`,
+      priceRp: 1000,
+      active: true,
+      barcodes: [],
+      supplierIds: [],
+      stockOnHand: 5,
+    }));
+
+    const { unmount } = render(
+      <ProductsPage
+        dataSource={makeSource({
+          listCategories: async () => [{ id: 1, name: "Minuman" }],
+          listSuppliers: async () => [],
+          listCatalogProducts: async (query) => ((query?.offset ?? 0) >= 100 ? [] : products100),
+        })}
+        currentUser={adminUser}
+        onSessionExpired={vi.fn()}
+        view="manage"
+      />,
+    );
+    expect(await screen.findByRole("button", { name: "Simpan produk" })).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Daftar barang" })).toBeNull();
+    expect(screen.queryByText(/Menampilkan 100 produk pertama/)).toBeNull();
+    unmount();
+
+    const { unmount: unmountList100 } = render(
+      <ProductsPage
+        dataSource={makeSource({
+          listCategories: async () => [{ id: 1, name: "Minuman" }],
+          listSuppliers: async () => [],
+          listCatalogProducts: async (query) => ((query?.offset ?? 0) >= 100 ? [] : products100),
+        })}
+        currentUser={adminUser}
+        onSessionExpired={vi.fn()}
+        view="list"
+      />,
+    );
+    expect(await screen.findByRole("table", { name: "Daftar barang" })).toBeTruthy();
+    expect(screen.getByText(/Menampilkan 100 produk pertama/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Simpan produk" })).toBeNull();
+    unmountList100();
+
+    render(
+      <ProductsPage
+        dataSource={makeSource({
+          listCategories: async () => [{ id: 1, name: "Minuman" }],
+          listSuppliers: async () => [],
+          listCatalogProducts: async () => products100.slice(0, 5),
+        })}
+        currentUser={adminUser}
+        onSessionExpired={vi.fn()}
+        view="list"
+      />,
+    );
+    expect(await screen.findByRole("table", { name: "Daftar barang" })).toBeTruthy();
+    expect(screen.queryByText(/Menampilkan 100 produk pertama/)).toBeNull();
+  });
+
+  it("BUG-185: loadError dan tombol Coba lagi tetap tampil di view=manage dan bisa memulihkan katalog", async () => {
+    const user = userEvent.setup();
+    const adminUser: SessionUser = { userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" };
+    let fail = true;
+    render(
+      <ProductsPage
+        dataSource={makeSource({
+          listCategories: async () => {
+            if (fail) throw new ApiError(500, "INTERNAL_ERROR", "Katalog gagal dimuat.");
+            return [{ id: 1, name: "Minuman" }];
+          },
+          listSuppliers: async () => [],
+          listCatalogProducts: async () => [],
+        })}
+        currentUser={adminUser}
+        onSessionExpired={vi.fn()}
+        view="manage"
+      />,
+    );
+
+    expect(await screen.findByText("Katalog gagal dimuat.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Simpan produk" }) as HTMLButtonElement).disabled).toBe(true);
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+    expect(await screen.findByRole("option", { name: "Minuman" })).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Daftar barang" })).toBeNull();
   });
 });
