@@ -2,9 +2,9 @@
 
 | Atribut | Nilai |
 |---|---|
-| Lokasi | `docs/operations/TROUBLESHOOTING.md` |
-| Versi / tanggal | 0.1.0 / 11 November 2026 |
-| Status | BASELINE PROSEDUR DAN RENCANA — belum dilaksanakan atau disetujui pengelola |
+| Lokasi | `docs/operations and qa/TROUBLESHOOTING.md` |
+| Versi / tanggal | 0.2.0 / 23 November 2026 |
+| Status | Runbook DEMO untuk latihan; **belum disetujui pengelola untuk produksi** |
 | Dasar | `docs/product/SCOPE.md` v0.1.1; `docs/product/ACCEPTANCE_CRITERIA.md` v0.1.1; `docs/product/TASKS.md` v0.2.1; `docs/security/SECURITY_CHECKLIST.md` v0.1.0 |
 
 ## 1. Aturan sebelum mengubah apa pun
@@ -38,7 +38,15 @@ Semua perlakuan mengikuti `../architecture/API_CONTRACT.md` dan `../architecture
 
 ## 4. Diagnostik aman (oleh teknisi)
 - Catat startup/port `127.0.0.1`, izin folder data, waktu sistem, versi skema, daftar migrasi, ruang disk, printer/spooler, serta status kesehatan DB.
-- Untuk DB **salinan terisolasi**: gunakan `PRAGMA integrity_check;` (harus `ok`) dan `PRAGMA foreign_key_check;` (kosong); cocokkan daftar sale/item/payment/movement terhadap laporan. Jangan menjalankan SQL diagnostik berisiko pada produksi saat kasir bertransaksi.
+- Perintah nyata dari `backend/` (bukan SQL bebas pada DB produksi yang sedang dipakai):
+  ```powershell
+  node db/src/cli.ts path
+  node db/src/cli.ts verify --db "<db-atau-salinan>" --json
+  node db/src/cli.ts inspect-backup --db "<file-cadangan>" --json
+  node db/src/cli.ts restore-test --backup "<file-cadangan>" --json
+  ```
+- Untuk DB **salinan terisolasi**, `verify --json` melaporkan `integrity=ok`, `foreign_keyViolations=0`, `userVersion`, `journalMode`, dan daftar migrasi. Cocokkan sale/item/payment/movement terhadap laporan. Jangan menjalankan SQL diagnostik berisiko pada produksi saat kasir bertransaksi.
+- Jika backup/restore ditolak: jangan timpa DB aktif. Periksa ruang, root `POS_BACKUP_DIR`/`POS_RESTORE_TEST_DIR`, hash manifest, dan ikuti `../security/BACKUP_RECOVERY.md` §§4–8.
 - Korelasi laporan error dengan request ID dan attemptKey; hapus/redaksi token/password/bank account dari bukti.
 
 ## 5. Format tiket insiden
