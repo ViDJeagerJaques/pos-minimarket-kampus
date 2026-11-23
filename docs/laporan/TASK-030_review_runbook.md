@@ -65,6 +65,13 @@ Perintah yang benar-benar dijalankan: `node backend/qa/qa_runner.ts reset --db <
 | BUG-200 | Perintah paket desktop memakai operator panggil `&` sebelum path `node.exe` yang dikutip | `docs/operations and qa/DEPLOYMENT.md` | Diuji di PowerShell: `& "<path>\node.exe" --version` exit 0 |
 | BUG-201 | Hash media kedua menargetkan `$destination` hasil Copy-Item, bukan `$manifest.fileName` | `docs/security/BACKUP_RECOVERY.md` | Review blok salinan media kedua |
 
+### Ronde 3
+
+| Bug | Perubahan | File | Verifikasi |
+|---|---|---|---|
+| BUG-202 | `New-Item -ItemType Directory -Force -Path $destinationDir` sebelum `Copy-Item` | `docs/security/BACKUP_RECOVERY.md` | Diuji di PowerShell dengan folder tujuan belum ada: `Copy-Item` sukses setelah folder dibuat |
+| BUG-203 | `$copiedHash` dan `$manifest.sha256` ditampilkan berdampingan + `if (...) { throw }` | `docs/security/BACKUP_RECOVERY.md` | Diuji di PowerShell pada file sintetis: kedua hash tampil sama, `HASH_MATCH=PASS` |
+
 ## 4. Git
 
 Branch `task/p33-030` dari `origin/master` @ `8048bca`. Commit/PR akan dicantumkan setelah perintah Git dijalankan.
