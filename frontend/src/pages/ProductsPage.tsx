@@ -11,13 +11,14 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MoneyText } from "../components/MoneyText";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
-import { buildPriceTags, buildPriceTagsPrintHtml } from "../domain/priceTags";
+import { buildPriceTags, buildPriceTagsPdfBlob } from "../domain/priceTags";
 
 interface ProductsPageProps {
   dataSource: PosDataSource;
   currentUser: SessionUser;
   /** Dipanggil saat backend menjawab 401: App wajib membersihkan sesi dan kembali ke login. */
   onSessionExpired: () => void;
+  view?: "all" | "manage" | "list";
 }
 
 type Status = { tone: StatusTone; text: string };
@@ -72,7 +73,7 @@ function sortProducts(products: CatalogProduct[]): CatalogProduct[] {
  * Halaman ini TIDAK membuat penjualan, pembayaran, atau mutasi stok; keranjang
  * kasir tetap draft lokal di `domain/cart.ts`.
  */
-export function ProductsPage({ dataSource, currentUser, onSessionExpired }: ProductsPageProps) {
+export function ProductsPage({ dataSource, currentUser, onSessionExpired, view = "all" }: ProductsPageProps) {
   const [categories, setCategories] = useState<CategorySummary[] | null>(null);
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
@@ -152,6 +153,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
             setAllActiveProducts(sortedRows.filter((item) => item.active));
           } else {
             const collected: CatalogProduct[] = [];
+            const seenIds = new Set<number>();
             let offset = 0;
             while (true) {
               const page = await dataSource.listCatalogProducts({
@@ -160,8 +162,15 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
                 offset,
               });
               if (!isActive || seq !== listSeqRef.current) return;
-              collected.push(...page);
-              if (page.length < MAX_PRODUCTS) break;
+              let added = 0;
+              for (const item of page) {
+                if (!seenIds.has(item.id)) {
+                  seenIds.add(item.id);
+                  collected.push(item);
+                  added += 1;
+                }
+              }
+              if (page.length < MAX_PRODUCTS || added === 0) break;
               offset += MAX_PRODUCTS;
             }
             setAllActiveProducts(sortProducts(collected));
@@ -445,7 +454,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
   return (
     <section className="panel" aria-labelledby="products-title" aria-busy={isLoading}>
       <h1 id="products-title" className="page-title">
-        Barang/Stok <span className="chip chip--warning">ADMIN · katalog</span>
+        {view === "list" ? "Daftar Barang" : "Barang/Stok"}{" "}
+        <span className="chip chip--warning">ADMIN · katalog</span>
       </h1>
       <p className="muted">
         Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
@@ -459,6 +469,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         />
       )}
 
+      {view !== "list" && (
+      <>
       <div className="catalog-grid">
         <form className="catalog-form" onSubmit={handleCreateCategory} aria-label="Buat kategori">
           <h2 className="section-title">Kategori</h2>
@@ -621,9 +633,23 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
           {isSubmitting ? "Menyimpan…" : "Simpan produk"}
         </Button>
       </form>
+      </>
+      )}
 
       {status && <StatusMessage tone={status.tone} text={status.text} />}
+      {loadError && (
+        <div className="account-load-error">
+          <p className="field-error" role="alert">
+            {loadError}
+          </p>
+          <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
+            Coba lagi
+          </Button>
+        </div>
+      )}
 
+      {view !== "manage" && (
+      <>
       {edit && (
         <form className="product-form" onSubmit={handleSaveEdit} aria-label="Ubah produk">
           <h2 className="section-title">Ubah produk {edit.product.sku}</h2>
@@ -769,17 +795,6 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
         </Button>
       </form>
 
-      {loadError && (
-        <div className="account-load-error">
-          <p className="field-error" role="alert">
-            {loadError}
-          </p>
-          <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
-            Coba lagi
-          </Button>
-        </div>
-      )}
-
       {!loadError && products === null && <p className="muted">Memuat katalog…</p>}
       {!loadError && products !== null && products.length === 0 && (
         <p className="muted">Belum ada produk yang cocok.</p>
@@ -861,10 +876,17 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
               ))}
             </tbody>
           </table>
+          {products.length === MAX_PRODUCTS && (
+            <p className="muted" role="note">
+              Menampilkan 100 produk pertama. Gunakan pencarian untuk produk lainnya.
+            </p>
+          )}
         </div>
       )}
+      </>
+      )}
 
-      {((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0) || tagLoadError !== null) && (() => {
+      {view !== "list" && ((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0) || tagLoadError !== null) && (() => {
         const tagSource = allActiveProducts ?? [];
         const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
         const batchTags = buildPriceTags(tagSource, selectedCategory);
@@ -903,22 +925,13 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired }: Prod
                   setStatus({ tone: "warning", text: "Tidak ada produk aktif pada batch tag harga yang dipilih." });
                   return;
                 }
-                const html = buildPriceTagsPrintHtml(batchTags);
-                const win = window.open("", "_blank", "width=900,height=700");
-                if (win) {
-                  win.document.write(html);
-                  win.document.close();
-                  win.focus();
-                  win.print();
-                } else {
-                  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-                  const url = URL.createObjectURL(blob);
-                  const anchor = document.createElement("a");
-                  anchor.href = url;
-                  anchor.download = "tag-harga.html";
-                  anchor.click();
-                  URL.revokeObjectURL(url);
-                }
+                const blob = buildPriceTagsPdfBlob(batchTags);
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = "tag-harga.pdf";
+                anchor.click();
+                URL.revokeObjectURL(url);
                 setStatus({ tone: "success", text: `Tag harga disiapkan untuk ${batchTags.length} produk.` });
               }}
             >

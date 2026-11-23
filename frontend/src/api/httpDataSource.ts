@@ -1262,8 +1262,16 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     );
   }
 
-  async function getRecentSales(): ReturnType<PosDataSource["getRecentSales"]> {
-    const rows = await request("GET", "/sales/recent", undefined, requireToken());
+  async function getRecentSales(
+    options?: { startMs?: number; endMs?: number; limit?: number; offset?: number },
+  ): ReturnType<PosDataSource["getRecentSales"]> {
+    const params = new URLSearchParams();
+    if (options?.startMs !== undefined) params.set("startMs", String(options.startMs));
+    if (options?.endMs !== undefined) params.set("endMs", String(options.endMs));
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    if (options?.offset !== undefined) params.set("offset", String(options.offset));
+    const qs = params.toString();
+    const rows = await request("GET", qs ? `/sales/recent?${qs}` : "/sales/recent", undefined, requireToken());
     if (!Array.isArray(rows)) throw new ApiError(500, "INVALID_RESPONSE", "Daftar transaksi tidak valid.");
     return rows.map(raw => {
       if (!isRecord(raw) || !isPositiveInt(raw.saleId) || typeof raw.saleNo !== "string" || !isNonNegativeInt(raw.committedAtMs) || !isNonNegativeInt(raw.totalRp) || (raw.method !== "CASH" && raw.method !== "QRIS_MANUAL")) throw new ApiError(500, "INVALID_RESPONSE", "Transaksi tidak valid.");

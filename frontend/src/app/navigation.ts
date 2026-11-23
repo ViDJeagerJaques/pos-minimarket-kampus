@@ -10,6 +10,7 @@ export type PageId =
   | "shift"
   | "dashboard"
   | "products"
+  | "product-list"
   | "receiving"
   | "stock-adjustment"
   | "reports"
@@ -30,6 +31,7 @@ export const NAV_BY_ROLE: Record<Role, readonly NavItem[]> = {
   ADMIN: [
     { id: "dashboard", label: "Dashboard" },
     { id: "products", label: "Barang/Stok" },
+    { id: "product-list", label: "Daftar Barang" },
     { id: "receiving", label: "Penerimaan" },
     { id: "stock-adjustment", label: "Koreksi Stok" },
     { id: "reports", label: "Laporan" },

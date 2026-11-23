@@ -33,6 +33,7 @@ const PAGE_LABEL: Record<PageId, string> = {
   shift: "Shift",
   dashboard: "Dashboard",
   products: "Barang/Stok",
+  "product-list": "Daftar Barang",
   receiving: "Penerimaan",
   "stock-adjustment": "Koreksi Stok",
   reports: "Laporan",
@@ -311,6 +312,17 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}
+          view="manage"
+        />
+      );
+    }
+    if (activePage === "product-list") {
+      return (
+        <ProductsPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={handleSessionExpired}
+          view="list"
         />
       );
     }

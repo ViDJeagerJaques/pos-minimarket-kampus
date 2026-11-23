@@ -1133,7 +1133,7 @@ export function CashierPage({
 
   return (
     <div className="cashier" ref={cashierRef}>
-      <p className="muted">F2 Cari/scan · F9 Bayar · Esc Kembali dari pembayaran · Enter Konfirmasi nominal</p>
+      <p className="muted cashier__hint">F2 Cari/scan · F9 Bayar · Esc Kembali dari pembayaran · Enter Konfirmasi nominal</p>
       <section className="cashier__work panel" aria-label="Scan dan keranjang">
         <div className="shift-panel" aria-label="Shift kasir">
           {isDemo ? (

@@ -191,6 +191,14 @@ test("BUG-140: pembayaran ganda tetap menghasilkan 20 penjualan unik dengan meto
     assert.deepEqual(rows.map(row => row.saleId), Array.from({ length: 20 }, (_, i) => 40 - i));
     assert.equal(rows.filter(row => row.saleId === 40).length, 1);
     assert.equal(rows[0].method, "CASH");
+    const page2 = ctx.print.getRecentSales(cashier, {
+      startMs: FIXED_NOW + 21,
+      endMs: FIXED_NOW + 41,
+      limit: 10,
+      offset: 10,
+    });
+    assert.equal(page2.length, 10);
+    assert.equal(page2[0]?.saleId, 30);
     assert.deepEqual(counts(ctx.db), before);
   } finally { ctx.cleanup(); }
 });

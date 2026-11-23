@@ -610,7 +610,20 @@ function createPrintRoutes(print: PrintService): Route[] {
       method: "GET",
       pattern: /^\/sales\/recent$/,
       roles: ["ADMIN", "CASHIER"],
-      handler: (ctx) => ({ data: print.getRecentSales(actorOf(ctx)) }),
+      handler: (ctx) => {
+        const numParam = (name: string) => {
+          const raw = ctx.searchParams.get(name);
+          return raw === null || raw.trim() === "" ? undefined : Number(raw);
+        };
+        return {
+          data: print.getRecentSales(actorOf(ctx), {
+            startMs: numParam("startMs"),
+            endMs: numParam("endMs"),
+            limit: numParam("limit"),
+            offset: numParam("offset"),
+          }),
+        };
+      },
     },
     {
       method: "GET",
