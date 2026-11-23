@@ -2,9 +2,9 @@
 
 | Atribut | Nilai |
 |---|---|
-| Lokasi | `docs/operations/DEPLOYMENT.md` |
-| Versi / tanggal | 0.1.0 / 11 November 2026 |
-| Status | BASELINE PROSEDUR DAN RENCANA — belum dilaksanakan atau disetujui pengelola |
+| Lokasi | `docs/operations and qa/DEPLOYMENT.md` |
+| Versi / tanggal | 0.2.0 / 23 November 2026 |
+| Status | Runbook DEMO untuk latihan; **belum disetujui pengelola untuk produksi** |
 | Dasar | `docs/product/SCOPE.md` v0.1.1; `docs/product/ACCEPTANCE_CRITERIA.md` v0.1.1; `docs/product/TASKS.md` v0.2.1; `docs/security/SECURITY_CHECKLIST.md` v0.1.0 |
 
 ## 1. Sasaran dan ketergantungan
@@ -22,6 +22,25 @@ Target rilis: satu PC Windows kasir, scanner barcode dan printer struk, transaks
 | Format ekspor POS lama dan jumlah SKU | BELUM DIKETAHUI |
 | Langganan lama habis tanggal | Hanya diketahui Desember 2026; tanggal pasti belum ada |
 
+## 2A. Perintah yang benar-benar tersedia (cek sebelum latihan)
+
+Jalankan dari `backend/`. Semua perintah lokal/offline; tidak ada endpoint restore produksi.
+
+```powershell
+node db/src/cli.ts path
+node db/src/cli.ts migrate [--db <file>] [--no-backup] [--json]
+node db/src/cli.ts verify [--db <file>] [--json]
+node db/src/cli.ts seed --demo [--db <file>]
+node db/src/cli.ts backup [--db <file>] [--dir <root>] [--json]
+node db/src/cli.ts inspect-backup --db <file> [--json]
+node db/src/cli.ts restore-test --backup <file> [--dir <root>] [--json]
+node src/auth/cli.ts bootstrap-admin --username <nama>   # sandi dari POS_BOOTSTRAP_PASSWORD
+node src/http/cli.ts serve [--db <file>] [--port <n>]     # untuk smoke test manual
+node maintenance.mjs snapshot "<direktori-data-absolut>" # paket desktop, mode DEMO
+```
+
+`restore-test` hanya membuat salinan di root uji (`POS_RESTORE_TEST_DIR`). Penggantian DB operasional tidak diotomatisasi; lihat `../security/BACKUP_RECOVERY.md` §6.
+
 ## 3. Pembuatan candidate release (oleh Rahmat, review Naazmi)
 1. Tetapkan commit Git, tag kandidat dan lockfile dependensi yang teruji. Pastikan perubahan DEC yang masih PROPOSED sudah dikonfirmasi tim sebelum dikunci.
 2. Instal dependensi dari lockfile (`npm ci` hanya jika repo memang menggunakan npm dan memiliki lockfile); jalankan typecheck, unit, integration/API tests. Catat perintah aktual dan hasilnya.
@@ -38,11 +57,39 @@ Target rilis: satu PC Windows kasir, scanner barcode dan printer struk, transaks
 6. Siapkan import katalog/stock awal dari ekspor POS lama. Rekonsiliasi seluruh SKU, barcode, harga, stok, duplikasi dan barang tanpa barcode dengan pengelola. **Jangan mulai operasional jika selisih belum diselesaikan.**
 7. Jalankan smoke test tunai offline, QRIS manual sesuai SOP, dua shift berurutan, cetak/ulang, dashboard, backup dan restore terisolasi. Simpan hasil `AC-10.01/02/03`.
 
-## 5. Upgrade yang aman
-- Jadwalkan setelah shift ditutup dan tidak ada checkout menunggu. Identifikasi sale/QRIS berstatus ambigu sebelum maintenance.
-- Catat manifest versi lama dan baru, buat snapshot pra-upgrade terverifikasi ke media kedua, **uji restore di lokasi terpisah**. Jangan uninstall dengan opsi hapus data.
-- Pasang versi baru dan lakukan migrasi kompatibel; bila gagal, hentikan operasi, pulihkan paket dan DB sesuai runbook `../security/BACKUP_RECOVERY.md`. **Mengembalikan executable saja belum tentu membalik migrasi schema.**
-- Periksa login, akun, transaksi historis, saldo, shift, printer dan backup setelah upgrade. Catat siapa yang menyetujui.
+## 5. Upgrade yang aman (operator non-developer)
+
+**Siapa:** Rahmat menyiapkan paket; operator Windows menjalankan; Naazmi mencatat hasil; pengelola menyetujui jadwal dan GO/NO-GO.
+
+1. Jadwalkan setelah shift ditutup dan tidak ada checkout menunggu. Catat versi lama/baru, commit, dan status QRIS ambigu bila ada.
+2. **Tutup aplikasi kasir/backend.** Cek tidak ada proses yang menulis DB. Jangan lanjut jika kasir masih melayani pelanggan.
+3. Buat snapshot pra-upgrade terverifikasi:
+   ```powershell
+   cd backend
+   node db/src/cli.ts backup --json
+   node db/src/cli.ts inspect-backup --db "<file-backup>.sqlite" --json
+   ```
+   Untuk paket desktop: `node maintenance.mjs snapshot "<direktori-data-absolut>"` dengan `resources/runtime/node.exe` (mode DEMO).
+4. Latih restore ke salinan uji sebelum menyentuh data operasional:
+   ```powershell
+   # Sumber checkout (masih di folder backend dari langkah 3)
+   node db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
+   node db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
+   ```
+   Bentuk paket desktop (sudah diverifikasi pada 23 November 2026 dengan salinan layout paket: `resources/runtime/node.exe` v24.18.0 menjalankan `db/src/cli.ts` langsung, `restore-test` dan `verify` exit 0):
+   ```powershell
+   cd "<install>\resources\backend"
+   $env:POS_DATA_DIR = "$env:APPDATA\PosMinimarketKampus-DEMO"
+   $env:POS_BACKUP_DIR = "$env:POS_DATA_DIR\backups"
+   $env:POS_RESTORE_TEST_DIR = "$env:POS_DATA_DIR\restore-test"
+   & "<install>\resources\runtime\node.exe" db/src/cli.ts restore-test --backup "<file-backup>.sqlite" --json
+   & "<install>\resources\runtime\node.exe" db/src/cli.ts verify --db "<file-hasil-restore>.sqlite" --json
+   ```
+   `<install>` adalah folder aplikasi terpasang; `node.exe` dan `db/src/cli.ts` ikut dalam `extraResources` (`desktop/package.json`). Jangan menjalankan perintah ini dari folder instalasi utama/ASAR.
+5. Uji migrasi versi kandidat pada salinan dulu (lihat `../security/BACKUP_RECOVERY.md` §7), lalu pasang versi baru dan jalankan migrasi pada data operasional. Jangan memilih opsi uninstall yang menghapus data. **Aplikasi/backend penulis tetap ditutup** sampai langkah 6 selesai; jangan buka kasir untuk "cek cepat".
+6. Titik verifikasi dengan penulis tetap mati: `verify --json`, sale historis, stok/ledger, shift tertutup, dan manifest backup baru. Login/offline, cetak ulang struk, dan smoke test lain yang memulai backend **hanya boleh dilakukan setelah semua pemeriksaan ini lulus**; bila perlu buka aplikasi, lakukan pada salinan uji atau langsung umumkan maintenance berakhir setelah verifikasi lulus.
+7. **Rollback bila gagal:** sebelum mengganti DB, catat apakah ada penjualan yang tercatat setelah snapshot. Karena penulis ditahan pada langkah 5–6, seharusnya tidak ada; jika tetap ada, **jangan langsung mengganti DB** — ekspor daftar `sale_id`/nomor/harga dan eskalasi rekonsiliasi pengelola. Jika tidak ada, ikuti prosedur §6 BACKUP_RECOVERY: tutup aplikasi dan semua penulis, kembalikan executable **dan** database dari snapshot pra-upgrade dengan WAL/SHM sebagai satu set (bukan `restore-test`), lalu jalankan `verify` dan smoke test. Simpan salinan versi gagal untuk investigasi. Hentikan cutover bila verifikasi rollback gagal.
+8. Bukti latihan pada salinan ada di `docs/laporan/evidence/TASK-030/` (`upgrade-migrate.log`, `rollback-restore.json`, `rollback-snapshot.json`). Upgrade dengan migrasi skema baru **belum diuji**.
 
 ## 6. Migrasi dan cutover dari POS lama
 1. Minta ekspor data dan daftar fitur yang benar-benar dipakai pengelola, termasuk retur/kredit atau debit lain bila ternyata ada.
