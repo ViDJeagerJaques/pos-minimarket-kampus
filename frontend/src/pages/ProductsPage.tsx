@@ -9,6 +9,7 @@ import type {
 } from "../api/types";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { StockBadge } from "../components/StockBadge";
 import { MoneyText } from "../components/MoneyText";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
 import { buildPriceTags, buildPriceTagsPdfBlob } from "../domain/priceTags";
@@ -567,8 +568,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
               className="input"
               type="text"
               inputMode="numeric"
-              value={newPrice}
-              onChange={(event) => setNewPrice(event.target.value)}
+              value={newPrice.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
+              onChange={(event) => setNewPrice(event.target.value.replace(/\./g, ""))}
               disabled={isSubmitting || !canCreateProduct}
               required
             />
@@ -677,8 +678,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
                 className="input"
                 type="text"
                 inputMode="numeric"
-                value={edit.price}
-                onChange={(event) => setEdit({ ...edit, price: event.target.value })}
+                value={edit.price.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
+                onChange={(event) => setEdit({ ...edit, price: event.target.value.replace(/\./g, "") })}
                 disabled={isSubmitting}
               />
             </div>
@@ -829,7 +830,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
                   <td className="num">
                     <MoneyText amountRp={product.priceRp} />
                   </td>
-                  <td className="num">{product.stockOnHand}</td>
+                  <td className="num">{product.stockOnHand} <StockBadge stock={product.stockOnHand} /></td>
                   <td>
                     {product.active ? (
                       <span className="badge badge--ok">Aktif</span>

@@ -225,6 +225,23 @@ export function createAuthService(db: DatabaseSync, deps: AuthServiceDeps) {
       };
     },
 
+    changePassword(actor: SessionUser, input: { oldPassword?: unknown; newPassword?: unknown }): { changed: true } {
+      const next = assertPassword(input?.newPassword);
+      if (typeof input?.oldPassword !== "string" || input.oldPassword.length === 0 || input.oldPassword.length > 1024) {
+        throw new ValidationError("Sandi lama harus diisi.", "oldPassword");
+      }
+      const old = input.oldPassword;
+      return withTransaction(() => {
+        const row = db.prepare("SELECT password_hash, active FROM users WHERE id = ?").get(actor.userId) as { password_hash: string; active: number } | undefined;
+        if (!row || row.active !== 1) throw new AuthRequiredError();
+        if (!verifyPassword(old, row.password_hash)) throw new ValidationError("Sandi lama tidak cocok.", "oldPassword");
+        db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(next), actor.userId);
+        writeAuthAudit(db, { actorId: actor.userId, action: "PASSWORD_CHANGED", entityType: "users", entityId: actor.userId, details: {}, nowMs: now() });
+        deps.sessions.revokeAllForUser(actor.userId);
+        return { changed: true };
+      });
+    },
+
     listUsers(actor: SessionUser): UserDto[] {
       requireAdmin(actor);
       const rows = db

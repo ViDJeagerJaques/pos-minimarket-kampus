@@ -102,6 +102,18 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     return () => { active = false; };
   }, [dataSource, currentUser.userId, currentUser.role, onSessionExpired]);
 
+  async function reloadPreview() {
+    if (!shift || pending || closing || lock.current) return;
+    lock.current = true; setBusy(true); setMessage("");
+    try {
+      const result = await dataSource.getShiftClosePreview(shift.id);
+      if (result.shiftId !== shift.id) throw new Error("Shift tidak cocok");
+      setPreview(result);
+    } catch (error) {
+      if (error instanceof ApiError && error.isSessionExpired) onSessionExpired();
+      else setMessage("Pratinjau gagal dimuat ulang. Angka sebelumnya masih ditampilkan.");
+    } finally { lock.current = false; setBusy(false); }
+  }
   async function checkStatus() {
     if (!pending || lock.current) return;
     lock.current = true; setBusy(true);
@@ -135,17 +147,19 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     {message && <p role="status">{message}</p>}
     {preview && !pending && !closing && <>
       <h2>Pratinjau shift #{shift?.id}</h2>
+      <Button disabled={busy || confirming} onClick={() => void reloadPreview()}>Muat ulang pratinjau</Button>
       <table className="table" aria-label="Ringkasan shift"><tbody>
         <tr><th scope="row">Modal awal</th><td>{preview.openingCashRp === null ? "Tidak dicatat (fixture: 0)" : <MoneyText amountRp={preview.openingCashRp} />}</td></tr>
         <tr><th scope="row">Penjualan CASH</th><td><MoneyText amountRp={preview.cashTotalRp} /></td></tr>
         <tr><th scope="row">Penjualan QRIS</th><td><MoneyText amountRp={preview.qrisTotalRp} /></td></tr>
+        <tr><th scope="row">Total penghasilan (CASH + QRIS)</th><td><MoneyText amountRp={preview.cashTotalRp + preview.qrisTotalRp} /></td></tr>
         <tr><th scope="row">Uang tunai harapan</th><td><MoneyText amountRp={preview.expectedCashRp} /></td></tr>
       </tbody></table>
       <p>Pratinjau dapat berubah jika penjualan tersimpan sebelum shift ditutup. QRIS tidak masuk kas tunai.</p>
       <label className="field-label" htmlFor={cashId}>Uang dihitung (Rp)</label>
-      <input id={cashId} className="input" inputMode="numeric" value={cash} onChange={(e) => setCash(e.target.value)} />
+      <input id={cashId} className="input" inputMode="numeric" value={cash.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} onChange={(e) => setCash(e.target.value.replace(/\./g, ""))} />
       {cash !== "" && !valid && <p role="alert">Masukkan bilangan rupiah bulat dari 0 sampai 1.000.000.000.</p>}
-      {valid && <p>Perkiraan selisih: <MoneyText amountRp={value - preview.expectedCashRp} /></p>}
+      {valid && <p>Perkiraan selisih: {value > preview.expectedCashRp ? "+" : ""}<MoneyText amountRp={value - preview.expectedCashRp} /></p>}
       {valid && preview.qrisTotalRp > 0 && value - preview.expectedCashRp !== 0 && Math.abs(value - preview.expectedCashRp) === preview.qrisTotalRp && (
         <p className="muted" role="note">
           Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={preview.qrisTotalRp} />). Periksa apakah ada transaksi QRIS yang salah dicatat sebagai Tunai atau sebaliknya.
@@ -158,7 +172,8 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
       {checked && <Button disabled={busy} onClick={() => void submit(pending)}>Ulangi permintaan yang sama</Button>}
     </div>}
     {closing && <div><h2>Penutupan tersimpan</h2><p>Shift #{closing.shiftId} · CASH <MoneyText amountRp={closing.totals.cashRp} /> · QRIS <MoneyText amountRp={closing.totals.qrisManualRp} /></p>
-      <p>Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih {closing.varianceRp === null ? "tidak dicatat" : <MoneyText amountRp={closing.varianceRp} />}</p>
+      <p>Total penghasilan (CASH + QRIS): <MoneyText amountRp={closing.totals.cashRp + closing.totals.qrisManualRp} /></p>
+      <p>Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih {closing.varianceRp === null ? "tidak dicatat" : <>{closing.varianceRp > 0 ? "+" : ""}<MoneyText amountRp={closing.varianceRp} /></>}</p>
       {closing.totals.qrisManualRp > 0 && closing.varianceRp !== null && closing.varianceRp !== 0 && Math.abs(closing.varianceRp) === closing.totals.qrisManualRp && (
         <p className="muted" role="note">
           Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={closing.totals.qrisManualRp} />). Periksa kemungkinan salah klasifikasi Tunai/QRIS.

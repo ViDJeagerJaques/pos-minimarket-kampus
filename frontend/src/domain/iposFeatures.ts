@@ -196,7 +196,7 @@ export function buildExcelHtml(
 </html>`;
 }
 
-export function triggerFileDownload(filename: string, content: string, mimeType: string): void {
+export function triggerFileDownload(filename: string, content: string | ArrayBuffer, mimeType: string): void {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

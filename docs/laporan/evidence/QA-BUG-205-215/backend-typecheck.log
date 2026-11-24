@@ -1,0 +1,4 @@
+
+> pos-minimarket-kampus-backend@0.0.0-demo typecheck
+> tsc --noEmit -p tsconfig.json
+

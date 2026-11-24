@@ -296,3 +296,17 @@ test("AC-01.03/AC-08.01: CASHIER ditolak; filter invalid tidak mengubah data", (
     database.cleanup();
   }
 });
+
+test("BUG-209: laporan menyertakan snapshot barang historis tanpa mengubah total", () => {
+  const { database, db, admin, cashier } = setup();
+  try {
+    db.prepare("UPDATE products SET name = 'Nama berubah', price_rp = 9999 WHERE id = 1").run();
+    const service = createReportService(db);
+    const filter = { startMs: MIDNIGHT, endMs: MIDNIGHT + 24 * HOUR };
+    assert.throws(() => service.getDailyReport(cashier, filter), ForbiddenError);
+    const report = service.getDailyReport(admin, filter);
+    assert.equal(report.totalRp, 7500);
+    assert.equal(report.sales.length, 3);
+    for (const sale of report.sales) assert.deepEqual(sale.items.map(item => ({ ...item })), [{ sku: "FX-001", name: "Fixture Produk", quantity: 1, unitPriceRp: 2500, lineTotalRp: 2500 }]);
+  } finally { db.close(); database.cleanup(); }
+});

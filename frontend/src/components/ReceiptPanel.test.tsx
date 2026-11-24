@@ -53,6 +53,9 @@ describe("TASK-021 ReceiptPanel — struk dari transaksi tersimpan", () => {
     expect(text.textContent).toContain("S-000102");
     expect(text.textContent).toContain("2 x Rp2500");
     expect(getSaleReceipt).toHaveBeenCalledWith(102);
+    const details = screen.getByRole("table", { name: "Rincian barang struk" });
+    expect(details.textContent).toContain("Fixture ProdukFX-0012Rp2.500Rp5.000");
+    expect(screen.getByTestId("receipt-text").textContent).toBe(VIEW.text);
   });
 
   it("cetak sukses menampilkan status dan memakai saleId lama", async () => {
@@ -69,6 +72,9 @@ describe("TASK-021 ReceiptPanel — struk dari transaksi tersimpan", () => {
     expect((await screen.findByRole("status")).textContent).toContain("TERCETAK (virtual DEMO)");
     expect(printSaleReceipt).toHaveBeenCalledWith(102);
     expect(getSaleReceipt).toHaveBeenCalledWith(102);
+    const details = screen.getByRole("table", { name: "Rincian barang struk" });
+    expect(details.textContent).toContain("Fixture ProdukFX-0012Rp2.500Rp5.000");
+    expect(screen.getByTestId("receipt-text").textContent).toBe(VIEW.text);
     expect(screen.getByTestId("receipt-text").textContent).toContain("S-000102");
   });
 

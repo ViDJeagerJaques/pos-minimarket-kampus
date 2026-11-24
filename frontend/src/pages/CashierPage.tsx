@@ -234,6 +234,7 @@ export function CashierPage({
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const recoveryKeyRef = useRef<string | null>(initialRecovery.key);
   const [cashInput, setCashInput] = useState("");
+  const [openingCashInput, setOpeningCashInput] = useState("");
   const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>("CASH");
   const [merchantConfirmed, setMerchantConfirmed] = useState(false);
   const [merchantAmountInput, setMerchantAmountInput] = useState("");
@@ -506,7 +507,7 @@ export function CashierPage({
     if (isOpeningShift || checkoutLockRef.current) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const raw = String(data.get("openingCash") ?? "").trim();
+    const raw = String(data.get("openingCash") ?? "").replace(/\./g, "").trim();
     const openingCashRp = raw.length === 0 ? undefined : parseRupiahInput(raw);
     if (openingCashRp === null) {
       setShiftError("Modal awal harus bilangan rupiah bulat dan tidak negatif.");
@@ -1159,7 +1160,7 @@ export function CashierPage({
               <label htmlFor={openingCashId} className="field-label">
                 Modal awal (Rp, opsional)
               </label>
-              <input id={openingCashId} className="input" type="text" inputMode="numeric" name="openingCash" />
+              <input id={openingCashId} className="input" type="text" inputMode="numeric" name="openingCash" value={openingCashInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} onChange={event => setOpeningCashInput(event.target.value.replace(/\./g, ""))} />
               <Button type="submit" variant="primary" disabled={isOpeningShift}>
                 {isOpeningShift ? "Membuka…" : "Buka shift"}
               </Button>
@@ -1341,10 +1342,8 @@ export function CashierPage({
             <h2 id="payment-title" className="dialog__title">
               {paymentIsQris ? "Konfirmasi QRIS manual" : "Konfirmasi pembayaran tunai"}
             </h2>
-            <p>
-              <span className="badge badge--warning">PENDING — belum ada penjualan</span> · Total:{" "}
-              <MoneyText amountRp={phase.attempt.quote.totalRp} />
-            </p>
+            <p>Total: <MoneyText className="money--total" amountRp={phase.attempt.quote.totalRp} /></p>
+            <p><span className="badge badge--warning">PENDING - belum ada penjualan</span></p>
             <p className="muted" role="note">
               {paymentIsQris
                 ? "Pemeriksaan metode: pastikan pelanggan membayar lewat QRIS merchant, bukan uang tunai."

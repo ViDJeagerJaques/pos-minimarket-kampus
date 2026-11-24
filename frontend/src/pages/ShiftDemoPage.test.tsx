@@ -29,8 +29,8 @@ describe("TASK-023 penutupan shift", () => {
   it("memakai preview backend dan memisahkan QRIS dari uang tunai", async () => {
     const api = source(); const { u } = show(api);
     const table = await screen.findByRole("table", { name: "Ringkasan shift" });
-    expect(within(table).getByRole("row", { name: /CASH/ }).textContent).toContain("Rp500.000");
-    expect(within(table).getByRole("row", { name: /QRIS/ }).textContent).toContain("Rp300.000");
+    expect(within(table).getByRole("row", { name: /^Penjualan CASH/ }).textContent).toContain("Rp500.000");
+    expect(within(table).getByRole("row", { name: /^Penjualan QRIS/ }).textContent).toContain("Rp300.000");
     expect(within(table).getByRole("row", { name: /Uang tunai harapan/ }).textContent).toContain("Rp600.000");
     await confirm(u);
     expect(await screen.findByRole("heading", { name: "Penutupan tersimpan" })).toBeTruthy();
@@ -117,4 +117,19 @@ describe("TASK-023 penutupan shift", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Tutup shift" })).toBeNull());
     expect(api.getShiftClosePreview).not.toHaveBeenCalled();
   });
+});
+
+it("BUG-210/214/215: refresh total, input ribuan, dan tanda selisih", async () => {
+  const getPreview = vi.fn().mockResolvedValueOnce(preview).mockResolvedValueOnce({ ...preview, cashTotalRp: 510000, expectedCashRp: 610000 });
+  const api = source({ getShiftClosePreview: getPreview });
+  const { u } = show(api);
+  const input = await screen.findByLabelText("Uang dihitung (Rp)");
+  await u.type(input, "620000");
+  expect((input as HTMLInputElement).value).toBe("620.000");
+  expect(screen.getByText(/Perkiraan selisih/).textContent).toContain("+Rp20.000");
+  await u.click(screen.getByRole("button", { name: "Muat ulang pratinjau" }));
+  await waitFor(() => expect(screen.getByText(/Perkiraan selisih/).textContent).toContain("+Rp10.000"));
+  expect(screen.getByRole("row", { name: /Total penghasilan/ }).textContent).toContain("Rp810.000");
+  await u.clear(input); await u.type(input, "610000");
+  expect(screen.getByText(/Perkiraan selisih/).textContent).toBe("Perkiraan selisih: Rp0");
 });

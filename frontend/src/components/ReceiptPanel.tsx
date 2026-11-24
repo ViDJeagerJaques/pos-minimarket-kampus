@@ -116,6 +116,9 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
           {view.receipt.payment.method === "CASH" ? "Tunai" : "QRIS manual"}
         </p>
       )}
+      {view && <div className="table-wrap"><table className="table" aria-label="Rincian barang struk"><thead><tr><th>Barang</th><th>SKU</th><th>Jumlah</th><th>Harga satuan</th><th>Total baris</th></tr></thead><tbody>
+        {view.receipt.items.map((item, index) => <tr key={index}><td>{item.name}</td><td>{item.sku}</td><td>{item.quantity}</td><td><MoneyText amountRp={item.unitPriceRp} /></td><td><MoneyText amountRp={item.lineTotalRp} /></td></tr>)}
+      </tbody></table></div>}
       {text.length > 0 && (
         <pre className="receipt-panel__text" data-testid="receipt-text">
           {text}

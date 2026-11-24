@@ -6,6 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
  */
 export const AUTH_AUDIT_ACTIONS = [
   "ACCOUNT_CREATED",
+  "PASSWORD_CHANGED",
   "ACCOUNT_DISABLED",
   // Usulan penambahan AUD-01 untuk pemulihan akses; perlu review David/Naazmi.
   "ACCOUNT_ENABLED",
