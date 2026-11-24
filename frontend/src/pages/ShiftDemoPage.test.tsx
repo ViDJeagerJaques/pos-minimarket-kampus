@@ -244,3 +244,38 @@ it("BUG-242: pemulihan dari upaya pending tersimpan yang ditolak 422 mengembalik
   await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
   expect(await screen.findByRole("heading", { name: "Penutupan tersimpan" })).toBeTruthy();
 });
+
+it("BUG-244: gagal muat shift saat pemulihan menampilkan tombol coba lagi dan kasir dapat melanjutkan", async () => {
+  localStorage.setItem(
+    "pos.shift.close.2.close_saved_retry",
+    JSON.stringify({ shiftId: 7, closeKey: "close_saved_retry", declaredCashRp: 600000 }),
+  );
+  const getCurrentShift = vi
+    .fn<PosDataSource["getCurrentShift"]>()
+    .mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR", "Koneksi terputus"))
+    .mockResolvedValueOnce({ id: 7, cashierId: 2, openedAtMs: 1, openingCashRp: 100000 });
+  const closeShift = vi
+    .fn<PosDataSource["closeShift"]>()
+    .mockRejectedValueOnce(
+      new ApiError(422, "VALIDATION_ERROR", "Catatan selisih wajib diisi jika terdapat selisih kas."),
+    )
+    .mockImplementationOnce(async (_id, input) => result(input.closeKey, input.varianceNote ?? null));
+  const api = source({
+    getCurrentShift,
+    closeShift,
+    getShiftClosePreview: vi.fn(async () => ({ ...preview, cashTotalRp: 510000, expectedCashRp: 610000 })),
+  });
+  const { u } = show(api);
+
+  await u.click(await screen.findByRole("button", { name: "Ulangi permintaan yang sama" }));
+  const retryShiftButton = await screen.findByRole("button", { name: "Coba lagi muat shift" });
+  expect(screen.queryByRole("heading", { name: "Pratinjau shift #7" })).toBeNull();
+
+  await u.click(retryShiftButton);
+  expect(await screen.findByRole("heading", { name: "Pratinjau shift #7" })).toBeTruthy();
+  await u.type(screen.getByLabelText("Uang dihitung (Rp)"), "600000");
+  await u.type(screen.getByLabelText("Catatan/Alasan Selisih"), "Berhasil setelah coba lagi");
+  await u.click(screen.getByRole("button", { name: "Tutup shift" }));
+  await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
+  expect(await screen.findByRole("heading", { name: "Penutupan tersimpan" })).toBeTruthy();
+});

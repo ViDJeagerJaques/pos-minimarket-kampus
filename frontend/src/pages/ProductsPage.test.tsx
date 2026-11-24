@@ -618,3 +618,38 @@ it("BUG-241: gagal muat halaman lanjutan kategori menampilkan error dan tombol c
   await user.click(screen.getByRole("button", { name: "Coba lagi" }));
   expect(await screen.findByText("Roti Lapis")).toBeTruthy();
 });
+
+it("BUG-245: memilih saran produk dengan nama lebih dari 80 karakter memotong query ke 80 karakter", async () => {
+  const user = userEvent.setup();
+  const longName = `Minuman Kemasan Spesial Kampus ${"A".repeat(70)}`;
+  expect(longName.length).toBeGreaterThan(80);
+  const listCatalogProducts = vi.fn(async () => [
+    { ...PRODUCT, id: 9, sku: "LONG-001", name: longName, categoryId: 1, categoryName: "Minuman" },
+  ]);
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [{ id: 1, name: "Minuman" }]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText(longName);
+  const searchInput = screen.getByLabelText("Cari produk") as HTMLInputElement;
+  await user.type(searchInput, "Minuman");
+  const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
+  await user.click(within(suggestions).getByRole("button"));
+
+  expect(searchInput.value.length).toBe(80);
+  await user.click(screen.getByRole("button", { name: "Cari" }));
+  await waitFor(() =>
+    expect(listCatalogProducts).toHaveBeenCalledWith(
+      expect.objectContaining({ query: longName.slice(0, 80) }),
+    ),
+  );
+});

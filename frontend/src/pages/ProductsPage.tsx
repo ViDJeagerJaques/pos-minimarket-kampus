@@ -878,7 +878,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
         onSubmit={(event) => {
           event.preventDefault();
           setShowSuggestions(false);
-          setAppliedQuery(searchInput.trim());
+          setAppliedQuery(searchInput.trim().slice(0, 80));
         }}
         role="search"
         aria-label="Cari produk admin"
@@ -913,7 +913,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
                     type="button"
                     className="catalog-suggestions__item"
                     onClick={() => {
-                      setSearchInput(item.name);
+                      setSearchInput(item.name.slice(0, 80));
                       setShowSuggestions(false);
                     }}
                   >

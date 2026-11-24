@@ -26,6 +26,8 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
   const [busy, setBusy] = useState(true);
   const [checked, setChecked] = useState(false);
   const [message, setMessage] = useState("");
+  const [recoveryFailedShiftId, setRecoveryFailedShiftId] = useState<number | null>(null);
+  const [recoveryReason, setRecoveryReason] = useState("");
   const lock = useRef(false);
   const cashId = useId();
   const noteId = useId();
@@ -70,6 +72,40 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
       setMessage("Hasil tersimpan, tetapi catatan pemulihan tidak dapat dibersihkan. Cek kembali sebelum melanjutkan.");
     }
   }
+  async function restoreShiftAfterRejection(shiftId: number, reason: string) {
+    try {
+      const activeShift = await dataSource.getCurrentShift();
+      if (activeShift && activeShift.cashierId === currentUser.userId && activeShift.id === shiftId) {
+        const fresh = await dataSource.getShiftClosePreview(activeShift.id);
+        if (fresh.shiftId === activeShift.id) {
+          setShift(activeShift);
+          setPreview(fresh);
+          setRecoveryFailedShiftId(null);
+          setRecoveryReason("");
+          setMessage(reason);
+          return;
+        }
+      }
+      setRecoveryFailedShiftId(shiftId);
+      setRecoveryReason(reason);
+      setMessage(`${reason} Pratinjau shift gagal dimuat ulang; klik Coba lagi muat shift.`);
+    } catch (previewError) {
+      if (previewError instanceof ApiError && previewError.isSessionExpired) {
+        onSessionExpired();
+        return;
+      }
+      setRecoveryFailedShiftId(shiftId);
+      setRecoveryReason(reason);
+      setMessage(`${reason} Pratinjau shift gagal dimuat ulang; klik Coba lagi muat shift.`);
+    }
+  }
+  async function retryRecovery() {
+    if (recoveryFailedShiftId === null || lock.current) return;
+    lock.current = true; setBusy(true);
+    try {
+      await restoreShiftAfterRejection(recoveryFailedShiftId, recoveryReason);
+    } finally { lock.current = false; setBusy(false); }
+  }
   async function check(attempt: PendingShiftClose, rejectedMessage?: string) {
     setChecked(false);
     try { accept(await dataSource.getShiftClosing(attempt.shiftId), attempt); }
@@ -82,23 +118,10 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
             setPending(remaining?.value ?? null);
             onPendingChange(remaining !== null);
             if (!remaining) {
-              try {
-                const activeShift = await dataSource.getCurrentShift();
-                if (activeShift && activeShift.cashierId === currentUser.userId && activeShift.id === attempt.shiftId) {
-                  const fresh = await dataSource.getShiftClosePreview(activeShift.id);
-                  if (fresh.shiftId === activeShift.id) {
-                    setShift(activeShift);
-                    setPreview(fresh);
-                  }
-                }
-              } catch (previewError) {
-                if (previewError instanceof ApiError && previewError.isSessionExpired) {
-                  onSessionExpired();
-                  return;
-                }
-              }
+              await restoreShiftAfterRejection(attempt.shiftId, rejectedMessage);
+            } else {
+              setMessage(rejectedMessage);
             }
-            setMessage(rejectedMessage);
           } catch {
             setChecked(true);
             setMessage("Penutupan ditolak, tetapi catatan lokal tidak dapat dibersihkan. Cek kembali sebelum melanjutkan.");
@@ -208,6 +231,11 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     {!owner && <p>Penutupan hanya tersedia bagi kasir pemilik melalui backend lokal. Mode DEMO tidak menyimpan shift.</p>}
     {busy && <p role="status">Memeriksa shift…</p>}
     {message && <p role="status">{message}</p>}
+    {recoveryFailedShiftId !== null && !preview && !pending && !closing && (
+      <div>
+        <Button disabled={busy} onClick={() => void retryRecovery()}>Coba lagi muat shift</Button>
+      </div>
+    )}
     {preview && !pending && !closing && <>
       <h2>Pratinjau shift #{shift?.id}</h2>
       <Button disabled={busy || confirming} onClick={() => void reloadPreview()}>Muat ulang pratinjau</Button>
