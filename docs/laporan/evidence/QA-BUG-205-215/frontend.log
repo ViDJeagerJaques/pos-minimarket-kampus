@@ -1,17 +1,15 @@
-
-> pos-minimarket-kampus-frontend@0.0.0-demo test
-> vitest run --testTimeout=15000
-
-
- RUN  v5.1.0 E:/COOLYEAH/Coding/pos-minimarket-kampus/frontend
-
-
- Test Files  24 passed (24)
-      Tests  246 passed (246)
-   Start at  13:06:27
-   Duration  19.68s (tests 45%, environment 40%, setup 9%, import 5%, transform 1%)
-
-Environment  jsdom was created 24 times · 74.54s total, 40% of tracked time
-             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
-             learn more: https://vitest.dev/guide/improving-performance#test-environments
-
+> pos-minimarket-kampus-frontend@0.0.0-demo test
+> vitest run --testTimeout=15000
+
+
+ RUN  v5.1.0 E:/COOLYEAH/Coding/pos-minimarket-kampus/frontend
+
+
+ Test Files  24 passed (24)
+      Tests  246 passed (246)
+   Start at  13:06:27
+   Duration  19.68s (tests 45%, environment 40%, setup 9%, import 5%, transform 1%)
+
+Environment  jsdom was created 24 times · 74.54s total, 40% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
