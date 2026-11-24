@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -235,6 +236,34 @@ export function CashierPage({
   const recoveryKeyRef = useRef<string | null>(initialRecovery.key);
   const [cashInput, setCashInput] = useState("");
   const [openingCashInput, setOpeningCashInput] = useState("");
+  const openingCashInputRef = useRef<HTMLInputElement>(null);
+  const openingCashCaretRef = useRef<number | null>(null);
+  const formattedOpeningCash = openingCashInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+
+  useLayoutEffect(() => {
+    const targetChars = openingCashCaretRef.current;
+    const input = openingCashInputRef.current;
+    if (targetChars === null || !input) {
+      return;
+    }
+    openingCashCaretRef.current = null;
+    let seen = 0;
+    let nextPos = formattedOpeningCash.length;
+    if (targetChars === 0) {
+      nextPos = 0;
+    } else {
+      for (let i = 0; i < formattedOpeningCash.length; i += 1) {
+        if (formattedOpeningCash[i] !== ".") {
+          seen += 1;
+          if (seen === targetChars) {
+            nextPos = i + 1;
+            break;
+          }
+        }
+      }
+    }
+    input.setSelectionRange(nextPos, nextPos);
+  }, [formattedOpeningCash]);
   const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>("CASH");
   const [merchantConfirmed, setMerchantConfirmed] = useState(false);
   const [merchantAmountInput, setMerchantAmountInput] = useState("");
@@ -1161,7 +1190,26 @@ export function CashierPage({
               <label htmlFor={openingCashId} className="field-label">
                 Modal awal (Rp, opsional)
               </label>
-              <input id={openingCashId} className="input" type="text" inputMode="numeric" name="openingCash" value={openingCashInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} onChange={event => setOpeningCashInput(event.target.value.replace(/\./g, ""))} />
+              <input
+                ref={openingCashInputRef}
+                id={openingCashId}
+                className="input"
+                type="text"
+                inputMode="numeric"
+                name="openingCash"
+                value={formattedOpeningCash}
+                onChange={event => {
+                  const rawValue = event.target.value;
+                  const nextUnformatted = rawValue.replace(/\./g, "");
+                  if (nextUnformatted !== openingCashInput) {
+                    const caret = event.target.selectionStart ?? rawValue.length;
+                    openingCashCaretRef.current = rawValue
+                      .slice(0, caret)
+                      .replace(/\./g, "").length;
+                  }
+                  setOpeningCashInput(nextUnformatted);
+                }}
+              />
               <Button type="submit" variant="primary" disabled={isOpeningShift}>
                 {isOpeningShift ? "Membuka…" : "Buka shift"}
               </Button>
