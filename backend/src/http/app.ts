@@ -824,11 +824,25 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
       method: "POST",
       pattern: /^\/sync\/sheets\/flush$/,
       roles: ["ADMIN"],
-      handler: async () => ({
-        data: options.sheetsSync
-          ? await options.sheetsSync.syncNow()
-          : { enabled: false, sentCount: 0, pendingCount: 0 },
-      }),
+      handler: async (ctx) => {
+        const bodyObj =
+          ctx.body !== null && typeof ctx.body === "object" && !Array.isArray(ctx.body)
+            ? (ctx.body as Record<string, unknown>)
+            : null;
+        const rawMaxItems = bodyObj?.maxItems;
+        const maxItems =
+          typeof rawMaxItems === "number" &&
+          Number.isInteger(rawMaxItems) &&
+          rawMaxItems >= 1 &&
+          rawMaxItems <= 100
+            ? rawMaxItems
+            : undefined;
+        return {
+          data: options.sheetsSync
+            ? await options.sheetsSync.syncNow(maxItems !== undefined ? { maxItems } : undefined)
+            : { enabled: false, sentCount: 0, pendingCount: 0 },
+        };
+      },
     },
   );
   if (options.reports) {

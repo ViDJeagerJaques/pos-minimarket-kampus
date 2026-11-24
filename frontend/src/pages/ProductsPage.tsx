@@ -104,6 +104,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [stockFilter, setStockFilter] = useState<"all" | "safe" | "low" | "empty">("all");
   const [sheetsSyncStatus, setSheetsSyncStatus] = useState<SheetsSyncStatus | null>(null);
+  const [sheetsSyncStatusError, setSheetsSyncStatusError] = useState<string | null>(null);
+  const [sheetsSyncStatusReloadKey, setSheetsSyncStatusReloadKey] = useState(0);
   const [syncingSheets, setSyncingSheets] = useState(false);
   const [sheetsSyncFeedback, setSheetsSyncFeedback] = useState<Status | null>(null);
 
@@ -231,13 +233,17 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   useEffect(() => {
     if (view !== "list" || !dataSource.getSheetsSyncStatus) {
       setSheetsSyncStatus(null);
+      setSheetsSyncStatusError(null);
       return;
     }
     let active = true;
+    setSheetsSyncStatusError(null);
     dataSource
       .getSheetsSyncStatus()
       .then((result) => {
-        if (active) setSheetsSyncStatus(result);
+        if (!active) return;
+        setSheetsSyncStatus(result);
+        setSheetsSyncStatusError(null);
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -245,12 +251,17 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
           onSessionExpired();
           return;
         }
-        setSheetsSyncStatus({ enabled: false, pendingCount: 0 });
+        setSheetsSyncStatus(null);
+        setSheetsSyncStatusError(
+          error instanceof ApiError
+            ? error.message
+            : "Status sinkronisasi spreadsheet gagal dimuat.",
+        );
       });
     return () => {
       active = false;
     };
-  }, [view, dataSource, onSessionExpired]);
+  }, [view, dataSource, onSessionExpired, sheetsSyncStatusReloadKey]);
 
   async function handleSyncSheets(): Promise<void> {
     if (syncingSheets || !dataSource.syncSheetsNow || !sheetsSyncStatus?.enabled) return;
@@ -689,6 +700,20 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
             </Button>
             {sheetsSyncStatus !== null && !sheetsSyncStatus.enabled && (
               <span className="muted">Sinkronisasi spreadsheet belum dikonfigurasi.</span>
+            )}
+            {sheetsSyncStatusError !== null && (
+              <div className="account-load-error">
+                <span className="field-error" role="alert">
+                  {sheetsSyncStatusError}
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setSheetsSyncStatusReloadKey((value) => value + 1)}
+                >
+                  Coba lagi
+                </Button>
+              </div>
             )}
           </div>
         )}

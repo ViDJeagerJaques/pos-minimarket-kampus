@@ -26,6 +26,20 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
   const inputId = useId();
   const listboxId = useId();
 
+  const activeOptionId =
+    isOpen &&
+    state.kind === "done" &&
+    activeIndex >= 0 &&
+    activeIndex < state.results.length
+      ? `${listboxId}-opt-${state.results[activeIndex]!.id}`
+      : undefined;
+
+  useEffect(() => {
+    if (!activeOptionId) return;
+    const el = document.getElementById(activeOptionId);
+    el?.scrollIntoView?.({ block: "nearest" });
+  }, [activeOptionId]);
+
   useEffect(() => {
     function handleMouseDown(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -47,16 +61,11 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
   }
 
   function handleQueryChange(nextValue: string) {
+    searchSeqRef.current += 1;
     setQuery(nextValue);
-    if (nextValue.trim().length === 0) {
-      searchSeqRef.current += 1;
-      setState({ kind: "idle" });
-      setIsOpen(false);
-      setActiveIndex(-1);
-    } else {
-      setIsOpen(false);
-      setActiveIndex(-1);
-    }
+    setState({ kind: "idle" });
+    setIsOpen(false);
+    setActiveIndex(-1);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -140,8 +149,11 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
             value={query}
             onChange={(event) => handleQueryChange(event.target.value)}
             onKeyDown={handleKeyDown}
+            role="combobox"
+            aria-autocomplete="list"
             aria-expanded={isOpen}
             aria-controls={isOpen ? listboxId : undefined}
+            aria-activedescendant={activeOptionId}
             disabled={disabled}
           />
           <Button type="submit" variant="secondary" disabled={disabled}>
@@ -159,6 +171,7 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
           {state.results.map((product, index) => (
             <li
               key={product.id}
+              id={`${listboxId}-opt-${product.id}`}
               role="option"
               aria-selected={index === activeIndex}
               className={`search__item${index === activeIndex ? " search__item--active" : ""}`}

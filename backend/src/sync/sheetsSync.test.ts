@@ -833,3 +833,73 @@ test("BUG-257: endpoint status dan flush hanya untuk ADMIN dan tidak membocorkan
     await ctx.cleanup();
   }
 });
+
+test("BUG-260: POST /sync/sheets/flush dengan maxItems memproses antrean per batch berbatas", async () => {
+  const secret = makeSyntheticSecret();
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    retryBaseDelayMs: 60_000,
+  });
+  try {
+    const adminPassword = makeSyntheticPassword();
+    ctx.db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(
+      hashPassword(adminPassword),
+      ctx.ids.adminId,
+    );
+    const adminLoginRes = await fetch(`${ctx.server.url}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin.fixture", password: adminPassword }),
+    });
+    const adminToken = ((await adminLoginRes.json()) as { data: { token: string } }).data.token;
+
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-batch-1");
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-batch-2");
+    await ctx.sheetsSync.flush();
+    assert.equal(ctx.sheetsSync.getPendingCount(), 2);
+
+    online = true;
+    const step1Res = await fetch(`${ctx.server.url}/api/v1/sync/sheets/flush`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ maxItems: 1 }),
+    });
+    assert.equal(step1Res.status, 200);
+    const step1 = (await step1Res.json()) as {
+      data: { enabled: boolean; sentCount: number; pendingCount: number };
+    };
+    assert.deepEqual(step1.data, { enabled: true, sentCount: 1, pendingCount: 1 });
+
+    const step2Res = await fetch(`${ctx.server.url}/api/v1/sync/sheets/flush`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ maxItems: 1 }),
+    });
+    assert.equal(step2Res.status, 200);
+    const step2 = (await step2Res.json()) as {
+      data: { enabled: boolean; sentCount: number; pendingCount: number };
+    };
+    assert.deepEqual(step2.data, { enabled: true, sentCount: 1, pendingCount: 0 });
+    assert.equal(delivered.length, 2);
+  } finally {
+    await ctx.cleanup();
+  }
+});

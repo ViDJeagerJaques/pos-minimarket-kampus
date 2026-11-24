@@ -1061,4 +1061,27 @@ describe("TASK-021 klien struk & cetak ulang", () => {
     expect((error as ApiError).message).toContain("403");
     expect((error as ApiError).message).not.toMatch(/ADMIN/i);
   });
+
+  it("BUG-260: syncSheetsNow memanggil flush per batch maxItems=1 sampai antrean habis dan menjumlahkan sentCount", async () => {
+    const { fetchImpl, calls } = stubFetch([
+      loginEnvelope(),
+      meEnvelope(),
+      { status: 200, body: { data: { enabled: true, sentCount: 1, pendingCount: 2 } } },
+      { status: 200, body: { data: { enabled: true, sentCount: 1, pendingCount: 1 } } },
+      { status: 200, body: { data: { enabled: true, sentCount: 1, pendingCount: 0 } } },
+    ]);
+    const dataSource = await loginCashier(fetchImpl);
+    const result = await dataSource.syncSheetsNow!();
+    expect(result).toEqual({ enabled: true, sentCount: 3, pendingCount: 0 });
+    expect(calls.slice(2).map((call) => call.url)).toEqual([
+      "/api/v1/sync/sheets/flush",
+      "/api/v1/sync/sheets/flush",
+      "/api/v1/sync/sheets/flush",
+    ]);
+    expect(calls.slice(2).map((call) => JSON.parse(String(call.init?.body)))).toEqual([
+      { maxItems: 1 },
+      { maxItems: 1 },
+      { maxItems: 1 },
+    ]);
+  });
 });

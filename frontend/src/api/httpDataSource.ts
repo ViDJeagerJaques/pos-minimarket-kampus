@@ -874,6 +874,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     path: string,
     body?: unknown,
     authToken: string | null = token,
+    requestTimeoutMs: number = timeoutMs,
   ): Promise<unknown> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (body !== undefined) {
@@ -886,7 +887,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort();
-    }, timeoutMs);
+    }, requestTimeoutMs);
 
     let response: Response;
     let text: string;
@@ -1407,16 +1408,30 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
       return { enabled: data.enabled, pendingCount: data.pendingCount };
     },
     async syncSheetsNow() {
-      const data = await request("POST", "/sync/sheets/flush", undefined, requireToken());
-      if (
-        !isRecord(data) ||
-        typeof data.enabled !== "boolean" ||
-        !isNonNegativeInt(data.sentCount) ||
-        !isNonNegativeInt(data.pendingCount)
-      ) {
-        throw invalidResponse("Hasil sinkronisasi spreadsheet tidak valid.");
+      const authToken = requireToken();
+      const stepTimeoutMs = Math.max(timeoutMs, 15_000);
+      const maxSteps = 500;
+      let totalSent = 0;
+      let enabled = false;
+      let pendingCount = 0;
+      for (let step = 0; step < maxSteps; step += 1) {
+        const data = await request("POST", "/sync/sheets/flush", { maxItems: 1 }, authToken, stepTimeoutMs);
+        if (
+          !isRecord(data) ||
+          typeof data.enabled !== "boolean" ||
+          !isNonNegativeInt(data.sentCount) ||
+          !isNonNegativeInt(data.pendingCount)
+        ) {
+          throw invalidResponse("Hasil sinkronisasi spreadsheet tidak valid.");
+        }
+        enabled = data.enabled;
+        pendingCount = data.pendingCount;
+        totalSent += data.sentCount;
+        if (!enabled || pendingCount === 0 || data.sentCount === 0) {
+          break;
+        }
       }
-      return { enabled: data.enabled, sentCount: data.sentCount, pendingCount: data.pendingCount };
+      return { enabled, sentCount: totalSent, pendingCount };
     },
     listAccounts,
     createAccount,

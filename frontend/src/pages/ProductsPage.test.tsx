@@ -792,3 +792,32 @@ it("BUG-257: tombol Sinkronkan Spreadsheet memicu flush saat aktif dan nonaktif 
   await waitFor(() => expect((disabledButton as HTMLButtonElement).disabled).toBe(true));
   expect(screen.getByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeTruthy();
 });
+
+it("BUG-263: gagal muat status sinkronisasi menampilkan error dan tombol Coba lagi, bukan pesan belum dikonfigurasi", async () => {
+  const getSheetsSyncStatus = vi
+    .fn()
+    .mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR", "Server sinkronisasi sementara sibuk."))
+    .mockResolvedValueOnce({ enabled: true, pendingCount: 1 });
+  const source = buildSource({
+    listCatalogProducts: vi.fn(async () => [PRODUCT]),
+    getSheetsSyncStatus,
+  });
+  render(
+    <ProductsPage
+      dataSource={source}
+      currentUser={ADMIN}
+      view="list"
+      onSessionExpired={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+
+  expect(await screen.findByText("Server sinkronisasi sementara sibuk.")).toBeTruthy();
+  expect(screen.queryByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeNull();
+  const syncButton = screen.getByRole("button", { name: "Sinkronkan Spreadsheet" }) as HTMLButtonElement;
+  expect(syncButton.disabled).toBe(true);
+
+  await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+  await waitFor(() => expect(syncButton.disabled).toBe(false));
+  expect(screen.queryByText("Server sinkronisasi sementara sibuk.")).toBeNull();
+});
