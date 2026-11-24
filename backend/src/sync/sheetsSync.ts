@@ -24,10 +24,17 @@ type QueueState = {
   sentKeys: string[];
 };
 
+export type SheetsSyncFlushResult = {
+  enabled: boolean;
+  sentCount: number;
+  pendingCount: number;
+};
+
 export type SheetsSyncService = {
   readonly enabled: boolean;
   notifySaleCommitted(result: CommitCheckoutResult, cashierUsername: string): void;
   flush(): Promise<void>;
+  syncNow(): Promise<SheetsSyncFlushResult>;
   stop(): void;
   getPendingCount(): number;
 };
@@ -282,6 +289,9 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
       enabled: false,
       notifySaleCommitted() {},
       async flush() {},
+      async syncNow() {
+        return { enabled: false, sentCount: 0, pendingCount: 0 };
+      },
       stop() {},
       getPendingCount() {
         return 0;
@@ -485,6 +495,16 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     void flush();
   }
 
+  async function syncNow(): Promise<SheetsSyncFlushResult> {
+    const beforeAckCount = durableAckKeys.size;
+    await flush();
+    return {
+      enabled: true,
+      sentCount: Math.max(0, durableAckKeys.size - beforeAckCount),
+      pendingCount: state.pending.length,
+    };
+  }
+
   function stop(): void {
     stopped = true;
     clearRetryTimer();
@@ -494,6 +514,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     enabled: true,
     notifySaleCommitted,
     flush,
+    syncNow,
     stop,
     getPendingCount() {
       return state.pending.length;

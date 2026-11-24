@@ -696,3 +696,99 @@ it("BUG-246: memilih saran produk dengan emoji di batas 80 karakter tidak membel
   );
   expect(await screen.findByText(emojiName)).toBeTruthy();
 });
+
+it("BUG-255: filter Status dan Kondisi Stok menyaring daftar barang bersama pencarian", async () => {
+  const items: CatalogProduct[] = [
+    { ...PRODUCT, id: 1, sku: "S-1", name: "Air Mineral Aman", active: true, stockOnHand: 12 },
+    { ...PRODUCT, id: 2, sku: "S-2", name: "Air Mineral Menipis", active: true, stockOnHand: 3 },
+    { ...PRODUCT, id: 3, sku: "S-3", name: "Air Mineral Habis", active: true, stockOnHand: 0 },
+    { ...PRODUCT, id: 4, sku: "S-4", name: "Air Mineral Nonaktif", active: false, stockOnHand: 15 },
+  ];
+  const source = buildSource({
+    listCatalogProducts: vi.fn(async () => items),
+  });
+  const { user } = renderPage(source);
+
+  await screen.findByText("Air Mineral Aman");
+  const statusSelect = screen.getByLabelText("Filter status barang");
+  const stockSelect = screen.getByLabelText("Filter kondisi stok");
+
+  await user.selectOptions(statusSelect, "inactive");
+  expect(screen.queryByText("Air Mineral Aman")).toBeNull();
+  expect(screen.getByText("Air Mineral Nonaktif")).toBeTruthy();
+
+  await user.selectOptions(statusSelect, "active");
+  await user.selectOptions(stockSelect, "low");
+  expect(screen.queryByText("Air Mineral Aman")).toBeNull();
+  expect(screen.getByText("Air Mineral Menipis")).toBeTruthy();
+  expect(screen.queryByText("Air Mineral Habis")).toBeNull();
+
+  await user.selectOptions(stockSelect, "empty");
+  expect(screen.getByText("Air Mineral Habis")).toBeTruthy();
+  expect(screen.queryByText("Air Mineral Menipis")).toBeNull();
+
+  await user.selectOptions(stockSelect, "safe");
+  expect(screen.getByText("Air Mineral Aman")).toBeTruthy();
+  expect(screen.queryByText("Air Mineral Habis")).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Tampilkan semua" }));
+  expect(screen.getByText("Air Mineral Nonaktif")).toBeTruthy();
+  expect(screen.getByText("Air Mineral Habis")).toBeTruthy();
+});
+
+it("BUG-256: kolom stok menumpuk angka dan badge serta tombol Nonaktifkan memakai gaya outline-danger", async () => {
+  const source = buildSource({
+    listCatalogProducts: vi.fn(async () => [
+      { ...PRODUCT, id: 10, sku: "S-10", name: "Roti Cokelat", active: true, stockOnHand: 4 },
+    ]),
+  });
+  renderPage(source);
+
+  await screen.findByText("Roti Cokelat");
+  const qty = document.querySelector(".stock-cell__qty");
+  expect(qty?.textContent).toBe("4");
+  const badge = document.querySelector(".stock-cell .badge");
+  expect(badge?.textContent).toBe("Stok menipis");
+  const deactivateButton = screen.getByRole("button", { name: "Nonaktifkan S-10" });
+  expect(deactivateButton.className).toContain("btn--outline-danger");
+});
+
+it("BUG-257: tombol Sinkronkan Spreadsheet memicu flush saat aktif dan nonaktif saat belum terkonfigurasi", async () => {
+  const syncSheetsNow = vi.fn(async () => ({ enabled: true, sentCount: 2, pendingCount: 0 }));
+  const enabledSource = buildSource({
+    listCatalogProducts: vi.fn(async () => [PRODUCT]),
+    getSheetsSyncStatus: vi.fn(async () => ({ enabled: true, pendingCount: 2 })),
+    syncSheetsNow,
+  });
+  const first = render(
+    <ProductsPage
+      dataSource={enabledSource}
+      currentUser={ADMIN}
+      view="list"
+      onSessionExpired={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  const syncButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+  await waitFor(() => expect((syncButton as HTMLButtonElement).disabled).toBe(false));
+  await user.click(syncButton);
+  expect(syncSheetsNow).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText(/2 penjualan terkirim/)).toBeTruthy();
+  first.unmount();
+
+  const disabledSource = buildSource({
+    listCatalogProducts: vi.fn(async () => [PRODUCT]),
+    getSheetsSyncStatus: vi.fn(async () => ({ enabled: false, pendingCount: 0 })),
+  });
+  render(
+    <ProductsPage
+      dataSource={disabledSource}
+      currentUser={ADMIN}
+      view="list"
+      onSessionExpired={vi.fn()}
+    />,
+  );
+  const disabledButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+  await waitFor(() => expect((disabledButton as HTMLButtonElement).disabled).toBe(true));
+  expect(screen.getByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeTruthy();
+});

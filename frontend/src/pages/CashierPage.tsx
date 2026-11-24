@@ -267,7 +267,6 @@ export function CashierPage({
   }, [formattedOpeningCash, openingCashCaretTick]);
   const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>("CASH");
   const [merchantConfirmed, setMerchantConfirmed] = useState(false);
-  const [merchantAmountInput, setMerchantAmountInput] = useState("");
   const [evidenceRefInput, setEvidenceRefInput] = useState("");
   const [paymentError, setPaymentError] = useState<string | null>(null);
   /** Transfer QRIS lama yang ditolak karena harga/stok; tidak dipakai ulang untuk pembayaran baru. */
@@ -615,8 +614,6 @@ export function CashierPage({
       // attemptKey baru dibuat sekali per niat; retry memakai kunci yang sama.
       const attempt = await runPrepare(createAttemptKey(), snapshotLinesRef.current, selectedMethod);
       setCashInput("");
-      // Kasir wajib mengetik nominal merchant sendiri; jangan isi otomatis.
-      setMerchantAmountInput("");
       setMerchantConfirmed(false);
       setEvidenceRefInput("");
       setPaymentError(null);
@@ -656,8 +653,6 @@ export function CashierPage({
         previous.quote.payment.method,
       );
       setCashInput("");
-      // Nominal dan referensi transfer baru dikumpulkan terpisah.
-      setMerchantAmountInput("");
       setMerchantConfirmed(false);
       setEvidenceRefInput("");
       setPaymentError(null);
@@ -803,7 +798,6 @@ export function CashierPage({
         setPriorQrisReconciled(false);
       }
       setCashInput("");
-      setMerchantAmountInput("");
       setMerchantConfirmed(false);
       setEvidenceRefInput("");
       setPaymentError(
@@ -904,19 +898,14 @@ export function CashierPage({
     let paymentConfirmation: PaymentConfirmation;
 
     if (attempt.quote.payment.method === "QRIS_MANUAL") {
-      const confirmedAmountRp = parseRupiahInput(merchantAmountInput);
       if (!merchantConfirmed) {
         setPaymentError("Status: GAGAL — centang konfirmasi hanya setelah melihat transaksi di aplikasi merchant. Tidak ada penjualan.");
-        return;
-      }
-      if (confirmedAmountRp === null || confirmedAmountRp !== quoteTotalRp) {
-        setPaymentError(`Status: GAGAL — nominal merchant harus sama dengan total ${quoteTotalRp}. Tidak ada penjualan.`);
         return;
       }
       paymentConfirmation = {
         method: "QRIS_MANUAL",
         merchantConfirmed: true,
-        confirmedAmountRp,
+        confirmedAmountRp: quoteTotalRp,
         evidenceRef: evidenceRefInput.trim().length > 0 ? evidenceRefInput.trim().slice(0, 120) : null,
       };
     } else {
@@ -1132,10 +1121,8 @@ export function CashierPage({
       : null;
   const paymentIsQris =
     phase.kind === "payment" && phase.attempt.quote.payment.method === "QRIS_MANUAL";
-  const merchantAmountValue = parseRupiahInput(merchantAmountInput);
   const canCommitPayment = paymentIsQris
-    ? (!priorQrisConfirmation || priorQrisReconciled) &&
-      merchantConfirmed && merchantAmountValue !== null && merchantAmountValue === quoteTotalRp
+    ? (!priorQrisConfirmation || priorQrisReconciled) && merchantConfirmed
     : cashValue !== null && quoteTotalRp !== null && cashValue >= quoteTotalRp;
   const timeoutConfirmation: PaymentConfirmation | null = phase.kind === "timeout"
     ? phase.paymentConfirmation ??
@@ -1443,28 +1430,9 @@ export function CashierPage({
                       setPaymentError(null);
                     }}
                   />
-                  Saya sudah memeriksa transaksi di aplikasi merchant
+                  Saya sudah memeriksa transaksi di aplikasi merchant sesuai total{" "}
+                  <MoneyText amountRp={phase.attempt.quote.totalRp} />
                 </label>
-                <label htmlFor={cashInputId} className="field-label">
-                  Nominal yang terlihat di merchant (Rp)
-                </label>
-                <input
-                  id={cashInputId}
-                  ref={cashInputRef}
-                  className="input"
-                  type="text"
-                  inputMode="numeric"
-                  value={merchantAmountInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
-                  onChange={(event) => {
-                    setMerchantAmountInput(event.target.value.replace(/\./g, ""));
-                    setPaymentError(null);
-                  }}
-                  aria-describedby="qris-amount-hint"
-                />
-                <p id="qris-amount-hint" className="muted">
-                  Harus sama persis dengan total quote:{" "}
-                  <MoneyText amountRp={phase.attempt.quote.totalRp} />.
-                </p>
                 <label htmlFor={`${cashInputId}-ref`} className="field-label">
                   Referensi bukti (opsional)
                 </label>
@@ -1516,7 +1484,7 @@ export function CashierPage({
                 disabled={!canCommitPayment}
                 onClick={() => void confirmCommit()}
               >
-                Ya, commit pembayaran
+                {paymentIsQris ? "Konfirmasi Lunas" : "Ya, commit pembayaran"}
               </Button>
             </div>
           </div>
@@ -1562,7 +1530,6 @@ export function CashierPage({
                 disabled={priorQrisConfirmation?.method === "QRIS_MANUAL" && !priorQrisReconciled}
                 onClick={() => {
                   setCashInput("");
-                  setMerchantAmountInput("");
                   setMerchantConfirmed(false);
                   setEvidenceRefInput("");
                   setPhase({ kind: "payment", attempt: phase.attempt });

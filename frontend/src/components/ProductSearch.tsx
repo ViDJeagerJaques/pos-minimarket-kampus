@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { ProductSummary } from "../api/types";
 import { Button } from "./Button";
 import { MoneyText } from "./MoneyText";
@@ -13,23 +13,49 @@ type SearchState =
 interface ProductSearchProps {
   search: (query: string) => Promise<ProductSummary[]>;
   onAdd: (product: ProductSummary) => void;
-  /** Dinonaktifkan saat checkout berjalan agar draft tidak berubah setelah quote. */
   disabled?: boolean;
 }
 
-/** Pencarian manual nama/SKU/barcode dengan state loading, kosong, dan gagal. */
 export function ProductSearch({ search, onAdd, disabled = false }: ProductSearchProps) {
   const [query, setQuery] = useState("");
   const [state, setState] = useState<SearchState>({ kind: "idle" });
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const searchSeqRef = useRef(0);
+  const containerRef = useRef<HTMLElement>(null);
   const inputId = useId();
+  const listboxId = useId();
+
+  useEffect(() => {
+    function handleMouseDown(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setActiveIndex(-1);
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+    };
+  }, []);
+
+  function selectProduct(product: ProductSummary) {
+    if (disabled || product.stock <= 0) return;
+    onAdd(product);
+    setIsOpen(false);
+    setActiveIndex(-1);
+  }
 
   function handleQueryChange(nextValue: string) {
     setQuery(nextValue);
     if (nextValue.trim().length === 0) {
-      // Invalidasi pencarian tertunda saat input dikosongkan.
       searchSeqRef.current += 1;
       setState({ kind: "idle" });
+      setIsOpen(false);
+      setActiveIndex(-1);
+    } else {
+      setIsOpen(false);
+      setActiveIndex(-1);
     }
   }
 
@@ -39,6 +65,8 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
     if (trimmed.length === 0) {
       searchSeqRef.current += 1;
       setState({ kind: "idle" });
+      setIsOpen(false);
+      setActiveIndex(-1);
       return;
     }
     const requestSeq = ++searchSeqRef.current;
@@ -49,16 +77,54 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
         return;
       }
       setState({ kind: "done", results });
+      setIsOpen(results.length > 0);
+      setActiveIndex(results.length > 0 ? 0 : -1);
     } catch {
       if (requestSeq !== searchSeqRef.current) {
         return;
       }
       setState({ kind: "error" });
+      setIsOpen(false);
+      setActiveIndex(-1);
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (!isOpen || state.kind !== "done" || state.results.length === 0) {
+      if (event.key === "Escape" && isOpen) {
+        event.preventDefault();
+        setIsOpen(false);
+        setActiveIndex(-1);
+      }
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((prev) => (prev + 1) % state.results.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((prev) => (prev <= 0 ? state.results.length - 1 : prev - 1));
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setIsOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+    if (event.key === "Enter" && activeIndex >= 0) {
+      event.preventDefault();
+      const target = state.results[activeIndex];
+      if (target) {
+        selectProduct(target);
+      }
     }
   }
 
   return (
-    <section className="search" aria-label="Cari barang manual">
+    <section ref={containerRef} className="search" aria-label="Cari barang manual">
       <form className="search__form" onSubmit={handleSubmit} role="search" aria-label="Cari barang">
         <label htmlFor={inputId} className="field-label">
           Cari barang
@@ -73,6 +139,9 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
             placeholder="Nama, SKU, atau barcode"
             value={query}
             onChange={(event) => handleQueryChange(event.target.value)}
+            onKeyDown={handleKeyDown}
+            aria-expanded={isOpen}
+            aria-controls={isOpen ? listboxId : undefined}
             disabled={disabled}
           />
           <Button type="submit" variant="secondary" disabled={disabled}>
@@ -85,16 +154,22 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
       {state.kind === "done" && state.results.length === 0 && (
         <p className="muted">Barang tidak ditemukan. Periksa barcode atau cari nama barang.</p>
       )}
-      {state.kind === "done" && state.results.length > 0 && (
-        <ul className="search__results" aria-label="Hasil pencarian">
-          {state.results.map((product) => (
-            <li key={product.id} className="search__item">
+      {isOpen && state.kind === "done" && state.results.length > 0 && (
+        <ul id={listboxId} className="search__results" role="listbox" aria-label="Hasil pencarian">
+          {state.results.map((product, index) => (
+            <li
+              key={product.id}
+              role="option"
+              aria-selected={index === activeIndex}
+              className={`search__item${index === activeIndex ? " search__item--active" : ""}`}
+              onMouseEnter={() => setActiveIndex(index)}
+            >
               <span className="search__name">{product.name}</span>
               <MoneyText amountRp={product.priceRp} />
               <StockBadge stock={product.stock} />
               <Button
                 variant="secondary"
-                onClick={() => onAdd(product)}
+                onClick={() => selectProduct(product)}
                 disabled={disabled || product.stock <= 0}
                 aria-label={`Tambah ${product.name}`}
               >
@@ -107,4 +182,3 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
     </section>
   );
 }
-

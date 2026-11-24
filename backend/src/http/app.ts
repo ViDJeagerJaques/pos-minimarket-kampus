@@ -808,6 +808,29 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   if (options.checkout) {
     routes.push(...createCheckoutRoutes(options.checkout, options.sheetsSync));
   }
+  routes.push(
+    {
+      method: "GET",
+      pattern: /^\/sync\/sheets\/status$/,
+      roles: ["ADMIN"],
+      handler: () => ({
+        data: {
+          enabled: Boolean(options.sheetsSync?.enabled),
+          pendingCount: options.sheetsSync?.getPendingCount() ?? 0,
+        },
+      }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/sync\/sheets\/flush$/,
+      roles: ["ADMIN"],
+      handler: async () => ({
+        data: options.sheetsSync
+          ? await options.sheetsSync.syncNow()
+          : { enabled: false, sentCount: 0, pendingCount: 0 },
+      }),
+    },
+  );
   if (options.reports) {
     routes.push(...createReportRoutes(options.reports));
   }

@@ -5,11 +5,12 @@ import type {
   CategorySummary,
   PosDataSource,
   SessionUser,
+  SheetsSyncStatus,
   SupplierSummary,
 } from "../api/types";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { StockBadge } from "../components/StockBadge";
+import { DEMO_LOW_STOCK_THRESHOLD, StockBadge } from "../components/StockBadge";
 import { MoneyText } from "../components/MoneyText";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
 import { buildPriceTags, buildPriceTagsPdfBlob } from "../domain/priceTags";
@@ -100,6 +101,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const [searchInput, setSearchInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [listCategoryId, setListCategoryId] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [stockFilter, setStockFilter] = useState<"all" | "safe" | "low" | "empty">("all");
+  const [sheetsSyncStatus, setSheetsSyncStatus] = useState<SheetsSyncStatus | null>(null);
+  const [syncingSheets, setSyncingSheets] = useState(false);
+  const [sheetsSyncFeedback, setSheetsSyncFeedback] = useState<Status | null>(null);
 
   const [status, setStatus] = useState<Status | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -128,6 +134,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const supplierId = useId();
   const barcodeId = useId();
   const searchId = useId();
+  const statusFilterId = useId();
+  const stockFilterId = useId();
 
   const handleActionError = useCallback(
     (error: unknown, fallback: string) => {
@@ -221,7 +229,77 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   }, [dataSource, reloadKey, appliedQuery, onSessionExpired]);
 
   useEffect(() => {
-    if (listCategoryId === "all" || products === null || products.length < MAX_PRODUCTS) {
+    if (view !== "list" || !dataSource.getSheetsSyncStatus) {
+      setSheetsSyncStatus(null);
+      return;
+    }
+    let active = true;
+    dataSource
+      .getSheetsSyncStatus()
+      .then((result) => {
+        if (active) setSheetsSyncStatus(result);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        if (error instanceof ApiError && error.isSessionExpired) {
+          onSessionExpired();
+          return;
+        }
+        setSheetsSyncStatus({ enabled: false, pendingCount: 0 });
+      });
+    return () => {
+      active = false;
+    };
+  }, [view, dataSource, onSessionExpired]);
+
+  async function handleSyncSheets(): Promise<void> {
+    if (syncingSheets || !dataSource.syncSheetsNow || !sheetsSyncStatus?.enabled) return;
+    setSyncingSheets(true);
+    setSheetsSyncFeedback(null);
+    try {
+      const result = await dataSource.syncSheetsNow();
+      setSheetsSyncStatus({ enabled: result.enabled, pendingCount: result.pendingCount });
+      if (!result.enabled) {
+        setSheetsSyncFeedback({
+          tone: "warning",
+          text: "Sinkronisasi spreadsheet belum dikonfigurasi pada server lokal.",
+        });
+      } else if (result.pendingCount === 0) {
+        setSheetsSyncFeedback({
+          tone: "success",
+          text:
+            result.sentCount > 0
+              ? `Sinkronisasi spreadsheet berhasil: ${result.sentCount} penjualan terkirim.`
+              : "Sinkronisasi spreadsheet berhasil: tidak ada penjualan tertunda.",
+        });
+      } else {
+        setSheetsSyncFeedback({
+          tone: "warning",
+          text:
+            result.sentCount > 0
+              ? `Sinkronisasi sebagian berhasil: ${result.sentCount} terkirim, ${result.pendingCount} masih tertunda.`
+              : `Sinkronisasi spreadsheet gagal: ${result.pendingCount} penjualan masih tertunda.`,
+        });
+      }
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.isSessionExpired) {
+        onSessionExpired();
+        return;
+      }
+      setSheetsSyncFeedback({
+        tone: "danger",
+        text: error instanceof ApiError ? error.message : "Sinkronisasi spreadsheet gagal. Coba lagi.",
+      });
+    } finally {
+      setSyncingSheets(false);
+    }
+  }
+
+  const needsFullPagination =
+    listCategoryId !== "all" || statusFilter !== "all" || stockFilter !== "all";
+
+  useEffect(() => {
+    if (!needsFullPagination || products === null || products.length < MAX_PRODUCTS) {
       setFullProducts(null);
       setCategoryPageLoading(false);
       setCategoryPageError(null);
@@ -278,7 +356,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
     return () => {
       isActive = false;
     };
-  }, [listCategoryId, products, appliedQuery, dataSource, onSessionExpired, categoryReloadKey]);
+  }, [needsFullPagination, products, appliedQuery, dataSource, onSessionExpired, categoryReloadKey]);
 
   function invalidatePendingReadsAndRefresh(): void {
     listSeqRef.current += 1;
@@ -534,11 +612,29 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
 
   const canCreateProduct = categories !== null && categories.length > 0;
   const searchNeedle = searchInput.trim().toLowerCase();
-  const productCollection = listCategoryId !== "all" && fullProducts !== null ? fullProducts : products;
+  const productCollection = needsFullPagination && fullProducts !== null ? fullProducts : products;
   const visibleProducts = productCollection === null
     ? null
     : productCollection.filter((product) => {
         if (listCategoryId !== "all" && product.categoryId !== Number(listCategoryId)) {
+          return false;
+        }
+        if (statusFilter === "active" && !product.active) {
+          return false;
+        }
+        if (statusFilter === "inactive" && product.active) {
+          return false;
+        }
+        if (stockFilter === "empty" && product.stockOnHand > 0) {
+          return false;
+        }
+        if (
+          stockFilter === "low" &&
+          (product.stockOnHand <= 0 || product.stockOnHand > DEMO_LOW_STOCK_THRESHOLD)
+        ) {
+          return false;
+        }
+        if (stockFilter === "safe" && product.stockOnHand <= DEMO_LOW_STOCK_THRESHOLD) {
           return false;
         }
         if (searchNeedle.length === 0) {
@@ -558,26 +654,48 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
 
   return (
     <section className="panel" aria-labelledby="products-title" aria-busy={isLoading}>
-      <h1 id="products-title" className="page-title">
-        {view === "list" ? (
-          "Daftar Barang"
-        ) : (
-          <>
-            Barang/Stok <span className="chip chip--warning">ADMIN · katalog</span>
-          </>
+      <div className="products-header">
+        <div>
+          <h1 id="products-title" className="page-title">
+            {view === "list" ? (
+              "Daftar Barang"
+            ) : (
+              <>
+                Barang/Stok <span className="chip chip--warning">ADMIN · katalog</span>
+              </>
+            )}
+          </h1>
+          <p className="muted">
+            {view === "list" ? (
+              "Kelola daftar barang, harga jual, status aktif, dan barcode katalog toko."
+            ) : (
+              <>
+                Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
+                setiap perubahan; CASHIER yang memanggil endpoint tulis menerima <strong>403</strong>.
+                Halaman ini tidak membuat penjualan atau mutasi stok.
+              </>
+            )}
+          </p>
+        </div>
+        {view === "list" && (
+          <div className="products-header__actions">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={syncingSheets || !sheetsSyncStatus?.enabled}
+              onClick={() => void handleSyncSheets()}
+            >
+              {syncingSheets ? "Menyinkronkan…" : "Sinkronkan Spreadsheet"}
+            </Button>
+            {sheetsSyncStatus !== null && !sheetsSyncStatus.enabled && (
+              <span className="muted">Sinkronisasi spreadsheet belum dikonfigurasi.</span>
+            )}
+          </div>
         )}
-      </h1>
-      <p className="muted">
-        {view === "list" ? (
-          "Kelola daftar barang, harga jual, status aktif, dan barcode katalog toko."
-        ) : (
-          <>
-            Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
-            setiap perubahan; CASHIER yang memanggil endpoint tulis menerima <strong>403</strong>.
-            Halaman ini tidak membuat penjualan atau mutasi stok.
-          </>
-        )}
-      </p>
+      </div>
+      {view === "list" && sheetsSyncFeedback && (
+        <StatusMessage tone={sheetsSyncFeedback.tone} text={sheetsSyncFeedback.text} />
+      )}
       {dataSource.catalogMode === "DEMO" && (
         <StatusMessage
           tone="warning"
@@ -934,6 +1052,43 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
             </ul>
           )}
         </div>
+        <div className="catalog-search__filter">
+          <label htmlFor={statusFilterId} className="field-label">
+            Status
+          </label>
+          <select
+            id={statusFilterId}
+            className="input"
+            aria-label="Filter status barang"
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(event.target.value as "all" | "active" | "inactive")
+            }
+          >
+            <option value="all">Semua</option>
+            <option value="active">Aktif</option>
+            <option value="inactive">Nonaktif</option>
+          </select>
+        </div>
+        <div className="catalog-search__filter">
+          <label htmlFor={stockFilterId} className="field-label">
+            Kondisi Stok
+          </label>
+          <select
+            id={stockFilterId}
+            className="input"
+            aria-label="Filter kondisi stok"
+            value={stockFilter}
+            onChange={(event) =>
+              setStockFilter(event.target.value as "all" | "safe" | "low" | "empty")
+            }
+          >
+            <option value="all">Semua</option>
+            <option value="safe">Stok Aman</option>
+            <option value="low">Stok Menipis</option>
+            <option value="empty">Stok Habis</option>
+          </select>
+        </div>
         <div className="catalog-search__actions">
           <Button type="submit">Cari</Button>
           <Button
@@ -943,6 +1098,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
               setSearchInput("");
               setAppliedQuery("");
               setListCategoryId("all");
+              setStatusFilter("all");
+              setStockFilter("all");
               setShowSuggestions(false);
             }}
           >
@@ -1027,7 +1184,12 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
                   <td className="num">
                     <MoneyText amountRp={product.priceRp} />
                   </td>
-                  <td className="num">{product.stockOnHand} <StockBadge stock={product.stockOnHand} /></td>
+                  <td className="num stock-cell">
+                    <div className="stock-cell__wrap">
+                      <span className="stock-cell__qty">{product.stockOnHand}</span>
+                      <StockBadge stock={product.stockOnHand} />
+                    </div>
+                  </td>
                   <td>
                     {product.active ? (
                       <span className="badge badge--ok">Aktif</span>
@@ -1061,7 +1223,8 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
                         Ubah
                       </Button>
                       <Button
-                        variant={product.active ? "destructive" : "primary"}
+                        variant={product.active ? "secondary" : "primary"}
+                        className={product.active ? "btn--outline-danger" : undefined}
                         aria-label={`${product.active ? "Nonaktifkan" : "Aktifkan"} ${product.sku}`}
                         disabled={busyProductId !== null || isSubmitting}
                         onClick={() => setConfirmation({ kind: "toggle", product, nextActive: !product.active })}

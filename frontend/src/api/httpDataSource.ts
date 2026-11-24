@@ -1399,6 +1399,25 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
       const data = await request("POST", `/users/${encodeURIComponent(String(userId))}/password`, input, requireToken());
       if (!isRecord(data) || data.changed !== true) throw invalidResponse("Reset sandi akun tidak dapat dikonfirmasi.");
     },
+    async getSheetsSyncStatus() {
+      const data = await request("GET", "/sync/sheets/status", undefined, requireToken());
+      if (!isRecord(data) || typeof data.enabled !== "boolean" || !isNonNegativeInt(data.pendingCount)) {
+        throw invalidResponse("Status sinkronisasi spreadsheet tidak valid.");
+      }
+      return { enabled: data.enabled, pendingCount: data.pendingCount };
+    },
+    async syncSheetsNow() {
+      const data = await request("POST", "/sync/sheets/flush", undefined, requireToken());
+      if (
+        !isRecord(data) ||
+        typeof data.enabled !== "boolean" ||
+        !isNonNegativeInt(data.sentCount) ||
+        !isNonNegativeInt(data.pendingCount)
+      ) {
+        throw invalidResponse("Hasil sinkronisasi spreadsheet tidak valid.");
+      }
+      return { enabled: data.enabled, sentCount: data.sentCount, pendingCount: data.pendingCount };
+    },
     listAccounts,
     createAccount,
     setAccountActive,
