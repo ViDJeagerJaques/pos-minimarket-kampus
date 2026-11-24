@@ -394,9 +394,13 @@ export interface BootstrapAdminInput {
 }
 export interface AdjustmentResult { productId: number; previousOnHand: number; onHand: number; delta: number; duplicate: boolean }
 export interface BackupEntry { name: string; valid: boolean; createdAtMs: number | null }
+export interface SheetsSyncStatus { enabled: boolean; pendingCount: number }
+export interface SheetsSyncResult { enabled: boolean; sentCount: number; pendingCount: number }
 export interface PosDataSource {
   getBootstrapStatus?: () => Promise<BootstrapStatus>;
   bootstrapAdmin?: (input: BootstrapAdminInput) => Promise<AccountSummary>;
+  getSheetsSyncStatus?: () => Promise<SheetsSyncStatus>;
+  syncSheetsNow?: () => Promise<SheetsSyncResult>;
   adjustStock(input: AdjustmentInput): Promise<AdjustmentResult>;
   listBackups(): Promise<BackupEntry[]>;
   createBackup(): Promise<BackupEntry>;

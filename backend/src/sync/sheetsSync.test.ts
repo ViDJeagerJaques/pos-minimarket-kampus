@@ -752,3 +752,195 @@ test("BUG-254: startup menghapus pending yang sudah di-ack permanen dan memperta
     await ctx.cleanup();
   }
 });
+
+test("BUG-257: endpoint status dan flush hanya untuk ADMIN dan tidak membocorkan webhook atau secret", async () => {
+  const secret = makeSyntheticSecret();
+  const webhookUrl = "https://sheets.example.invalid/webhook-secret-path";
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl, secret },
+    fetchImpl,
+    retryBaseDelayMs: 60_000,
+  });
+  try {
+    const adminPassword = makeSyntheticPassword();
+    ctx.db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(
+      hashPassword(adminPassword),
+      ctx.ids.adminId,
+    );
+    const adminLoginRes = await fetch(`${ctx.server.url}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin.fixture", password: adminPassword }),
+    });
+    const adminToken = ((await adminLoginRes.json()) as { data: { token: string } }).data.token;
+
+    const cashierStatus = await fetch(`${ctx.server.url}/api/v1/sync/sheets/status`, {
+      headers: { Authorization: `Bearer ${ctx.token}` },
+    });
+    assert.equal(cashierStatus.status, 403);
+
+    const cashierFlush = await fetch(`${ctx.server.url}/api/v1/sync/sheets/flush`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${ctx.token}` },
+    });
+    assert.equal(cashierFlush.status, 403);
+
+    await prepareAndCommit(
+      ctx.server.url,
+      ctx.token,
+      ctx.shiftId,
+      ctx.ids.productId,
+      "attempt-manual-flush-1",
+    );
+    await ctx.sheetsSync.flush();
+
+    const statusRes = await fetch(`${ctx.server.url}/api/v1/sync/sheets/status`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(statusRes.status, 200);
+    const statusText = await statusRes.text();
+    assert.equal(statusText.includes(secret), false);
+    assert.equal(statusText.includes(webhookUrl), false);
+    const statusJson = JSON.parse(statusText) as { data: { enabled: boolean; pendingCount: number } };
+    assert.deepEqual(statusJson.data, { enabled: true, pendingCount: 1 });
+
+    online = true;
+    const flushRes = await fetch(`${ctx.server.url}/api/v1/sync/sheets/flush`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(flushRes.status, 200);
+    const flushText = await flushRes.text();
+    assert.equal(flushText.includes(secret), false);
+    assert.equal(flushText.includes(webhookUrl), false);
+    const flushJson = JSON.parse(flushText) as {
+      data: { enabled: boolean; sentCount: number; pendingCount: number };
+    };
+    assert.deepEqual(flushJson.data, { enabled: true, sentCount: 1, pendingCount: 0 });
+    assert.equal(delivered.length, 1);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("BUG-260: POST /sync/sheets/flush dengan maxItems memproses antrean per batch berbatas", async () => {
+  const secret = makeSyntheticSecret();
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    retryBaseDelayMs: 60_000,
+  });
+  try {
+    const adminPassword = makeSyntheticPassword();
+    ctx.db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(
+      hashPassword(adminPassword),
+      ctx.ids.adminId,
+    );
+    const adminLoginRes = await fetch(`${ctx.server.url}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin.fixture", password: adminPassword }),
+    });
+    const adminToken = ((await adminLoginRes.json()) as { data: { token: string } }).data.token;
+
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-batch-1");
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-batch-2");
+    await ctx.sheetsSync.flush();
+    assert.equal(ctx.sheetsSync.getPendingCount(), 2);
+
+    online = true;
+    const step1Res = await fetch(`${ctx.server.url}/api/v1/sync/sheets/flush`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ maxItems: 1 }),
+    });
+    assert.equal(step1Res.status, 200);
+    const step1 = (await step1Res.json()) as {
+      data: { enabled: boolean; sentCount: number; pendingCount: number };
+    };
+    assert.deepEqual(step1.data, { enabled: true, sentCount: 1, pendingCount: 1 });
+
+    const step2Res = await fetch(`${ctx.server.url}/api/v1/sync/sheets/flush`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ maxItems: 1 }),
+    });
+    assert.equal(step2Res.status, 200);
+    const step2 = (await step2Res.json()) as {
+      data: { enabled: boolean; sentCount: number; pendingCount: number };
+    };
+    assert.deepEqual(step2.data, { enabled: true, sentCount: 1, pendingCount: 0 });
+    assert.equal(delivered.length, 2);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("BUG-265: drain berbatas yang sukses menjadwalkan retry latar belakang untuk penjualan sisa", async () => {
+  const secret = makeSyntheticSecret();
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    retryBaseDelayMs: 30,
+    retryMaxDelayMs: 60,
+  });
+  try {
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-bg-1");
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-bg-2");
+    await ctx.sheetsSync.flush();
+    assert.equal(ctx.sheetsSync.getPendingCount(), 2);
+
+    online = true;
+    const bounded = await ctx.sheetsSync.syncNow({ maxItems: 1 });
+    assert.deepEqual(bounded, { enabled: true, sentCount: 1, pendingCount: 1 });
+    assert.equal(delivered.length, 1);
+
+    const deadline = Date.now() + 2000;
+    while (delivered.length < 2 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(delivered.length, 2);
+    assert.equal(ctx.sheetsSync.getPendingCount(), 0);
+  } finally {
+    await ctx.cleanup();
+  }
+});

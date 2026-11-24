@@ -808,6 +808,43 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   if (options.checkout) {
     routes.push(...createCheckoutRoutes(options.checkout, options.sheetsSync));
   }
+  routes.push(
+    {
+      method: "GET",
+      pattern: /^\/sync\/sheets\/status$/,
+      roles: ["ADMIN"],
+      handler: () => ({
+        data: {
+          enabled: Boolean(options.sheetsSync?.enabled),
+          pendingCount: options.sheetsSync?.getPendingCount() ?? 0,
+        },
+      }),
+    },
+    {
+      method: "POST",
+      pattern: /^\/sync\/sheets\/flush$/,
+      roles: ["ADMIN"],
+      handler: async (ctx) => {
+        const bodyObj =
+          ctx.body !== null && typeof ctx.body === "object" && !Array.isArray(ctx.body)
+            ? (ctx.body as Record<string, unknown>)
+            : null;
+        const rawMaxItems = bodyObj?.maxItems;
+        const maxItems =
+          typeof rawMaxItems === "number" &&
+          Number.isInteger(rawMaxItems) &&
+          rawMaxItems >= 1 &&
+          rawMaxItems <= 100
+            ? rawMaxItems
+            : undefined;
+        return {
+          data: options.sheetsSync
+            ? await options.sheetsSync.syncNow(maxItems !== undefined ? { maxItems } : undefined)
+            : { enabled: false, sentCount: 0, pendingCount: 0 },
+        };
+      },
+    },
+  );
   if (options.reports) {
     routes.push(...createReportRoutes(options.reports));
   }

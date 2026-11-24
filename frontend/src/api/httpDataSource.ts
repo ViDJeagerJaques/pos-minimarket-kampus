@@ -874,6 +874,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     path: string,
     body?: unknown,
     authToken: string | null = token,
+    requestTimeoutMs: number = timeoutMs,
   ): Promise<unknown> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (body !== undefined) {
@@ -886,7 +887,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort();
-    }, timeoutMs);
+    }, requestTimeoutMs);
 
     let response: Response;
     let text: string;
@@ -1398,6 +1399,39 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     async resetAccountPassword(userId, input) {
       const data = await request("POST", `/users/${encodeURIComponent(String(userId))}/password`, input, requireToken());
       if (!isRecord(data) || data.changed !== true) throw invalidResponse("Reset sandi akun tidak dapat dikonfirmasi.");
+    },
+    async getSheetsSyncStatus() {
+      const data = await request("GET", "/sync/sheets/status", undefined, requireToken());
+      if (!isRecord(data) || typeof data.enabled !== "boolean" || !isNonNegativeInt(data.pendingCount)) {
+        throw invalidResponse("Status sinkronisasi spreadsheet tidak valid.");
+      }
+      return { enabled: data.enabled, pendingCount: data.pendingCount };
+    },
+    async syncSheetsNow() {
+      const authToken = requireToken();
+      const stepTimeoutMs = Math.max(timeoutMs, 15_000);
+      const maxSteps = 500;
+      let totalSent = 0;
+      let enabled = false;
+      let pendingCount = 0;
+      for (let step = 0; step < maxSteps; step += 1) {
+        const data = await request("POST", "/sync/sheets/flush", { maxItems: 1 }, authToken, stepTimeoutMs);
+        if (
+          !isRecord(data) ||
+          typeof data.enabled !== "boolean" ||
+          !isNonNegativeInt(data.sentCount) ||
+          !isNonNegativeInt(data.pendingCount)
+        ) {
+          throw invalidResponse("Hasil sinkronisasi spreadsheet tidak valid.");
+        }
+        enabled = data.enabled;
+        pendingCount = data.pendingCount;
+        totalSent += data.sentCount;
+        if (!enabled || pendingCount === 0 || data.sentCount === 0) {
+          break;
+        }
+      }
+      return { enabled, sentCount: totalSent, pendingCount };
     },
     listAccounts,
     createAccount,

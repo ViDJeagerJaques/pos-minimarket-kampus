@@ -24,10 +24,21 @@ type QueueState = {
   sentKeys: string[];
 };
 
+export type SheetsSyncFlushResult = {
+  enabled: boolean;
+  sentCount: number;
+  pendingCount: number;
+};
+
+export type SheetsSyncFlushOptions = {
+  maxItems?: number;
+};
+
 export type SheetsSyncService = {
   readonly enabled: boolean;
   notifySaleCommitted(result: CommitCheckoutResult, cashierUsername: string): void;
   flush(): Promise<void>;
+  syncNow(options?: SheetsSyncFlushOptions): Promise<SheetsSyncFlushResult>;
   stop(): void;
   getPendingCount(): number;
 };
@@ -282,6 +293,9 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
       enabled: false,
       notifySaleCommitted() {},
       async flush() {},
+      async syncNow() {
+        return { enabled: false, sentCount: 0, pendingCount: 0 };
+      },
       stop() {},
       getPendingCount() {
         return 0;
@@ -312,6 +326,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   }
 
   let activeFlush: Promise<void> | null = null;
+  let inFlightItem: Promise<void> | null = null;
   let flushRequestedAgain = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let consecutiveFailures = 0;
@@ -403,10 +418,27 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     }
   }
 
-  async function drainQueue(): Promise<void> {
+  async function drainQueue(maxItems?: number): Promise<void> {
+    let processed = 0;
     while (!stopped && state.pending.length > 0) {
+      if (maxItems !== undefined && processed >= maxItems) {
+        scheduleRetry();
+        break;
+      }
       const next = state.pending[0]!;
-      const delivered = await postOne(next);
+      let delivered = false;
+      const attempt = (async () => {
+        delivered = await postOne(next);
+      })();
+      inFlightItem = attempt;
+      try {
+        await attempt;
+      } finally {
+        if (inFlightItem === attempt) {
+          inFlightItem = null;
+        }
+      }
+      processed += 1;
       if (!delivered) {
         consecutiveFailures += 1;
         scheduleRetry();
@@ -435,7 +467,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     }
   }
 
-  function flush(): Promise<void> {
+  function flush(maxItems?: number): Promise<void> {
     if (stopped) {
       return Promise.resolve();
     }
@@ -447,10 +479,16 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
       try {
         do {
           flushRequestedAgain = false;
-          await drainQueue();
-        } while (!stopped && flushRequestedAgain && state.pending.length > 0);
+          await drainQueue(maxItems);
+        } while (!stopped && flushRequestedAgain && state.pending.length > 0 && maxItems === undefined);
       } finally {
+        const shouldContinueBackground =
+          !stopped && flushRequestedAgain && state.pending.length > 0 && maxItems !== undefined;
         activeFlush = null;
+        if (shouldContinueBackground) {
+          flushRequestedAgain = false;
+          void flush();
+        }
       }
     })();
     return activeFlush;
@@ -485,6 +523,25 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     void flush();
   }
 
+  async function syncNow(syncOptions?: SheetsSyncFlushOptions): Promise<SheetsSyncFlushResult> {
+    const beforeAckCount = durableAckKeys.size;
+    const maxItems = syncOptions?.maxItems;
+    if (maxItems !== undefined && activeFlush) {
+      if (inFlightItem) {
+        await inFlightItem;
+      } else {
+        await activeFlush;
+      }
+    } else {
+      await flush(maxItems);
+    }
+    return {
+      enabled: true,
+      sentCount: Math.max(0, durableAckKeys.size - beforeAckCount),
+      pendingCount: state.pending.length,
+    };
+  }
+
   function stop(): void {
     stopped = true;
     clearRetryTimer();
@@ -494,6 +551,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     enabled: true,
     notifySaleCommitted,
     flush,
+    syncNow,
     stop,
     getPendingCount() {
       return state.pending.length;

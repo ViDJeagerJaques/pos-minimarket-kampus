@@ -398,6 +398,56 @@ body {
   min-width: 160px;
 }
 
+.catalog-search__filter {
+  flex: 0 1 160px;
+  min-width: 130px;
+}
+
+.products-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.products-header__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+.stock-cell__wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.stock-cell__qty {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-cell .badge {
+  min-width: 96px;
+  justify-content: center;
+  text-align: center;
+}
+
+.btn--outline-danger {
+  background: transparent;
+  color: var(--color-danger, #b91c1c);
+  border: 1px solid var(--color-danger, #b91c1c);
+}
+
+.btn--outline-danger:hover:not(:disabled) {
+  background: rgba(185, 28, 28, 0.08);
+}
+
 .catalog-category-bar {
   display: flex;
   flex-wrap: wrap;
@@ -560,6 +610,7 @@ body {
 
 /* Pencarian manual */
 .search {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -576,12 +627,19 @@ body {
 }
 
 .search__results {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
   list-style: none;
-  margin: 0;
+  margin: 4px 0 0;
   padding: 0;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  max-height: 220px;
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.16);
+  max-height: 260px;
   overflow-y: auto;
 }
 
@@ -592,6 +650,10 @@ body {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
+}
+
+.search__item--active {
+  background: var(--color-surface-alt, #eef2ff);
 }
 
 .search__item:last-child {
