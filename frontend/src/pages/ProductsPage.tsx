@@ -84,6 +84,9 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [appliedQuery, setAppliedQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [listCategoryId, setListCategoryId] = useState<string>("all");
 
   const [status, setStatus] = useState<Status | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -451,17 +454,49 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   }
 
   const canCreateProduct = categories !== null && categories.length > 0;
+  const searchNeedle = searchInput.trim().toLowerCase();
+  const visibleProducts = products === null
+    ? null
+    : products.filter((product) => {
+        if (listCategoryId !== "all" && product.categoryId !== Number(listCategoryId)) {
+          return false;
+        }
+        if (searchNeedle.length === 0) {
+          return true;
+        }
+        return (
+          product.name.toLowerCase().includes(searchNeedle) ||
+          product.sku.toLowerCase().includes(searchNeedle) ||
+          product.categoryName.toLowerCase().includes(searchNeedle) ||
+          product.barcodes.some((code) => code.toLowerCase().includes(searchNeedle))
+        );
+      });
+  const searchSuggestions =
+    showSuggestions && searchNeedle.length > 0 && visibleProducts !== null
+      ? visibleProducts.slice(0, 6)
+      : [];
 
   return (
     <section className="panel" aria-labelledby="products-title" aria-busy={isLoading}>
       <h1 id="products-title" className="page-title">
-        {view === "list" ? "Daftar Barang" : "Barang/Stok"}{" "}
-        <span className="chip chip--warning">ADMIN · katalog</span>
+        {view === "list" ? (
+          "Daftar Barang"
+        ) : (
+          <>
+            Barang/Stok <span className="chip chip--warning">ADMIN · katalog</span>
+          </>
+        )}
       </h1>
       <p className="muted">
-        Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
-        setiap perubahan; CASHIER yang memanggil endpoint tulis menerima <strong>403</strong>.
-        Halaman ini tidak membuat penjualan atau mutasi stok.
+        {view === "list" ? (
+          "Kelola daftar barang, harga jual, status aktif, dan barcode katalog toko."
+        ) : (
+          <>
+            Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
+            setiap perubahan; CASHIER yang memanggil endpoint tulis menerima <strong>403</strong>.
+            Halaman ini tidak membuat penjualan atau mutasi stok.
+          </>
+        )}
       </p>
       {dataSource.catalogMode === "DEMO" && (
         <StatusMessage
@@ -766,41 +801,103 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
         </form>
       )}
 
-      <h2 className="section-title">Daftar barang</h2>
+      {view !== "list" && <h2 className="section-title">Daftar barang</h2>}
       <form
         className="catalog-search"
         onSubmit={(event) => {
           event.preventDefault();
-          const data = new FormData(event.currentTarget);
-          setAppliedQuery(String(data.get("query") ?? ""));
+          setShowSuggestions(false);
+          setAppliedQuery(searchInput.trim());
         }}
         role="search"
         aria-label="Cari produk admin"
       >
-        <label htmlFor={searchId} className="field-label">
-          Cari produk
-        </label>
-        <input id={searchId} className="input" type="search" name="query" maxLength={80} />
-        <Button type="submit">Cari</Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setAppliedQuery("");
-            const form = document.getElementById(searchId)?.closest("form");
-            if (form instanceof HTMLFormElement) {
-              form.reset();
-            }
-          }}
-        >
-          Tampilkan semua
-        </Button>
+        <div className="catalog-search__field">
+          <label htmlFor={searchId} className="field-label">
+            Cari produk
+          </label>
+          <input
+            id={searchId}
+            className="input"
+            type="search"
+            name="query"
+            maxLength={80}
+            placeholder="Ketik nama, SKU, atau barcode…"
+            value={searchInput}
+            onFocus={() => setShowSuggestions(true)}
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              setShowSuggestions(true);
+            }}
+          />
+          {searchSuggestions.length > 0 && (
+            <ul className="catalog-suggestions" role="listbox" aria-label="Saran produk">
+              {searchSuggestions.map((item) => (
+                <li key={item.id} role="option" aria-selected={false}>
+                  <button
+                    type="button"
+                    className="catalog-suggestions__item"
+                    onClick={() => {
+                      setSearchInput(item.name);
+                      setShowSuggestions(false);
+                    }}
+                  >
+                    <span>{item.name}</span>
+                    <span className="muted"> · {item.sku}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="catalog-search__actions">
+          <Button type="submit">Cari</Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setSearchInput("");
+              setAppliedQuery("");
+              setListCategoryId("all");
+              setShowSuggestions(false);
+            }}
+          >
+            Tampilkan semua
+          </Button>
+        </div>
       </form>
+      {categories !== null && categories.length > 0 && (
+        <div className="catalog-category-bar" role="group" aria-label="Filter kategori barang">
+          <Button
+            type="button"
+            variant={listCategoryId === "all" ? "primary" : "secondary"}
+            aria-pressed={listCategoryId === "all"}
+            onClick={() => setListCategoryId("all")}
+          >
+            Semua
+          </Button>
+          {categories.map((cat) => {
+            const selected = listCategoryId === String(cat.id);
+            return (
+              <Button
+                key={cat.id}
+                type="button"
+                variant={selected ? "primary" : "secondary"}
+                aria-pressed={selected}
+                onClick={() => setListCategoryId(String(cat.id))}
+              >
+                {cat.name}
+              </Button>
+            );
+          })}
+        </div>
+      )}
 
-      {!loadError && products === null && <p className="muted">Memuat katalog…</p>}
-      {!loadError && products !== null && products.length === 0 && (
+      {!loadError && visibleProducts === null && <p className="muted">Memuat katalog…</p>}
+      {!loadError && visibleProducts !== null && visibleProducts.length === 0 && (
         <p className="muted">Belum ada produk yang cocok.</p>
       )}
-      {!loadError && products !== null && products.length > 0 && (
+      {!loadError && visibleProducts !== null && visibleProducts.length > 0 && (
         <div className="table-wrap">
           <table className="table" aria-label="Daftar barang">
             <thead>
@@ -820,7 +917,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
               </tr>
             </thead>
             <tbody>
-              {products.map((product) => (
+              {visibleProducts.map((product) => (
                 <tr key={product.id}>
                   <td>
                     <code>{product.sku}</code>
@@ -877,7 +974,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
               ))}
             </tbody>
           </table>
-          {products.length === MAX_PRODUCTS && (
+          {products !== null && products.length === MAX_PRODUCTS && (
             <p className="muted" role="note">
               Menampilkan 100 produk pertama. Gunakan pencarian untuk produk lainnya.
             </p>

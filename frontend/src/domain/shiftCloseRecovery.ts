@@ -1,4 +1,4 @@
-export interface PendingShiftClose { shiftId: number; closeKey: string; declaredCashRp: number }
+export interface PendingShiftClose { shiftId: number; closeKey: string; declaredCashRp: number; varianceNote?: string | null }
 export function closePrefix(userId: number): string { return `pos.shift.close.${userId}.`; }
 export function pendingClose(userId: number): { key: string; value: PendingShiftClose } | null {
   const prefix = closePrefix(userId);
@@ -10,9 +10,18 @@ export function pendingClose(userId: number): { key: string; value: PendingShift
   const v = value as Record<string, unknown>;
   if (typeof v.shiftId !== "number" || !Number.isSafeInteger(v.shiftId) || v.shiftId <= 0 ||
       typeof v.closeKey !== "string" || !v.closeKey || key !== `${prefix}${v.closeKey}` ||
-      typeof v.declaredCashRp !== "number" || !Number.isSafeInteger(v.declaredCashRp) || v.declaredCashRp < 0 || v.declaredCashRp > 1_000_000_000)
+      typeof v.declaredCashRp !== "number" || !Number.isSafeInteger(v.declaredCashRp) || v.declaredCashRp < 0 || v.declaredCashRp > 1_000_000_000 ||
+      (v.varianceNote !== undefined && v.varianceNote !== null && typeof v.varianceNote !== "string"))
     throw new Error("Rekaman tidak valid");
-  return { key, value: { shiftId: v.shiftId, closeKey: v.closeKey, declaredCashRp: v.declaredCashRp } };
+  return {
+    key,
+    value: {
+      shiftId: v.shiftId,
+      closeKey: v.closeKey,
+      declaredCashRp: v.declaredCashRp,
+      ...(typeof v.varianceNote === "string" ? { varianceNote: v.varianceNote } : {}),
+    },
+  };
 }
 export function hasPendingClose(userId: number): boolean {
   try { return pendingClose(userId) !== null; } catch { return true; }

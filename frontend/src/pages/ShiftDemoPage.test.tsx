@@ -9,9 +9,9 @@ import { ShiftDemoPage } from "./ShiftDemoPage";
 
 const user: SessionUser = { userId: 2, username: "kasir", displayName: "Kasir", role: "CASHIER" };
 const preview = { shiftId: 7, openingCashRp: 100000, cashTotalRp: 500000, qrisTotalRp: 300000, expectedCashRp: 600000, saleCount: 2 };
-const result = (closeKey: string): ShiftClosing => ({ shiftId: 7, closeKey, requestHash: "a".repeat(64), closedAtMs: 123, closedBy: 2, openingCashRp: 100000, expectedCashRp: 600000, declaredCashRp: 590000, varianceRp: -10000, totals: { cashRp: 500000, qrisManualRp: 300000, totalSalesRp: 800000, saleCount: 2 } });
+const result = (closeKey: string, varianceNote: string | null = "Selisih uji"): ShiftClosing => ({ shiftId: 7, closeKey, requestHash: "a".repeat(64), closedAtMs: 123, closedBy: 2, openingCashRp: 100000, expectedCashRp: 600000, declaredCashRp: 590000, varianceRp: -10000, varianceNote, totals: { cashRp: 500000, qrisManualRp: 300000, totalSalesRp: 800000, saleCount: 2 } });
 function source(overrides: Partial<PosDataSource> = {}): PosDataSource {
-  return { ...createMockDataSource({ latencyMs: 0 }), authMode: "LOCAL_API", getCurrentShift: vi.fn(async () => ({ id: 7, cashierId: 2, openedAtMs: 1, openingCashRp: 100000 })), getShiftClosePreview: vi.fn(async () => preview), getShiftClosing: vi.fn(async () => { throw new ApiError(404, "NOT_FOUND", "Belum ada"); }), closeShift: vi.fn(async (_id, input) => result(input.closeKey)), ...overrides };
+  return { ...createMockDataSource({ latencyMs: 0 }), authMode: "LOCAL_API", getCurrentShift: vi.fn(async () => ({ id: 7, cashierId: 2, openedAtMs: 1, openingCashRp: 100000 })), getShiftClosePreview: vi.fn(async () => preview), getShiftClosing: vi.fn(async () => { throw new ApiError(404, "NOT_FOUND", "Belum ada"); }), closeShift: vi.fn(async (_id, input) => result(input.closeKey, input.varianceNote ?? null)), ...overrides };
 }
 function show(dataSource: PosDataSource, currentUser = user) {
   const onPendingChange = vi.fn();
@@ -20,6 +20,7 @@ function show(dataSource: PosDataSource, currentUser = user) {
 }
 async function confirm(u: ReturnType<typeof userEvent.setup>) {
   await u.type(await screen.findByLabelText("Uang dihitung (Rp)"), "590000");
+  await u.type(screen.getByLabelText("Catatan/Alasan Selisih"), "Selisih uji");
   await u.click(screen.getByRole("button", { name: "Tutup shift" }));
   await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
 }
@@ -41,6 +42,7 @@ describe("TASK-023 penutupan shift", () => {
     const api = source({ closeShift: vi.fn<PosDataSource["closeShift"]>((_id, input) => new Promise<ShiftClosing>(res => { resolve = () => res(result(input.closeKey)); })) });
     const { u } = show(api);
     await u.type(await screen.findByLabelText("Uang dihitung (Rp)"), "590000");
+    await u.type(screen.getByLabelText("Catatan/Alasan Selisih"), "Selisih uji");
     await u.click(screen.getByRole("button", { name: "Tutup shift" }));
     const button = screen.getByRole("button", { name: "Ya, tutup shift" });
     fireEvent.click(button); fireEvent.click(button);
@@ -102,6 +104,7 @@ describe("TASK-023 penutupan shift", () => {
   it("gagal menyimpan identitas lokal tidak mengirim penutupan", async () => {
     const api = source(); const { u } = show(api);
     await u.type(await screen.findByLabelText("Uang dihitung (Rp)"), "590000");
+    await u.type(screen.getByLabelText("Catatan/Alasan Selisih"), "Selisih uji");
     await u.click(screen.getByRole("button", { name: "Tutup shift" }));
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("gagal"); });
     await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
@@ -132,4 +135,45 @@ it("BUG-210/214/215: refresh total, input ribuan, dan tanda selisih", async () =
   expect(screen.getByRole("row", { name: /Total penghasilan/ }).textContent).toContain("Rp810.000");
   await u.clear(input); await u.type(input, "610000");
   expect(screen.getByText(/Perkiraan selisih/).textContent).toBe("Perkiraan selisih: Rp0");
+});
+
+it("BUG-230/231/232/233: tata letak, warna selisih, catatan wajib saat selisih != 0, dan konfirmasi bernomor shift", async () => {
+  const api = source();
+  const { u } = show(api);
+  const input = await screen.findByLabelText("Uang dihitung (Rp)");
+  expect(input.closest(".shift-close-row")).toBeTruthy();
+
+  await u.type(input, "600000");
+  expect(screen.queryByLabelText("Catatan/Alasan Selisih")).toBeNull();
+  const closeBtn = screen.getByRole("button", { name: "Tutup shift" }) as HTMLButtonElement;
+  expect(closeBtn.disabled).toBe(false);
+
+  await u.clear(input);
+  await u.type(input, "620000");
+  const plusSpan = screen.getByText(/Perkiraan selisih/).querySelector(".variance--positive");
+  expect(plusSpan).toBeTruthy();
+
+  await u.clear(input);
+  await u.type(input, "590000");
+  const minusSpan = screen.getByText(/Perkiraan selisih/).querySelector(".variance--negative");
+  expect(minusSpan).toBeTruthy();
+  const noteInput = screen.getByLabelText("Catatan/Alasan Selisih");
+  expect(closeBtn.disabled).toBe(true);
+
+  await u.type(noteInput, "Uang receh kurang");
+  expect(closeBtn.disabled).toBe(false);
+  await u.click(closeBtn);
+  const dialog = screen.getByRole("dialog");
+  expect(dialog.textContent).toContain("#7");
+  expect(dialog.textContent).toContain("Rp590.000");
+  expect(dialog.textContent).toContain("-Rp10.000");
+
+  await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
+  expect(await screen.findByRole("heading", { name: "Penutupan tersimpan" })).toBeTruthy();
+  expect(api.closeShift).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({ declaredCashRp: 590000, varianceNote: "Uang receh kurang" }),
+  );
+  expect(screen.getByText(/Catatan selisih/).textContent).toContain("Uang receh kurang");
+  expect(document.querySelector(".variance--negative")).toBeTruthy();
 });

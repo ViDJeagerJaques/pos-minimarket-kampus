@@ -768,6 +768,18 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
         ),
       }),
     },
+    {
+      method: "POST",
+      pattern: /^\/users\/(?<id>\d+)\/password$/,
+      roles: ["ADMIN"],
+      handler: (ctx) => ({
+        data: auth.resetUserPassword(
+          ctx.actor as SessionUser,
+          Number(ctx.params.id),
+          asObject(ctx.body),
+        ),
+      }),
+    },
   ];
 
   if (options.catalog) {

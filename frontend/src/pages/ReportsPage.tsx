@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../api/errors";
 import type { PaymentReport, PosDataSource, SessionUser } from "../api/types";
-import { buildCsv, buildExcelHtml, triggerFileDownload } from "../domain/iposFeatures";
+import { buildExcelWorkbook } from "../domain/excel";
+import { buildCsv, triggerFileDownload } from "../domain/iposFeatures";
 import { Button } from "../components/Button";
 import { DailyReportPanel } from "../components/DailyReportPanel";
 import { MoneyText } from "../components/MoneyText";
@@ -186,7 +187,11 @@ export function ReportsPage({ dataSource, currentUser, onSessionExpired }: Repor
                   s.evidenceRef ?? "",
                   s.totalRp,
                 ]);
-                triggerFileDownload("laporan-qris.xls", buildExcelHtml("Laporan Pembayaran QRIS", headers, rows), "application/vnd.ms-excel;charset=utf-8");
+                triggerFileDownload(
+                  "laporan-qris.xlsx",
+                  buildExcelWorkbook("Laporan Pembayaran QRIS", headers, rows),
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                );
               }}
             >
               Ekspor Excel

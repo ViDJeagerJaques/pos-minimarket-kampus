@@ -44,6 +44,7 @@ export type ShiftClosingDto = {
   expectedCashRp: number;
   declaredCashRp: number | null;
   varianceRp: number | null;
+  varianceNote: string | null;
   totals: ShiftClosingTotals;
 };
 
@@ -59,6 +60,7 @@ export type ShiftClosePreviewDto = {
 export type CloseShiftInput = {
   closeKey?: unknown;
   declaredCashRp?: unknown;
+  varianceNote?: unknown;
 };
 
 export type ShiftService = {
@@ -72,6 +74,30 @@ export type ShiftService = {
 const MAX_OPENING_CASH_RP = 1_000_000_000;
 const MAX_CLOSE_KEY_LENGTH = 80;
 const MAX_DECLARED_CASH_RP = 1_000_000_000;
+const MAX_VARIANCE_NOTE_LENGTH = 500;
+
+function normalizeVarianceNote(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new ValidationError("Catatan selisih harus berupa teks.", "varianceNote");
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (trimmed.length > MAX_VARIANCE_NOTE_LENGTH) {
+    throw new ValidationError(
+      `Catatan selisih maksimal ${MAX_VARIANCE_NOTE_LENGTH} karakter.`,
+      "varianceNote",
+    );
+  }
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new ValidationError("Catatan selisih memuat karakter kontrol.", "varianceNote");
+  }
+  return trimmed;
+}
 
 function normalizeOpeningCash(value: unknown): number | null {
   if (value === undefined || value === null) {
@@ -209,7 +235,7 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
   function loadClosing(shiftId: number, closeKey: string, requestHash: string): ShiftClosingDto {
     const closing = db
       .prepare(
-        `SELECT shift_id, close_key, closed_by, declared_cash_rp, variance_rp
+        `SELECT shift_id, close_key, closed_by, declared_cash_rp, variance_rp, variance_note
          FROM shift_closings WHERE close_key = ?`,
       )
       .get(closeKey) as
@@ -219,6 +245,7 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
           closed_by: number;
           declared_cash_rp: number | null;
           variance_rp: number | null;
+          variance_note: string | null;
         }
       | undefined;
     if (!closing || Number(closing.shift_id) !== shiftId) {
@@ -266,6 +293,7 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
       declaredCashRp:
         closing.declared_cash_rp === null ? null : Number(closing.declared_cash_rp),
       varianceRp: closing.variance_rp === null ? null : Number(closing.variance_rp),
+      varianceNote: closing.variance_note === null ? null : String(closing.variance_note),
       totals: {
         cashRp,
         qrisManualRp,
@@ -348,11 +376,13 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
       const shiftId = shiftIdInput;
       const closeKey = normalizeCloseKey(input?.closeKey);
       const declaredCashRp = normalizeDeclaredCash(input?.declaredCashRp);
+      const varianceNote = normalizeVarianceNote(input?.varianceNote);
       const hash = computeShiftCloseHash({
         shiftId,
         cashierId: actor.userId,
         closeKey,
         declaredCashRp,
+        varianceNote,
       });
 
       db.exec("BEGIN IMMEDIATE");
@@ -402,14 +432,20 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
           shift.opening_cash_rp === null ? null : Number(shift.opening_cash_rp);
         const expectedCashRp = (openingCashRp ?? 0) + cashRp;
         const varianceRp = declaredCashRp === null ? null : declaredCashRp - expectedCashRp;
+        if (varianceRp !== null && varianceRp !== 0 && varianceNote === null) {
+          throw new ValidationError(
+            "Catatan selisih wajib diisi jika terdapat selisih kas.",
+            "varianceNote",
+          );
+        }
         const closedAtMs = now();
 
         try {
           db.prepare(
             `INSERT INTO shift_closings
-               (shift_id, close_key, request_hash, closed_by, declared_cash_rp, variance_rp)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-          ).run(shiftId, closeKey, hash.bytes, actor.userId, declaredCashRp, varianceRp);
+               (shift_id, close_key, request_hash, closed_by, declared_cash_rp, variance_rp, variance_note)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          ).run(shiftId, closeKey, hash.bytes, actor.userId, declaredCashRp, varianceRp, varianceNote);
         } catch (error) {
           if (errorMessage(error).includes("UNIQUE constraint failed")) {
             throw new CloseIdempotencyConflictError();
@@ -441,6 +477,7 @@ export function createShiftService(db: DatabaseSync, deps: { now?: () => number 
           expectedCashRp,
           declaredCashRp,
           varianceRp,
+          varianceNote,
           totals: {
             cashRp,
             qrisManualRp,

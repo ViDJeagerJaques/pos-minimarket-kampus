@@ -1672,45 +1672,47 @@ export function CashierPage({
 
       {phase.kind === "success" && (
         <div className="dialog-backdrop">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="success-title">
+          <div className="dialog dialog--receipt" role="dialog" aria-modal="true" aria-labelledby="success-title">
             <h2 id="success-title" className="dialog__title">Transaksi tersimpan</h2>
-            <p>
-              Nomor penjualan <strong>{phase.result.saleNo}</strong> · status{" "}
-              <strong>{phase.result.status}</strong>.
-            </p>
-            {phase.result.payment.method === "QRIS_MANUAL" ? (
-              <>
+            <div className="dialog__body">
+              <p>
+                Nomor penjualan <strong>{phase.result.saleNo}</strong> · status{" "}
+                <strong>{phase.result.status}</strong>.
+              </p>
+              {phase.result.payment.method === "QRIS_MANUAL" ? (
+                <>
+                  <p>
+                    <span className="badge badge--ok">TERVERIFIKASI</span> · Total{" "}
+                    <MoneyText amountRp={phase.result.totalRp} /> · kembalian{" "}
+                    <MoneyText amountRp={phase.result.payment.changeRp} />.
+                  </p>
+                  {phase.result.qrisVerification?.status === "verified" && (
+                    <p className="muted">
+                      Diverifikasi kasir #{phase.result.qrisVerification.verifiedBy} pada{" "}
+                      {formatShiftTime(phase.result.qrisVerification.verifiedAtMs)} oleh backend. QRIS tidak masuk kas fisik.
+                    </p>
+                  )}
+                </>
+              ) : (
                 <p>
-                  <span className="badge badge--ok">TERVERIFIKASI</span> · Total{" "}
-                  <MoneyText amountRp={phase.result.totalRp} /> · kembalian{" "}
+                  Total <MoneyText amountRp={phase.result.totalRp} /> · uang diterima{" "}
+                  <MoneyText amountRp={phase.result.payment.cashReceivedRp} /> · kembalian{" "}
                   <MoneyText amountRp={phase.result.payment.changeRp} />.
                 </p>
-                {phase.result.qrisVerification?.status === "verified" && (
-                  <p className="muted">
-                    Diverifikasi kasir #{phase.result.qrisVerification.verifiedBy} pada{" "}
-                    {formatShiftTime(phase.result.qrisVerification.verifiedAtMs)} oleh backend. QRIS tidak masuk kas fisik.
-                  </p>
-                )}
-              </>
-            ) : (
-              <p>
-                Total <MoneyText amountRp={phase.result.totalRp} /> · uang diterima{" "}
-                <MoneyText amountRp={phase.result.payment.cashReceivedRp} /> · kembalian{" "}
-                <MoneyText amountRp={phase.result.payment.changeRp} />.
-              </p>
-            )}
-            {pointsNotice && (
-              <p className="badge badge--ok" role="status">
-                {pointsNotice}
-              </p>
-            )}
-            <ReceiptPanel
-              dataSource={dataSource}
-              saleId={phase.result.saleId}
-              onSessionExpired={onSessionExpired}
-              autoLoad
-            />
-            <div className="dialog__actions">
+              )}
+              {pointsNotice && (
+                <p className="badge badge--ok" role="status">
+                  {pointsNotice}
+                </p>
+              )}
+              <ReceiptPanel
+                dataSource={dataSource}
+                saleId={phase.result.saleId}
+                onSessionExpired={onSessionExpired}
+                autoLoad
+              />
+            </div>
+            <div className="dialog__actions dialog__actions--sticky">
               <Button variant="primary" onClick={() => { const failedKey = removeRecovery(); openNextRecovery(failedKey ?? undefined); }}>
                 Transaksi baru
               </Button>

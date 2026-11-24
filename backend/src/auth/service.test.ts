@@ -643,3 +643,43 @@ test("BUG-207: perubahan sandi milik sendiri atomik, audit aman, seluruh sesi la
     assert.equal(audit[0].actor_id, admin.userId);
   } finally { db.close(); database.cleanup(); }
 });
+
+test("BUG-226: ADMIN dapat mereset sandi kasir dan mengakhiri sesi kasir; CASHIER ditolak", () => {
+  const { database, db, auth, sessions, admin, cashier } = setup();
+  try {
+    const cashierSession = auth.login({ username: cashier.username, password: CASHIER_PASSWORD });
+    const nextPassword = makeRuntimePassword("reset");
+
+    assert.throws(
+      () => auth.resetUserPassword(cashier, admin.userId, { newPassword: nextPassword }),
+      ForbiddenError,
+    );
+    assert.throws(
+      () => auth.resetUserPassword(admin, admin.userId, { newPassword: nextPassword }),
+      ValidationError,
+    );
+    assert.throws(
+      () => auth.resetUserPassword(admin, cashier.userId, { newPassword: "pendek" }),
+      ValidationError,
+    );
+
+    assert.deepEqual(
+      auth.resetUserPassword(admin, cashier.userId, { newPassword: nextPassword }),
+      { changed: true },
+    );
+    assert.equal(sessions.verify(cashierSession.token), null);
+    assert.throws(
+      () => auth.login({ username: cashier.username, password: CASHIER_PASSWORD }),
+      InvalidCredentialsError,
+    );
+    assert.ok(auth.login({ username: cashier.username, password: nextPassword }));
+    const audit = auditRows(db, "PASSWORD_CHANGED");
+    assert.equal(audit.length, 1);
+    assert.equal(audit[0].actor_id, admin.userId);
+    assert.equal(audit[0].entity_id, String(cashier.userId));
+    assert.equal(JSON.stringify(audit).includes(nextPassword), false);
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});

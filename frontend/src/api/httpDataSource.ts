@@ -343,9 +343,13 @@ function toShiftClosing(value: unknown): ShiftClosing {
       !isNonNegativeInt(value.totals.totalSalesRp) || !isNonNegativeInt(value.totals.saleCount)) {
     throw invalidResponse("Hasil tutup shift tidak valid.");
   }
+  if (value.varianceNote !== undefined && value.varianceNote !== null && typeof value.varianceNote !== "string") {
+    throw invalidResponse("Hasil tutup shift tidak valid.");
+  }
   return { shiftId: value.shiftId, closeKey: value.closeKey, requestHash: value.requestHash,
     closedAtMs: value.closedAtMs, closedBy: value.closedBy, openingCashRp: value.openingCashRp,
     expectedCashRp: value.expectedCashRp, declaredCashRp: value.declaredCashRp, varianceRp: value.varianceRp,
+    ...(value.varianceNote !== undefined ? { varianceNote: value.varianceNote } : {}),
     totals: { cashRp: value.totals.cashRp, qrisManualRp: value.totals.qrisManualRp,
       totalSalesRp: value.totals.totalSalesRp, saleCount: value.totals.saleCount } };
 }
@@ -1206,7 +1210,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     if (!isPositiveInt(shiftId)) throw new ApiError(422, "VALIDATION_ERROR", "Shift tidak valid.");
     return toShiftClosing(await request("GET", `/shifts/${shiftId}/close`, undefined, requireToken()));
   }
-  async function closeShift(shiftId: number, input: { closeKey: string; declaredCashRp: number }): Promise<ShiftClosing> {
+  async function closeShift(shiftId: number, input: { closeKey: string; declaredCashRp: number; varianceNote?: string | null }): Promise<ShiftClosing> {
     if (!isPositiveInt(shiftId) || !input.closeKey || !isNonNegativeInt(input.declaredCashRp) || input.declaredCashRp > 1_000_000_000)
       throw new ApiError(422, "VALIDATION_ERROR", "Data penutupan tidak valid.");
     return toShiftClosing(await request("POST", `/shifts/${shiftId}/close`, input, requireToken()));
@@ -1390,6 +1394,10 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     async changePassword(input) {
       const data = await request("POST", "/auth/password", input, requireToken());
       if (!isRecord(data) || data.changed !== true) throw invalidResponse("Perubahan sandi tidak dapat dikonfirmasi.");
+    },
+    async resetAccountPassword(userId, input) {
+      const data = await request("POST", `/users/${encodeURIComponent(String(userId))}/password`, input, requireToken());
+      if (!isRecord(data) || data.changed !== true) throw invalidResponse("Reset sandi akun tidak dapat dikonfirmasi.");
     },
     listAccounts,
     createAccount,

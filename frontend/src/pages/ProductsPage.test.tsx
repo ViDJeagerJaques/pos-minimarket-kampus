@@ -417,3 +417,48 @@ it("BUG-205/206: harga edit berformat ribuan dan badge stok mengikuti saldo", as
   await user.click(within(form).getByRole("button", { name: "Simpan perubahan" }));
   await waitFor(() => expect(updateProduct).toHaveBeenCalledWith(7, expect.objectContaining({ priceRp: 3000 })));
 });
+
+it("BUG-224/225/234: Daftar Barang memfilter langsung dengan saran, filter kategori, dan UI standar", async () => {
+  const user = userEvent.setup();
+  const dataSource = buildSource({
+    listCategories: vi.fn(async () => [
+      { id: 1, name: "Minuman" },
+      { id: 2, name: "Makanan" },
+    ]),
+    listCatalogProducts: vi.fn(async () => [
+      { ...PRODUCT, id: 7, sku: "SKU-001", name: "Teh Botol", categoryId: 1, categoryName: "Minuman" },
+      { ...PRODUCT, id: 8, sku: "SKU-002", name: "Roti Tawar", categoryId: 2, categoryName: "Makanan" },
+    ]),
+  });
+
+  render(
+    <ProductsPage
+      dataSource={dataSource}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText("Teh Botol");
+  expect(screen.getAllByRole("heading", { name: /Daftar Barang/i })).toHaveLength(1);
+  expect(screen.queryByText(/403/)).toBeNull();
+  const searchInput = screen.getByLabelText("Cari produk");
+  expect(searchInput.closest(".catalog-search")).toBeTruthy();
+
+  await user.type(searchInput, "Roti");
+  const table = screen.getByRole("table", { name: "Daftar barang" });
+  expect(within(table).getByText("Roti Tawar")).toBeTruthy();
+  expect(within(table).queryByText("Teh Botol")).toBeNull();
+  const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
+  expect(within(suggestions).getByText("Roti Tawar")).toBeTruthy();
+
+  await user.click(screen.getByRole("button", { name: "Tampilkan semua" }));
+  expect(within(table).getByText("Teh Botol")).toBeTruthy();
+  expect(within(table).getByText("Roti Tawar")).toBeTruthy();
+
+  const categoryGroup = screen.getByRole("group", { name: "Filter kategori barang" });
+  await user.click(within(categoryGroup).getByRole("button", { name: "Minuman" }));
+  expect(within(table).getByText("Teh Botol")).toBeTruthy();
+  expect(within(table).queryByText("Roti Tawar")).toBeNull();
+});

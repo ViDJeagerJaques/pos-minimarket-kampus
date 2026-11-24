@@ -143,6 +143,10 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       throw new ApiError(0, "DEMO_UNSUPPORTED", "Ubah sandi memerlukan backend lokal, tidak tersedia pada mock DEMO.");
     },
 
+    async resetAccountPassword() {
+      throw new ApiError(0, "DEMO_UNSUPPORTED", "Reset sandi akun memerlukan backend lokal, tidak tersedia pada mock DEMO.");
+    },
+
     async listAccounts(): Promise<AccountSummary[]> {
       callLog.push({ operation: "listAccounts", isMutation: false });
       await delay();

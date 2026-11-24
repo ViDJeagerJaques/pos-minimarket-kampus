@@ -71,6 +71,57 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
   const [confirmationPassword, setConfirmationPassword] = useState("");
   const [changing, setChanging] = useState(false);
   const passwordLock = useRef(false);
+  const [resetTarget, setResetTarget] = useState<AccountSummary | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const resetLock = useRef(false);
+
+  function closeResetDialog() {
+    if (resetting) return;
+    setResetTarget(null);
+    setResetPassword("");
+    setResetConfirm("");
+    setResetError(null);
+    setVisible((previous) => ({ ...previous, resetNew: false, resetConfirm: false }));
+  }
+
+  async function submitResetPassword(event: FormEvent) {
+    event.preventDefault();
+    if (!resetTarget || resetLock.current) return;
+    if (resetPassword.length < PASSWORD_MIN_LENGTH || resetPassword.length > 1024 || resetPassword !== resetConfirm) {
+      setResetError(`Isi sandi baru ${PASSWORD_MIN_LENGTH}-1024 karakter dan konfirmasi yang sama.`);
+      return;
+    }
+    resetLock.current = true;
+    setResetting(true);
+    setResetError(null);
+    try {
+      await dataSource.resetAccountPassword(resetTarget.id, { newPassword: resetPassword });
+      const targetUsername = resetTarget.username;
+      setResetTarget(null);
+      setResetPassword("");
+      setResetConfirm("");
+      setVisible((previous) => ({ ...previous, resetNew: false, resetConfirm: false }));
+      setStatus({
+        tone: "success",
+        text: `Kata sandi akun "${targetUsername}" berhasil direset. Sesi aktif akun tersebut telah diakhiri.`,
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.isSessionExpired) {
+        setResetTarget(null);
+        setResetPassword("");
+        setResetConfirm("");
+        onSessionExpired();
+      } else {
+        setResetError(error instanceof ApiError ? error.message : "Reset sandi gagal. Coba lagi.");
+      }
+    } finally {
+      resetLock.current = false;
+      setResetting(false);
+    }
+  }
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     if (passwordLock.current) return;
@@ -378,18 +429,40 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
                       )}
                     </td>
                     <td>
-                      {canDisable ? (
-                        <Button
-                          variant="destructive"
-                          onClick={() => setConfirmation({ kind: "disable", account })}
-                          disabled={updatingId !== null || isSubmitting}
-                          aria-label={`Nonaktifkan ${account.username}`}
-                        >
-                          {isUpdating ? "Menyimpan…" : "Nonaktifkan"}
-                        </Button>
-                      ) : (
-                        <span className="muted">{account.active ? "—" : "Akses ditolak saat login"}</span>
-                      )}
+                      <div className="table-actions">
+                        {account.id !== currentUser.userId && (
+                          <Button
+                            variant="secondary"
+                            onClick={() => {
+                              setResetTarget(account);
+                              setResetPassword("");
+                              setResetConfirm("");
+                              setResetError(null);
+                            }}
+                            disabled={updatingId !== null || isSubmitting || resetting}
+                            aria-label={`Ubah sandi ${account.username}`}
+                          >
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                            </svg>{" "}
+                            Reset sandi
+                          </Button>
+                        )}
+                        {canDisable ? (
+                          <Button
+                            variant="destructive"
+                            onClick={() => setConfirmation({ kind: "disable", account })}
+                            disabled={updatingId !== null || isSubmitting || resetting}
+                            aria-label={`Nonaktifkan ${account.username}`}
+                          >
+                            {isUpdating ? "Menyimpan…" : "Nonaktifkan"}
+                          </Button>
+                        ) : (
+                          account.id === currentUser.userId && <span className="muted">—</span>
+                        )}
+                        {!account.active && <span className="muted">Akses ditolak saat login</span>}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -421,6 +494,73 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
           onConfirm={handleConfirm}
           onCancel={() => setConfirmation(null)}
         />
+      )}
+      {resetTarget && (
+        <div className="dialog-backdrop">
+          <form
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reset-password-title"
+            onSubmit={submitResetPassword}
+            noValidate
+          >
+            <h2 id="reset-password-title" className="dialog__title">
+              Reset sandi akun
+            </h2>
+            <p className="muted">
+              Atur kata sandi baru untuk akun <strong>{resetTarget.username}</strong>. Semua sesi
+              aktif akun tersebut akan diakhiri oleh backend.
+            </p>
+            <div>
+              <label className="field-label" htmlFor="reset-password-new">
+                Sandi baru
+              </label>
+              <input
+                id="reset-password-new"
+                className="input"
+                type={visible.resetNew ? "text" : "password"}
+                autoComplete="new-password"
+                maxLength={1024}
+                value={resetPassword}
+                onChange={(event) => setResetPassword(event.target.value)}
+                disabled={resetting}
+                required
+              />
+              {visibility("resetNew", "sandi baru reset")}
+            </div>
+            <div>
+              <label className="field-label" htmlFor="reset-password-confirm">
+                Konfirmasi sandi baru
+              </label>
+              <input
+                id="reset-password-confirm"
+                className="input"
+                type={visible.resetConfirm ? "text" : "password"}
+                autoComplete="new-password"
+                maxLength={1024}
+                value={resetConfirm}
+                onChange={(event) => setResetConfirm(event.target.value)}
+                disabled={resetting}
+                required
+              />
+              {visibility("resetConfirm", "konfirmasi sandi baru reset")}
+            </div>
+            {resetError && (
+              <p className="field-error" role="alert">
+                {resetError}
+              </p>
+            )}
+            <div className="dialog__actions">
+              <Button type="button" variant="secondary" disabled={resetting} onClick={closeResetDialog}>
+                Batal
+              </Button>
+              <Button type="submit" variant="primary" disabled={resetting}>
+                {resetting ? "Menyimpan…" : "Simpan sandi baru"}
+              </Button>
+            </div>
+          </form>
+        </div>
       )}
     </section>
   );

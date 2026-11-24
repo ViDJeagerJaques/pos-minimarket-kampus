@@ -8,7 +8,7 @@ import {
   insertBaseFixture,
   migrateFresh,
 } from "../../db/test/helpers.ts";
-import { ForbiddenError } from "../auth/errors.ts";
+import { ForbiddenError, ValidationError } from "../auth/errors.ts";
 import type { SessionUser } from "../auth/session.ts";
 import { createCheckoutService } from "../checkout/service.ts";
 import { ShiftNotActiveError } from "../checkout/errors.ts";
@@ -335,4 +335,32 @@ test("pratinjau DEMO CASH/QRIS read-only konsisten dengan hasil tutup", () => {
     assert.deepEqual(shifts.getClosing(cashier, shift.id), closing);
     assert.throws(() => shifts.getClosePreview(cashier, shift.id), ShiftClosedError);
   } finally { db.close(); database.cleanup(); }
+});
+
+test("BUG-232: selisih kas wajib catatan selisih dan tersimpan di hasil penutupan", () => {
+  const { database, db, cashier, shifts, checkout, shift } = setup();
+  try {
+    commitCash(checkout, cashier, shift.id, "note-cash", 200);
+    const expected = OPENING_CASH_RP + CASH_SALES_RP;
+    assert.throws(
+      () =>
+        shifts.closeShift(cashier, shift.id, {
+          closeKey: "close-note-missing",
+          declaredCashRp: expected - 10_000,
+        }),
+      (error: unknown) => error instanceof ValidationError && error.field === "varianceNote",
+    );
+
+    const closing = shifts.closeShift(cashier, shift.id, {
+      closeKey: "close-note-ok",
+      declaredCashRp: expected - 10_000,
+      varianceNote: "Salah hitung uang kembalian",
+    });
+    assert.equal(closing.varianceRp, -10_000);
+    assert.equal(closing.varianceNote, "Salah hitung uang kembalian");
+    assert.deepEqual(shifts.getClosing(cashier, shift.id), closing);
+  } finally {
+    db.close();
+    database.cleanup();
+  }
 });

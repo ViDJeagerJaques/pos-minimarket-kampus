@@ -95,6 +95,7 @@ export interface ShiftClosing {
   shiftId: number; closeKey: string; requestHash: string; closedAtMs: number;
   closedBy: number; openingCashRp: number | null; expectedCashRp: number;
   declaredCashRp: number | null; varianceRp: number | null;
+  varianceNote?: string | null;
   totals: { cashRp: number; qrisManualRp: number; totalSalesRp: number; saleCount: number };
 }
 /** Metode bayar yang didukung: tunai dan QRIS manual (DEC-016 masih PENDING untuk SOP). */
@@ -405,6 +406,7 @@ export interface PosDataSource {
   login(username: string, password: string): Promise<LoginResult>;
   logout(): Promise<void>;
   changePassword(input: { oldPassword: string; newPassword: string }): Promise<void>;
+  resetAccountPassword(userId: number, input: { newPassword: string }): Promise<void>;
   /** `GET /auth/me`; profil/role diambil ulang dari backend, bukan dari UI. */
   getProfile(): Promise<SessionUser>;
   listAccounts(): Promise<AccountSummary[]>;
@@ -429,7 +431,7 @@ export interface PosDataSource {
   openShift(input?: { openingCashRp?: number }): Promise<ShiftSummary>;
   getShiftClosePreview(shiftId: number): Promise<ShiftClosePreview>;
   getShiftClosing(shiftId: number): Promise<ShiftClosing>;
-  closeShift(shiftId: number, input: { closeKey: string; declaredCashRp: number }): Promise<ShiftClosing>;
+  closeShift(shiftId: number, input: { closeKey: string; declaredCashRp: number; varianceNote?: string | null }): Promise<ShiftClosing>;
   /** Checkout dua fase TASK-016, dengan CASH dan QRIS_MANUAL (TASK-037). */
   prepareCheckout(input: PrepareCheckoutInput): Promise<PrepareCheckoutResult>;
   commitCheckout(input: CommitCheckoutInput): Promise<CommitCheckoutResult>;

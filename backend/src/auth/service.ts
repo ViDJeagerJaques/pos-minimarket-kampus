@@ -242,6 +242,30 @@ export function createAuthService(db: DatabaseSync, deps: AuthServiceDeps) {
       });
     },
 
+    resetUserPassword(actor: SessionUser, userId: unknown, input: { newPassword?: unknown }): { changed: true } {
+      requireAdmin(actor);
+      const id = assertId(userId, "userId");
+      const next = assertPassword(input?.newPassword);
+      if (id === actor.userId) {
+        throw new ValidationError("Gunakan formulir ubah sandi sendiri untuk mengubah sandi Anda.", "userId");
+      }
+      return withTransaction(() => {
+        assertActiveAdmin(actor);
+        const target = findUserRow(id);
+        db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(next), target.id);
+        writeAuthAudit(db, {
+          actorId: actor.userId,
+          action: "PASSWORD_CHANGED",
+          entityType: "users",
+          entityId: target.id,
+          details: { resetByAdmin: true },
+          nowMs: now(),
+        });
+        deps.sessions.revokeAllForUser(target.id);
+        return { changed: true };
+      });
+    },
+
     listUsers(actor: SessionUser): UserDto[] {
       requireAdmin(actor);
       const rows = db

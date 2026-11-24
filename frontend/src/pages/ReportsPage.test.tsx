@@ -103,4 +103,37 @@ describe("TASK-037 laporan QRIS terpisah dari kas", () => {
     const { onSessionExpired } = renderPage(source);
     await waitFor(() => expect(onSessionExpired).toHaveBeenCalledTimes(1));
   });
+
+  it("BUG-228: ekspor Excel Laporan menghasilkan file .xlsx asli dengan format tabel", async () => {
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn((blob: Blob) => {
+        blobs.push(blob);
+        return "blob:qris-xlsx";
+      }),
+      revokeObjectURL: vi.fn(),
+    });
+    const downloads: string[] = [];
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+
+    const source = sourceWith(REPORT);
+    const { user } = renderPage(source);
+    expect(await screen.findByText("Rincian QRIS terverifikasi")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Ekspor Excel" }));
+    expect(downloads).toEqual(["laporan-qris.xlsx"]);
+    const xlsx = new Uint8Array(await blobs[0]!.arrayBuffer());
+    expect(Array.from(xlsx.slice(0, 4))).toEqual([80, 75, 3, 4]);
+    const xml = new TextDecoder().decode(xlsx);
+    expect(xml).toContain("xl/tables/table1.xml");
+    expect(xml).toContain("autoFilter");
+    expect(xml).toContain("xl/styles.xml");
+    expect(xml).toContain("QRIS-001");
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
 });

@@ -166,6 +166,11 @@ describe("PR 50 UI integration", () => {
 
     await waitFor(() => expect(getSaleReceipt).toHaveBeenCalledWith(501));
     expect(await screen.findByText(/Poin pelanggan MHS001: \+1 poin/)).toBeTruthy();
+    const successDialog = screen.getByRole("dialog");
+    expect(successDialog.className).toContain("dialog--receipt");
+    expect(successDialog.querySelector(".dialog__body")).toBeTruthy();
+    expect(successDialog.querySelector(".dialog__actions--sticky")).toBeTruthy();
+    expect(await screen.findByTestId("receipt-text")).toBeTruthy();
   });
 
   it("CashierPage: BUG-076 runPrepare 401 memanggil onSessionExpired", async () => {
