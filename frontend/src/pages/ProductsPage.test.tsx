@@ -558,3 +558,63 @@ it("BUG-240: mengubah kata kunci pencarian live setelah submit mencari di luar h
   const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
   expect(within(suggestions).getByText("Teh Botol")).toBeTruthy();
 });
+
+it("BUG-241: gagal muat halaman lanjutan kategori menampilkan error dan tombol coba lagi tanpa pesan kosong palsu", async () => {
+  const user = userEvent.setup();
+  const firstHundred = Array.from({ length: 100 }, (_, index) => ({
+    ...PRODUCT,
+    id: index + 1,
+    sku: `MIN-${String(index + 1).padStart(3, "0")}`,
+    name: `Minuman ${index + 1}`,
+    categoryId: 1,
+    categoryName: "Minuman",
+    active: true,
+  }));
+  const food101 = {
+    ...PRODUCT,
+    id: 101,
+    sku: "MAK-101",
+    name: "Roti Lapis",
+    categoryId: 2,
+    categoryName: "Makanan",
+    active: true,
+  };
+  let failSecondPage = true;
+  const listCatalogProducts = vi.fn(async (options?: { offset?: number; includeInactive?: boolean }) => {
+    if ((options?.offset ?? 0) === 0) return firstHundred;
+    if (options?.offset === 100) {
+      if (options.includeInactive && failSecondPage) {
+        failSecondPage = false;
+        throw new ApiError(500, "INTERNAL_ERROR", "Gagal memuat halaman kategori.");
+      }
+      return options.includeInactive ? [food101] : [];
+    }
+    return [];
+  });
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [
+          { id: 1, name: "Minuman" },
+          { id: 2, name: "Makanan" },
+        ]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText("Minuman 1");
+  const categoryGroup = screen.getByRole("group", { name: "Filter kategori barang" });
+  await user.click(within(categoryGroup).getByRole("button", { name: "Makanan" }));
+
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain("Gagal memuat halaman kategori.");
+  expect(screen.queryByText("Belum ada produk yang cocok.")).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+  expect(await screen.findByText("Roti Lapis")).toBeTruthy();
+});

@@ -83,8 +83,14 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
             onPendingChange(remaining !== null);
             if (!remaining) {
               try {
-                const fresh = await dataSource.getShiftClosePreview(attempt.shiftId);
-                if (fresh.shiftId === attempt.shiftId) setPreview(fresh);
+                const activeShift = await dataSource.getCurrentShift();
+                if (activeShift && activeShift.cashierId === currentUser.userId && activeShift.id === attempt.shiftId) {
+                  const fresh = await dataSource.getShiftClosePreview(activeShift.id);
+                  if (fresh.shiftId === activeShift.id) {
+                    setShift(activeShift);
+                    setPreview(fresh);
+                  }
+                }
               } catch (previewError) {
                 if (previewError instanceof ApiError && previewError.isSessionExpired) {
                   onSessionExpired();

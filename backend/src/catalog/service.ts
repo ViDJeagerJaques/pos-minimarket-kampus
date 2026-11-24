@@ -444,7 +444,10 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
          WHERE (? = 1 OR p.active = 1)
            AND (? IS NULL OR p.name LIKE ? ESCAPE '\\' COLLATE NOCASE
                 OR p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE
-                OR c.name LIKE ? ESCAPE '\\' COLLATE NOCASE)
+                OR c.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+                OR EXISTS (
+                  SELECT 1 FROM product_barcodes b
+                  WHERE b.product_id = p.id AND b.barcode LIKE ? ESCAPE '\\' COLLATE NOCASE))
            AND (? IS NULL OR EXISTS (
                  SELECT 1 FROM product_barcodes b
                  WHERE b.product_id = p.id AND b.barcode = ?))
@@ -453,6 +456,7 @@ export function createCatalogService(db: DatabaseSync, deps: CatalogServiceDeps 
       )
       .all(
         includeInactive ? 1 : 0,
+        pattern,
         pattern,
         pattern,
         pattern,

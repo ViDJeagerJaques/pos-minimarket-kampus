@@ -212,3 +212,35 @@ it("BUG-235: penolakan 422 kurang catatan selisih melepas pending dan memungkink
   expect(keys).toHaveLength(2);
   expect(keys[0]).not.toBe(keys[1]);
 });
+
+it("BUG-242: pemulihan dari upaya pending tersimpan yang ditolak 422 mengembalikan shift dan pratinjau", async () => {
+  localStorage.setItem(
+    "pos.shift.close.2.close_saved_422",
+    JSON.stringify({ shiftId: 7, closeKey: "close_saved_422", declaredCashRp: 600000 }),
+  );
+  const closeShift = vi
+    .fn<PosDataSource["closeShift"]>()
+    .mockRejectedValueOnce(
+      new ApiError(422, "VALIDATION_ERROR", "Catatan selisih wajib diisi jika terdapat selisih kas."),
+    )
+    .mockImplementationOnce(async (_id, input) => result(input.closeKey, input.varianceNote ?? null));
+  const api = source({
+    closeShift,
+    getShiftClosePreview: vi.fn(async () => ({ ...preview, cashTotalRp: 510000, expectedCashRp: 610000 })),
+  });
+  const { u } = show(api);
+
+  const retryButton = await screen.findByRole("button", { name: "Ulangi permintaan yang sama" });
+  await u.click(retryButton);
+
+  expect(await screen.findByText(/Catatan selisih wajib diisi/)).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Pratinjau shift #7" })).toBeTruthy();
+  expect(api.getCurrentShift).toHaveBeenCalledTimes(1);
+
+  await u.type(screen.getByLabelText("Uang dihitung (Rp)"), "600000");
+  await u.type(screen.getByLabelText("Catatan/Alasan Selisih"), "Selisih setelah pulih");
+  await u.click(screen.getByRole("button", { name: "Tutup shift" }));
+  expect(screen.getByRole("dialog").textContent).toContain("#7");
+  await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
+  expect(await screen.findByRole("heading", { name: "Penutupan tersimpan" })).toBeTruthy();
+});

@@ -691,3 +691,33 @@ test("BUG-239: pencarian produk di backend juga mencocokkan nama kategori secara
     database.cleanup();
   }
 });
+
+test("BUG-243: pencarian query di backend juga mencocokkan sebagian barcode", () => {
+  const { database, db, service, admin } = setup();
+  try {
+    const kategori = service.createCategory(admin, { name: "ATK" });
+    service.createProduct(admin, {
+      sku: "ATK-001",
+      name: "Pulpen Hitam",
+      priceRp: 3500,
+      categoryId: kategori.id,
+      barcodes: ["8991234567890"],
+    });
+    service.createProduct(admin, {
+      sku: "ATK-002",
+      name: "Pensil 2B",
+      priceRp: 2500,
+      categoryId: kategori.id,
+      barcodes: ["8990000000001"],
+    });
+
+    const found = service.listProducts(admin, { query: "45678", includeInactive: true });
+    assert.deepEqual(
+      found.map((item) => item.sku),
+      ["ATK-001"],
+    );
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});

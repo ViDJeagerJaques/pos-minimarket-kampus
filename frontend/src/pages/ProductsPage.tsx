@@ -79,6 +79,9 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
   const [fullProducts, setFullProducts] = useState<CatalogProduct[] | null>(null);
+  const [categoryPageLoading, setCategoryPageLoading] = useState(false);
+  const [categoryPageError, setCategoryPageError] = useState<string | null>(null);
+  const [categoryReloadKey, setCategoryReloadKey] = useState(0);
   const [allActiveProducts, setAllActiveProducts] = useState<CatalogProduct[] | null>(null);
   const [tagLoadError, setTagLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -211,10 +214,14 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   useEffect(() => {
     if (listCategoryId === "all" || products === null || products.length < MAX_PRODUCTS) {
       setFullProducts(null);
+      setCategoryPageLoading(false);
+      setCategoryPageError(null);
       return;
     }
     let isActive = true;
     const seq = listSeqRef.current;
+    setCategoryPageLoading(true);
+    setCategoryPageError(null);
     (async () => {
       try {
         const collected: CatalogProduct[] = [...products];
@@ -241,18 +248,28 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
         }
         if (isActive && seq === listSeqRef.current) {
           setFullProducts(sortProducts(collected));
+          setCategoryPageError(null);
         }
       } catch (error: unknown) {
         if (!isActive || seq !== listSeqRef.current) return;
         if (error instanceof ApiError && error.isSessionExpired) {
           onSessionExpired();
+          return;
+        }
+        setFullProducts(null);
+        setCategoryPageError(
+          error instanceof ApiError ? error.message : "Halaman lanjutan kategori gagal dimuat.",
+        );
+      } finally {
+        if (isActive && seq === listSeqRef.current) {
+          setCategoryPageLoading(false);
         }
       }
     })();
     return () => {
       isActive = false;
     };
-  }, [listCategoryId, products, appliedQuery, dataSource, onSessionExpired]);
+  }, [listCategoryId, products, appliedQuery, dataSource, onSessionExpired, categoryReloadKey]);
 
   function invalidatePendingReadsAndRefresh(): void {
     listSeqRef.current += 1;
@@ -951,8 +968,24 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
         </div>
       )}
 
-      {!loadError && visibleProducts === null && <p className="muted">Memuat katalog…</p>}
-      {!loadError && visibleProducts !== null && visibleProducts.length === 0 && (
+      {!loadError && categoryPageError && (
+        <div className="report-toolbar">
+          <p className="field-error" role="alert">
+            {categoryPageError}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setCategoryReloadKey((previous) => previous + 1)}
+          >
+            Coba lagi
+          </Button>
+        </div>
+      )}
+      {!loadError && (visibleProducts === null || categoryPageLoading) && (
+        <p className="muted">{categoryPageLoading ? "Memuat produk kategori…" : "Memuat katalog…"}</p>
+      )}
+      {!loadError && !categoryPageLoading && !categoryPageError && visibleProducts !== null && visibleProducts.length === 0 && (
         <p className="muted">Belum ada produk yang cocok.</p>
       )}
       {!loadError && visibleProducts !== null && visibleProducts.length > 0 && (
