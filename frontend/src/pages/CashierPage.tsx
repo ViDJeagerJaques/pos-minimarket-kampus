@@ -519,6 +519,7 @@ export function CashierPage({
         openingCashRp === undefined ? {} : { openingCashRp },
       );
       setShift(opened);
+      setOpeningCashInput("");
       setShiftError(null);
       setStatus({ tone: "success", text: `Shift #${opened.id} dibuka untuk kasir ini.` });
     } catch (error) {

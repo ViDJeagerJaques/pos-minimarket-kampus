@@ -10,6 +10,7 @@ interface AccountsPageProps {
   currentUser: SessionUser;
   /** Dipanggil saat backend menjawab 401: App wajib membersihkan sesi dan kembali ke login. */
   onSessionExpired: () => void;
+  selfServiceOnly?: boolean;
 }
 
 type CreateConfirmation = {
@@ -56,7 +57,8 @@ function validateCreateForm(username: string, password: string): string | null {
  * Otorisasi sesungguhnya tetap di backend; halaman ini tidak boleh dianggap izin.
  * Form tidak pernah menampilkan/mencatat kata sandi di dialog, log, atau pesan error.
  */
-export function AccountsPage({ dataSource, currentUser, onSessionExpired }: AccountsPageProps) {
+export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfServiceOnly = false }: AccountsPageProps) {
+  const canManageAccounts = currentUser.role === "ADMIN" && !selfServiceOnly;
   const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -101,6 +103,10 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
   const formErrorId = useId();
 
   useEffect(() => {
+    if (!canManageAccounts) {
+      setIsLoading(false);
+      return;
+    }
     let isActive = true;
     const seq = ++listRequestSeqRef.current;
     const mutationAtStart = listMutationSeqRef.current;
@@ -142,7 +148,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
     return () => {
       isActive = false;
     };
-  }, [dataSource, reloadKey, onSessionExpired]);
+  }, [canManageAccounts, dataSource, reloadKey, onSessionExpired]);
 
   function handleActionError(error: unknown): void {
     if (error instanceof ApiError && error.isSessionExpired) {
@@ -235,19 +241,35 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
   return (
     <section className="panel" aria-labelledby="accounts-title" aria-busy={isLoading}>
       <h1 id="accounts-title" className="page-title">
-        Akun <span className="chip chip--warning">ADMIN · API lokal</span>
+        {canManageAccounts ? (
+          <>
+            Akun <span className="chip chip--warning">ADMIN · API lokal</span>
+          </>
+        ) : (
+          "Ganti Sandi"
+        )}
       </h1>
       <p className="muted">
-        Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada setiap
-        permintaan; CASHIER yang memanggil endpoint ini menerima <strong>403</strong>.
+        {canManageAccounts ? (
+          <>
+            Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
+            setiap permintaan; CASHIER yang memanggil endpoint ini menerima <strong>403</strong>.
+          </>
+        ) : (
+          <>
+            Masuk sebagai <strong>{currentUser.username}</strong>. Anda hanya dapat mengubah kata
+            sandi akun Anda sendiri.
+          </>
+        )}
       </p>
-      {dataSource.authMode === "DEMO" && (
+      {canManageAccounts && dataSource.authMode === "DEMO" && (
         <StatusMessage
           tone="warning"
           text="Mode DEMO hanya menampilkan akun sintetis. Pembuatan/penonaktifan akun memerlukan backend lokal."
         />
       )}
 
+      {canManageAccounts && (
       <form className="account-form" onSubmit={handleSubmit} aria-label="Buat akun kasir" noValidate>
         <h2 className="section-title">Buat akun kasir</h2>
         <div className="form-grid">
@@ -294,6 +316,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
           {isSubmitting ? "Menyimpan…" : "Buat akun kasir"}
         </Button>
       </form>
+      )}
 
       <form className="account-form" aria-label="Ubah sandi sendiri" onSubmit={changePassword}>
         <h2>Ubah sandi akun sendiri</h2>
@@ -311,6 +334,8 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
       </form>
       {status && <StatusMessage tone={status.tone} text={status.text} />}
 
+      {canManageAccounts && (
+      <>
       <h2 className="section-title">Daftar akun</h2>
       {loadError && (
         <div className="account-load-error">
@@ -372,6 +397,8 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
 
       {confirmation?.kind === "create" && (

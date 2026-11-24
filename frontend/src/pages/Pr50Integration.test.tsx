@@ -17,8 +17,9 @@ import type {
 import { DailyReportPanel } from "../components/DailyReportPanel";
 import { ReceiptPanel } from "../components/ReceiptPanel";
 import { StockReportPanel } from "../components/StockReportPanel";
-import { NAV_BY_ROLE } from "../app/navigation";
+import { NAV_BY_ROLE, isPageAllowed } from "../app/navigation";
 import type { CartLine } from "../domain/cart";
+import { AccountsPage } from "./AccountsPage";
 import { CashierPage } from "./CashierPage";
 import { ProductsPage } from "./ProductsPage";
 import { ReportsPage } from "./ReportsPage";
@@ -815,5 +816,95 @@ describe("PR 50 UI integration", () => {
     await user.click(screen.getByRole("button", { name: "Coba lagi" }));
     expect(await screen.findByRole("option", { name: "Minuman" })).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Daftar barang" })).toBeNull();
+  });
+
+  it("BUG-218: modal awal tetap terisi saat buka shift gagal dan dikosongkan setelah buka shift sukses", async () => {
+    const user = userEvent.setup();
+    let failOpen = true;
+    const openShift = vi.fn(async () => {
+      if (failOpen) {
+        throw new ApiError(500, "INTERNAL_ERROR", "Gagal buka shift.");
+      }
+      return ACTIVE_SHIFT;
+    });
+    const prepareCheckout = vi.fn(async () => PREPARE_OK);
+    const commitCheckout = vi.fn(async () => {
+      throw new ApiError(409, "SHIFT_NOT_ACTIVE", "Shift sudah ditutup.");
+    });
+
+    render(
+      <CashierPage
+        dataSource={makeSource({
+          getCurrentShift: async () => null,
+          openShift,
+          prepareCheckout,
+          commitCheckout,
+        })}
+        lines={SAMPLE_LINES}
+        draftId="draft-218"
+        onDraftConsumed={vi.fn()}
+        onDraftRestore={vi.fn()}
+        onLinesChange={vi.fn()}
+        sessionEpoch={1}
+        cashierId={2}
+        onSessionExpired={vi.fn()}
+      />,
+    );
+
+    const modalInput = (await screen.findByLabelText(/Modal awal/)) as HTMLInputElement;
+    await user.type(modalInput, "100000");
+    await user.click(screen.getByRole("button", { name: "Buka shift" }));
+    expect(await screen.findByText(/Gagal buka shift/)).toBeTruthy();
+    expect(modalInput.value).toBe("100.000");
+
+    failOpen = false;
+    await user.click(screen.getByRole("button", { name: "Buka shift" }));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Lanjut pembayaran" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Lanjut pembayaran" }));
+    await user.click(await screen.findByRole("button", { name: "Uang pas" }));
+    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    const reopenedModalInput = (await screen.findByLabelText(/Modal awal/)) as HTMLInputElement;
+    expect(reopenedModalInput.value).toBe("");
+  });
+
+  it("BUG-219: kasir dapat membuka Ganti Sandi sendiri tanpa akses halaman Akun admin", async () => {
+    expect(NAV_BY_ROLE.CASHIER.map((item) => item.label)).toContain("Ganti Sandi");
+    expect(isPageAllowed("CASHIER", "password")).toBe(true);
+    expect(isPageAllowed("CASHIER", "accounts")).toBe(false);
+
+    const user = userEvent.setup();
+    const listAccounts = vi.fn(async () => []);
+    const changePassword = vi.fn(async () => undefined);
+    const onSessionExpired = vi.fn();
+
+    render(
+      <AccountsPage
+        dataSource={makeSource({ listAccounts, changePassword })}
+        currentUser={CASHIER_USER}
+        onSessionExpired={onSessionExpired}
+        selfServiceOnly
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Ganti Sandi" })).toBeTruthy();
+    expect(screen.queryByRole("form", { name: "Buat akun kasir" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "Daftar akun" })).toBeNull();
+    expect(listAccounts).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText("Sandi lama"), "SandiLama123");
+    await user.type(screen.getByLabelText("Sandi baru"), "SandiBaru12345");
+    await user.type(screen.getByLabelText("Konfirmasi sandi baru"), "SandiBaru12345");
+    await user.click(screen.getByRole("button", { name: "Ubah sandi" }));
+
+    await waitFor(() =>
+      expect(changePassword).toHaveBeenCalledWith({
+        oldPassword: "SandiLama123",
+        newPassword: "SandiBaru12345",
+      }),
+    );
+    expect(onSessionExpired).toHaveBeenCalledTimes(1);
   });
 });
