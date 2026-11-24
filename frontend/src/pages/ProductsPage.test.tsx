@@ -653,3 +653,46 @@ it("BUG-245: memilih saran produk dengan nama lebih dari 80 karakter memotong qu
     ),
   );
 });
+
+it("BUG-246: memilih saran produk dengan emoji di batas 80 karakter tidak membelah surrogate pair", async () => {
+  const user = userEvent.setup();
+  const prefix79 = `Minuman ${"A".repeat(71)}`;
+  expect(prefix79.length).toBe(79);
+  const emojiName = `${prefix79}🧃 Dingin`;
+  const listCatalogProducts = vi.fn(async (options?: { query?: string }) => {
+    const q = options?.query?.toLowerCase();
+    const item = { ...PRODUCT, id: 10, sku: "EMOJI-001", name: emojiName, categoryId: 1, categoryName: "Minuman" };
+    if (!q) return [item];
+    return emojiName.toLowerCase().includes(q) ? [item] : [];
+  });
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [{ id: 1, name: "Minuman" }]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText(emojiName);
+  const searchInput = screen.getByLabelText("Cari produk") as HTMLInputElement;
+  await user.type(searchInput, "Minuman");
+  const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
+  await user.click(within(suggestions).getByRole("button"));
+
+  expect(searchInput.value).toBe(prefix79);
+  expect(searchInput.value.length).toBe(79);
+  expect(/[\uD800-\uDFFF]/.test(searchInput.value)).toBe(false);
+
+  await user.click(screen.getByRole("button", { name: "Cari" }));
+  await waitFor(() =>
+    expect(listCatalogProducts).toHaveBeenCalledWith(
+      expect.objectContaining({ query: prefix79 }),
+    ),
+  );
+  expect(await screen.findByText(emojiName)).toBeTruthy();
+});

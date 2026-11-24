@@ -67,6 +67,15 @@ function sortProducts(products: CatalogProduct[]): CatalogProduct[] {
   return [...products].sort((left, right) => left.sku.localeCompare(right.sku, "id"));
 }
 
+function truncateToCodeUnits(text: string, maxUnits: number): string {
+  let result = "";
+  for (const char of text) {
+    if (result.length + char.length > maxUnits) break;
+    result += char;
+  }
+  return result;
+}
+
 /**
  * Katalog ADMIN (TASK-012): kategori, supplier, produk, barcode, dan harga.
  * Otorisasi sesungguhnya tetap di backend; menyembunyikan menu bukan izin
@@ -878,7 +887,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
         onSubmit={(event) => {
           event.preventDefault();
           setShowSuggestions(false);
-          setAppliedQuery(searchInput.trim().slice(0, 80));
+          setAppliedQuery(truncateToCodeUnits(searchInput.trim(), 80));
         }}
         role="search"
         aria-label="Cari produk admin"
@@ -913,7 +922,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
                     type="button"
                     className="catalog-suggestions__item"
                     onClick={() => {
-                      setSearchInput(item.name.slice(0, 80));
+                      setSearchInput(truncateToCodeUnits(item.name, 80));
                       setShowSuggestions(false);
                     }}
                   >
