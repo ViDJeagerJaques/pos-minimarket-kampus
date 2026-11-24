@@ -317,19 +317,70 @@ describe("TASK-040 Dashboard ADMIN", () => {
       endMs: new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday + 7).getTime(),
     });
 
-    fireEvent.change(screen.getByLabelText("Tanggal penjualan"), { target: { value: "2026-11-15" } });
+    const prevWeekSunday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - daysSinceMonday - 1,
+    );
+    const prevWeekSundayStr = toDateInputValue(prevWeekSunday);
+    const prevWeekStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - daysSinceMonday - 7,
+    ).getTime();
+    const prevWeekEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - daysSinceMonday,
+    ).getTime();
+
+    fireEvent.change(screen.getByLabelText("Tanggal penjualan"), {
+      target: { value: prevWeekSundayStr },
+    });
     await userEvent.click(screen.getByRole("button", { name: "Perbarui dashboard" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Omzet minggu terpilih" })).toBeTruthy());
     expect(api.getDailyReport).toHaveBeenLastCalledWith({
-      startMs: new Date(2026, 10, 9).getTime(),
-      endMs: new Date(2026, 10, 16).getTime(),
+      startMs: prevWeekStart,
+      endMs: prevWeekEnd,
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Ekspor CSV" }));
-    expect(await blobs[0]!.text()).toContain("Periode week (2026-11-15)");
+    expect(await blobs[0]!.text()).toContain(`Periode week (${prevWeekSundayStr})`);
 
     clickSpy.mockRestore();
     vi.unstubAllGlobals();
+  });
+
+  it("BUG-223: max tanggal dan judul omzet diperbarui saat melewati tengah malam lokal dan saat fokus kembali", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 10, 24, 23, 59, 59, 0));
+      const api = source();
+      const view = show(api);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const dateInput = screen.getByLabelText("Tanggal penjualan") as HTMLInputElement;
+      expect(dateInput.max).toBe("2026-11-24");
+      expect(screen.getByRole("heading", { name: "Omzet hari ini" })).toBeTruthy();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(dateInput.max).toBe("2026-11-25");
+      expect(screen.getByRole("heading", { name: "Omzet tanggal terpilih" })).toBeTruthy();
+
+      vi.setSystemTime(new Date(2026, 10, 26, 8, 0, 0, 0));
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(dateInput.max).toBe("2026-11-26");
+
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
 });

@@ -44,6 +44,7 @@ function getPeriodRangeMs(dateStr: string, period: DashboardPeriod): { startMs: 
 
 /** Dashboard read-only; nominal dan status stok hanya dari laporan backend. */
 export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Props) {
+  const [today, setToday] = useState(() => toDateInputValue(new Date()));
   const [date, setDate] = useState(() => toDateInputValue(new Date()));
   const [period, setPeriod] = useState<DashboardPeriod>("day");
   const [threshold, setThreshold] = useState("5");
@@ -54,6 +55,44 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
   const [validation, setValidation] = useState<string | null>(null);
   const isAdmin = currentUser.role === "ADMIN";
   const isDemo = dataSource.authMode === "DEMO" || dataSource.catalogMode === "DEMO";
+
+  useEffect(() => {
+    let timerId: number | null = null;
+    function syncToday() {
+      setToday(toDateInputValue(new Date()));
+    }
+    function scheduleNextMidnight() {
+      if (timerId !== null) window.clearTimeout(timerId);
+      const now = new Date();
+      const nextMidnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+      );
+      const delayMs = Math.max(1, nextMidnight.getTime() - now.getTime());
+      timerId = window.setTimeout(() => {
+        syncToday();
+        scheduleNextMidnight();
+      }, delayMs);
+    }
+    function handleFocus() {
+      syncToday();
+      scheduleNextMidnight();
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        handleFocus();
+      }
+    }
+    scheduleNextMidnight();
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      if (timerId !== null) window.clearTimeout(timerId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -97,7 +136,6 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
     setValidation(null);
     setRequest({ date, period, threshold: Number(threshold), revision: request.revision + 1 });
   }
-  const today = toDateInputValue(new Date());
   const daily = snapshot?.daily;
   const stock = snapshot?.stock;
   const low = stock?.products.filter((p) => p.low && !p.zero) ?? [];
