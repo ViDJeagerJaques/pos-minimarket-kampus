@@ -417,3 +417,282 @@ it("BUG-205/206: harga edit berformat ribuan dan badge stok mengikuti saldo", as
   await user.click(within(form).getByRole("button", { name: "Simpan perubahan" }));
   await waitFor(() => expect(updateProduct).toHaveBeenCalledWith(7, expect.objectContaining({ priceRp: 3000 })));
 });
+
+it("BUG-224/225/234: Daftar Barang memfilter langsung dengan saran, filter kategori, dan UI standar", async () => {
+  const user = userEvent.setup();
+  const dataSource = buildSource({
+    listCategories: vi.fn(async () => [
+      { id: 1, name: "Minuman" },
+      { id: 2, name: "Makanan" },
+    ]),
+    listCatalogProducts: vi.fn(async () => [
+      { ...PRODUCT, id: 7, sku: "SKU-001", name: "Teh Botol", categoryId: 1, categoryName: "Minuman" },
+      { ...PRODUCT, id: 8, sku: "SKU-002", name: "Roti Tawar", categoryId: 2, categoryName: "Makanan" },
+    ]),
+  });
+
+  render(
+    <ProductsPage
+      dataSource={dataSource}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText("Teh Botol");
+  expect(screen.getAllByRole("heading", { name: /Daftar Barang/i })).toHaveLength(1);
+  expect(screen.queryByText(/403/)).toBeNull();
+  const searchInput = screen.getByLabelText("Cari produk");
+  expect(searchInput.closest(".catalog-search")).toBeTruthy();
+
+  await user.type(searchInput, "Roti");
+  const table = screen.getByRole("table", { name: "Daftar barang" });
+  expect(within(table).getByText("Roti Tawar")).toBeTruthy();
+  expect(within(table).queryByText("Teh Botol")).toBeNull();
+  const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
+  expect(within(suggestions).getByText("Roti Tawar")).toBeTruthy();
+
+  await user.click(screen.getByRole("button", { name: "Tampilkan semua" }));
+  expect(within(table).getByText("Teh Botol")).toBeTruthy();
+  expect(within(table).getByText("Roti Tawar")).toBeTruthy();
+
+  const categoryGroup = screen.getByRole("group", { name: "Filter kategori barang" });
+  await user.click(within(categoryGroup).getByRole("button", { name: "Minuman" }));
+  expect(within(table).getByText("Teh Botol")).toBeTruthy();
+  expect(within(table).queryByText("Roti Tawar")).toBeNull();
+});
+
+it("BUG-238: filter kategori memaginasi produk di luar 100 pertama dan mempertahankan produk nonaktif serta catatan 100 produk", async () => {
+  const user = userEvent.setup();
+  const firstHundred = Array.from({ length: 100 }, (_, index) => ({
+    ...PRODUCT,
+    id: index + 1,
+    sku: `MIN-${String(index + 1).padStart(3, "0")}`,
+    name: `Minuman ${index + 1}`,
+    categoryId: 1,
+    categoryName: "Minuman",
+    active: true,
+  }));
+  const food101 = {
+    ...PRODUCT,
+    id: 101,
+    sku: "MAK-101",
+    name: "Roti Keju Nonaktif",
+    categoryId: 2,
+    categoryName: "Makanan",
+    active: false,
+  };
+  const listCatalogProducts = vi.fn(async (options?: { offset?: number; includeInactive?: boolean }) => {
+    if ((options?.offset ?? 0) === 0) return firstHundred;
+    if (options?.offset === 100) return options.includeInactive ? [food101] : [];
+    return [];
+  });
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [
+          { id: 1, name: "Minuman" },
+          { id: 2, name: "Makanan" },
+        ]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText("Minuman 1");
+  await user.type(screen.getByLabelText("Cari produk"), "tidak-ada-sama-sekali");
+  expect(screen.getByText(/Menampilkan 100 produk pertama/)).toBeTruthy();
+
+  await user.click(screen.getByRole("button", { name: "Tampilkan semua" }));
+  const categoryGroup = screen.getByRole("group", { name: "Filter kategori barang" });
+  await user.click(within(categoryGroup).getByRole("button", { name: "Makanan" }));
+
+  expect(await screen.findByText("Roti Keju Nonaktif")).toBeTruthy();
+});
+
+it("BUG-240: mengubah kata kunci pencarian live setelah submit mencari di luar hasil submit sebelumnya", async () => {
+  const user = userEvent.setup();
+  const all = [
+    { ...PRODUCT, id: 7, sku: "SKU-001", name: "Teh Botol", categoryId: 1, categoryName: "Minuman" },
+    { ...PRODUCT, id: 8, sku: "SKU-002", name: "Roti Tawar", categoryId: 2, categoryName: "Makanan" },
+  ];
+  const listCatalogProducts = vi.fn(async (options?: { query?: string }) => {
+    const q = options?.query?.toLowerCase();
+    if (!q) return all;
+    return all.filter((item) => item.name.toLowerCase().includes(q));
+  });
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [
+          { id: 1, name: "Minuman" },
+          { id: 2, name: "Makanan" },
+        ]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText("Teh Botol");
+  const searchInput = screen.getByLabelText("Cari produk");
+  await user.type(searchInput, "Roti");
+  await user.click(screen.getByRole("button", { name: "Cari" }));
+  await waitFor(() =>
+    expect(listCatalogProducts).toHaveBeenCalledWith(expect.objectContaining({ query: "Roti" })),
+  );
+
+  await user.clear(searchInput);
+  await user.type(searchInput, "Teh");
+
+  const table = await screen.findByRole("table", { name: "Daftar barang" });
+  expect(within(table).getByText("Teh Botol")).toBeTruthy();
+  const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
+  expect(within(suggestions).getByText("Teh Botol")).toBeTruthy();
+});
+
+it("BUG-241: gagal muat halaman lanjutan kategori menampilkan error dan tombol coba lagi tanpa pesan kosong palsu", async () => {
+  const user = userEvent.setup();
+  const firstHundred = Array.from({ length: 100 }, (_, index) => ({
+    ...PRODUCT,
+    id: index + 1,
+    sku: `MIN-${String(index + 1).padStart(3, "0")}`,
+    name: `Minuman ${index + 1}`,
+    categoryId: 1,
+    categoryName: "Minuman",
+    active: true,
+  }));
+  const food101 = {
+    ...PRODUCT,
+    id: 101,
+    sku: "MAK-101",
+    name: "Roti Lapis",
+    categoryId: 2,
+    categoryName: "Makanan",
+    active: true,
+  };
+  let failSecondPage = true;
+  const listCatalogProducts = vi.fn(async (options?: { offset?: number; includeInactive?: boolean }) => {
+    if ((options?.offset ?? 0) === 0) return firstHundred;
+    if (options?.offset === 100) {
+      if (options.includeInactive && failSecondPage) {
+        failSecondPage = false;
+        throw new ApiError(500, "INTERNAL_ERROR", "Gagal memuat halaman kategori.");
+      }
+      return options.includeInactive ? [food101] : [];
+    }
+    return [];
+  });
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [
+          { id: 1, name: "Minuman" },
+          { id: 2, name: "Makanan" },
+        ]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText("Minuman 1");
+  const categoryGroup = screen.getByRole("group", { name: "Filter kategori barang" });
+  await user.click(within(categoryGroup).getByRole("button", { name: "Makanan" }));
+
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain("Gagal memuat halaman kategori.");
+  expect(screen.queryByText("Belum ada produk yang cocok.")).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+  expect(await screen.findByText("Roti Lapis")).toBeTruthy();
+});
+
+it("BUG-245: memilih saran produk dengan nama lebih dari 80 karakter memotong query ke 80 karakter", async () => {
+  const user = userEvent.setup();
+  const longName = `Minuman Kemasan Spesial Kampus ${"A".repeat(70)}`;
+  expect(longName.length).toBeGreaterThan(80);
+  const listCatalogProducts = vi.fn(async () => [
+    { ...PRODUCT, id: 9, sku: "LONG-001", name: longName, categoryId: 1, categoryName: "Minuman" },
+  ]);
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [{ id: 1, name: "Minuman" }]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText(longName);
+  const searchInput = screen.getByLabelText("Cari produk") as HTMLInputElement;
+  await user.type(searchInput, "Minuman");
+  const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
+  await user.click(within(suggestions).getByRole("button"));
+
+  expect(searchInput.value.length).toBe(80);
+  await user.click(screen.getByRole("button", { name: "Cari" }));
+  await waitFor(() =>
+    expect(listCatalogProducts).toHaveBeenCalledWith(
+      expect.objectContaining({ query: longName.slice(0, 80) }),
+    ),
+  );
+});
+
+it("BUG-246: memilih saran produk dengan emoji di batas 80 karakter tidak membelah surrogate pair", async () => {
+  const user = userEvent.setup();
+  const prefix79 = `Minuman ${"A".repeat(71)}`;
+  expect(prefix79.length).toBe(79);
+  const emojiName = `${prefix79}🧃 Dingin`;
+  const listCatalogProducts = vi.fn(async (options?: { query?: string }) => {
+    const q = options?.query?.toLowerCase();
+    const item = { ...PRODUCT, id: 10, sku: "EMOJI-001", name: emojiName, categoryId: 1, categoryName: "Minuman" };
+    if (!q) return [item];
+    return emojiName.toLowerCase().includes(q) ? [item] : [];
+  });
+
+  render(
+    <ProductsPage
+      dataSource={buildSource({
+        listCategories: vi.fn(async () => [{ id: 1, name: "Minuman" }]),
+        listCatalogProducts,
+      })}
+      currentUser={ADMIN}
+      onSessionExpired={vi.fn()}
+      view="list"
+    />,
+  );
+
+  await screen.findByText(emojiName);
+  const searchInput = screen.getByLabelText("Cari produk") as HTMLInputElement;
+  await user.type(searchInput, "Minuman");
+  const suggestions = screen.getByRole("listbox", { name: "Saran produk" });
+  await user.click(within(suggestions).getByRole("button"));
+
+  expect(searchInput.value).toBe(prefix79);
+  expect(searchInput.value.length).toBe(79);
+  expect(/[\uD800-\uDFFF]/.test(searchInput.value)).toBe(false);
+
+  await user.click(screen.getByRole("button", { name: "Cari" }));
+  await waitFor(() =>
+    expect(listCatalogProducts).toHaveBeenCalledWith(
+      expect.objectContaining({ query: prefix79 }),
+    ),
+  );
+  expect(await screen.findByText(emojiName)).toBeTruthy();
+});

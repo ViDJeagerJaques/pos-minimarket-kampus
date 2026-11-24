@@ -242,3 +242,54 @@ it("BUG-207: lihat sandi, validasi konfirmasi dan ubah hanya sandi sendiri", asy
   expect(changePassword).toHaveBeenCalledWith({ oldPassword: old, newPassword: next });
   expect((screen.getByLabelText("Sandi baru") as HTMLInputElement).value).toBe("");
 });
+
+it("BUG-226: admin dapat mereset sandi kasir lewat dialog tanpa menampilkan sandi di pesan", async () => {
+  const resetAccountPassword = vi.fn(async () => {});
+  const { user } = renderAccounts(
+    makeSource({
+      authMode: "LOCAL_API",
+      listAccounts: vi.fn(async () => [ADMIN_ACCOUNT, CASHIER_ACCOUNT]),
+      resetAccountPassword,
+    }),
+  );
+  const resetButton = await screen.findByRole("button", { name: "Ubah sandi kasir.uji" });
+  await user.click(resetButton);
+
+  const dialog = screen.getByRole("dialog");
+  const next = makeTestPassword();
+  await user.type(within(dialog).getByLabelText("Sandi baru"), next);
+  await user.type(within(dialog).getByLabelText("Konfirmasi sandi baru"), next);
+  await user.click(within(dialog).getByRole("button", { name: "Simpan sandi baru" }));
+
+  await waitFor(() =>
+    expect(resetAccountPassword).toHaveBeenCalledWith(2, { newPassword: next }),
+  );
+  const status = await screen.findByText(/Kata sandi akun "kasir\.uji" berhasil direset/);
+  expect(status.textContent).not.toContain(next);
+});
+
+it("BUG-236: dialog reset sandi memindahkan fokus saat dibuka, menjebak Tab, dan mengembalikan fokus saat ditutup", async () => {
+  const { user } = renderAccounts(
+    makeSource({
+      authMode: "LOCAL_API",
+      listAccounts: vi.fn(async () => [ADMIN_ACCOUNT, CASHIER_ACCOUNT]),
+    }),
+  );
+  const resetButton = await screen.findByRole("button", { name: "Ubah sandi kasir.uji" });
+  await user.click(resetButton);
+
+  const dialog = screen.getByRole("dialog");
+  const newInput = within(dialog).getByLabelText("Sandi baru");
+  const submitButton = within(dialog).getByRole("button", { name: "Simpan sandi baru" });
+  expect(document.activeElement).toBe(newInput);
+
+  await user.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(document.activeElement).toBe(submitButton);
+
+  await user.keyboard("{Tab}");
+  expect(document.activeElement).toBe(newInput);
+
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(resetButton);
+});

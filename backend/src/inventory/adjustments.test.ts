@@ -150,7 +150,7 @@ test("migrasi v2 berisi data -> v3 aditif, backup valid, riwayat lama utuh", () 
         VALUES (1, 'OPENING', 5, 'DEMO-OLD', 1, 1)`);
     } finally { old.close(); }
     const upgraded = runMigrations({ dbPath: database.dbPath });
-    assert.deepEqual(upgraded.appliedVersions, [3]);
+    assert.deepEqual(upgraded.appliedVersions, [3, 4]);
     assert.ok(upgraded.backupPath);
     assert.equal(inspectBackup(upgraded.backupPath).userVersion, 2);
     assert.equal(upgraded.integrity.foreignKeyViolations, 0);

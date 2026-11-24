@@ -216,6 +216,10 @@ describe("TASK-040 Dashboard ADMIN", () => {
     expect(Array.from(xlsx.slice(0, 4))).toEqual([80, 75, 3, 4]);
     const xml = new TextDecoder().decode(xlsx);
     expect(xml).toContain("xl/worksheets/sheet1.xml");
+    expect(xml).toContain("xl/tables/table1.xml");
+    expect(xml).toContain("xl/styles.xml");
+    expect(xml).toContain("autoFilter");
+    expect(xml).toContain('state="frozen"');
     expect(xml).toContain("Barang DEMO");
     expect(xml).toContain("SKU-DEMO");
     clickSpy.mockRestore();

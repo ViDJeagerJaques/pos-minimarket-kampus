@@ -13,19 +13,24 @@ export type ShiftCloseIntent = {
   cashierId: number;
   closeKey: string;
   declaredCashRp: number | null;
+  varianceNote?: string | null;
 };
 
 export function computeShiftCloseHash(intent: ShiftCloseIntent): {
   hex: string;
   bytes: Buffer;
 } {
-  const canonical = JSON.stringify({
+  const payload: Record<string, unknown> = {
     version: SHIFT_CLOSE_HASH_VERSION,
     shiftId: intent.shiftId,
     cashierId: intent.cashierId,
     closeKey: intent.closeKey,
     declaredCashRp: intent.declaredCashRp,
-  });
+  };
+  if (intent.varianceNote !== undefined && intent.varianceNote !== null) {
+    payload.varianceNote = intent.varianceNote;
+  }
+  const canonical = JSON.stringify(payload);
   const bytes = createHash("sha256").update(canonical, "utf8").digest();
   return { hex: bytes.toString("hex"), bytes };
 }

@@ -21,15 +21,36 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
   const [pending, setPending] = useState<PendingShiftClose | null>(null);
   const [closing, setClosing] = useState<ShiftClosing | null>(null);
   const [cash, setCash] = useState("");
+  const [varianceNote, setVarianceNote] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(true);
   const [checked, setChecked] = useState(false);
   const [message, setMessage] = useState("");
+  const [recoveryFailedShiftId, setRecoveryFailedShiftId] = useState<number | null>(null);
+  const [recoveryReason, setRecoveryReason] = useState("");
   const lock = useRef(false);
   const cashId = useId();
+  const noteId = useId();
   const owner = currentUser.role === "CASHIER" && dataSource.authMode !== "DEMO";
   const value = /^\d+$/.test(cash) ? Number(cash) : null;
   const valid = value !== null && Number.isSafeInteger(value) && value <= 1_000_000_000;
+  const estimatedVariance = valid && preview ? value - preview.expectedCashRp : null;
+  const needsNote = estimatedVariance !== null && estimatedVariance !== 0;
+  const trimmedNote = varianceNote.trim();
+  const noteValid = !needsNote || (trimmedNote.length > 0 && trimmedNote.length <= 500);
+  const canClose = valid && noteValid;
+
+  function varianceClass(variance: number): string {
+    if (variance < 0) return "variance--negative";
+    if (variance > 0) return "variance--positive";
+    return "";
+  }
+  function formatSignedRp(amount: number): string {
+    const abs = Math.abs(amount).toLocaleString("id-ID");
+    if (amount < 0) return `-Rp${abs}`;
+    if (amount > 0) return `+Rp${abs}`;
+    return "Rp0";
+  }
 
   function errorMessage(error: unknown) {
     if (error instanceof ApiError && error.isSessionExpired) { onSessionExpired(); return; }
@@ -51,11 +72,62 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
       setMessage("Hasil tersimpan, tetapi catatan pemulihan tidak dapat dibersihkan. Cek kembali sebelum melanjutkan.");
     }
   }
-  async function check(attempt: PendingShiftClose) {
+  async function restoreShiftAfterRejection(shiftId: number, reason: string) {
+    try {
+      const activeShift = await dataSource.getCurrentShift();
+      if (activeShift && activeShift.cashierId === currentUser.userId && activeShift.id === shiftId) {
+        const fresh = await dataSource.getShiftClosePreview(activeShift.id);
+        if (fresh.shiftId === activeShift.id) {
+          setShift(activeShift);
+          setPreview(fresh);
+          setRecoveryFailedShiftId(null);
+          setRecoveryReason("");
+          setMessage(reason);
+          return;
+        }
+      }
+      setRecoveryFailedShiftId(shiftId);
+      setRecoveryReason(reason);
+      setMessage(`${reason} Pratinjau shift gagal dimuat ulang; klik Coba lagi muat shift.`);
+    } catch (previewError) {
+      if (previewError instanceof ApiError && previewError.isSessionExpired) {
+        onSessionExpired();
+        return;
+      }
+      setRecoveryFailedShiftId(shiftId);
+      setRecoveryReason(reason);
+      setMessage(`${reason} Pratinjau shift gagal dimuat ulang; klik Coba lagi muat shift.`);
+    }
+  }
+  async function retryRecovery() {
+    if (recoveryFailedShiftId === null || lock.current) return;
+    lock.current = true; setBusy(true);
+    try {
+      await restoreShiftAfterRejection(recoveryFailedShiftId, recoveryReason);
+    } finally { lock.current = false; setBusy(false); }
+  }
+  async function check(attempt: PendingShiftClose, rejectedMessage?: string) {
     setChecked(false);
     try { accept(await dataSource.getShiftClosing(attempt.shiftId), attempt); }
     catch (error) {
       if (error instanceof ApiError && error.status === 404) {
+        if (rejectedMessage) {
+          try {
+            localStorage.removeItem(`${closePrefix(currentUser.userId)}${attempt.closeKey}`);
+            const remaining = pendingClose(currentUser.userId);
+            setPending(remaining?.value ?? null);
+            onPendingChange(remaining !== null);
+            if (!remaining) {
+              await restoreShiftAfterRejection(attempt.shiftId, rejectedMessage);
+            } else {
+              setMessage(rejectedMessage);
+            }
+          } catch {
+            setChecked(true);
+            setMessage("Penutupan ditolak, tetapi catatan lokal tidak dapat dibersihkan. Cek kembali sebelum melanjutkan.");
+          }
+          return;
+        }
         setChecked(true);
         setMessage("Hasil belum ditemukan; penutupan mungkin masih berjalan. Cek lagi atau ulangi permintaan yang sama.");
       } else errorMessage(error);
@@ -122,19 +194,33 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
   async function submit(attempt: PendingShiftClose) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setChecked(false);
-    try { accept(await dataSource.closeShift(attempt.shiftId, { closeKey: attempt.closeKey, declaredCashRp: attempt.declaredCashRp }), attempt); }
+    try {
+      const payload = {
+        closeKey: attempt.closeKey,
+        declaredCashRp: attempt.declaredCashRp,
+        ...(attempt.varianceNote ? { varianceNote: attempt.varianceNote } : {}),
+      };
+      accept(await dataSource.closeShift(attempt.shiftId, payload), attempt);
+    }
     catch (error) {
       if (error instanceof ApiError && error.isSessionExpired) onSessionExpired();
-      else await check(attempt);
+      else if (error instanceof ApiError && error.status === 422 && error.code === "VALIDATION_ERROR") {
+        await check(attempt, error.message);
+      } else await check(attempt);
     } finally { lock.current = false; setBusy(false); }
   }
   function start() {
-    if (!shift || !valid || value === null || lock.current) return;
+    if (!shift || !canClose || value === null || lock.current) return;
     setConfirming(false);
     try {
       const existing = pendingClose(currentUser.userId);
       if (existing) { setPending(existing.value); setChecked(false); onPendingChange(true); setMessage("Ada penutupan yang belum diperiksa. Cek statusnya."); return; }
-      const attempt = { shiftId: shift.id, closeKey: `close_${crypto.randomUUID()}`, declaredCashRp: value };
+      const attempt: PendingShiftClose = {
+        shiftId: shift.id,
+        closeKey: `close_${crypto.randomUUID()}`,
+        declaredCashRp: value,
+        ...(needsNote ? { varianceNote: trimmedNote } : {}),
+      };
       localStorage.setItem(`${closePrefix(currentUser.userId)}${attempt.closeKey}`, JSON.stringify(attempt));
       setPending(attempt); onPendingChange(true); void submit(attempt);
     } catch { onPendingChange(true); setMessage("Catatan upaya tidak dapat disimpan atau dibaca. Penutupan tidak dikirim; periksa penyimpanan lokal."); }
@@ -145,6 +231,11 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     {!owner && <p>Penutupan hanya tersedia bagi kasir pemilik melalui backend lokal. Mode DEMO tidak menyimpan shift.</p>}
     {busy && <p role="status">Memeriksa shift…</p>}
     {message && <p role="status">{message}</p>}
+    {recoveryFailedShiftId !== null && !preview && !pending && !closing && (
+      <div>
+        <Button disabled={busy} onClick={() => void retryRecovery()}>Coba lagi muat shift</Button>
+      </div>
+    )}
     {preview && !pending && !closing && <>
       <h2>Pratinjau shift #{shift?.id}</h2>
       <Button disabled={busy || confirming} onClick={() => void reloadPreview()}>Muat ulang pratinjau</Button>
@@ -156,16 +247,48 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
         <tr><th scope="row">Uang tunai harapan</th><td><MoneyText amountRp={preview.expectedCashRp} /></td></tr>
       </tbody></table>
       <p>Pratinjau dapat berubah jika penjualan tersimpan sebelum shift ditutup. QRIS tidak masuk kas tunai.</p>
-      <label className="field-label" htmlFor={cashId}>Uang dihitung (Rp)</label>
-      <input id={cashId} className="input" inputMode="numeric" value={cash.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} onChange={(e) => setCash(e.target.value.replace(/\./g, ""))} />
-      {cash !== "" && !valid && <p role="alert">Masukkan bilangan rupiah bulat dari 0 sampai 1.000.000.000.</p>}
-      {valid && <p>Perkiraan selisih: {value > preview.expectedCashRp ? "+" : ""}<MoneyText amountRp={value - preview.expectedCashRp} /></p>}
-      {valid && preview.qrisTotalRp > 0 && value - preview.expectedCashRp !== 0 && Math.abs(value - preview.expectedCashRp) === preview.qrisTotalRp && (
-        <p className="muted" role="note">
-          Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={preview.qrisTotalRp} />). Periksa apakah ada transaksi QRIS yang salah dicatat sebagai Tunai atau sebaliknya.
-        </p>
-      )}
-      <Button variant="primary" disabled={!valid || busy} onClick={() => setConfirming(true)}>Tutup shift</Button>
+      <div className="shift-close-box">
+        <div className="shift-close-row">
+          <div className="shift-close-field">
+            <label className="field-label" htmlFor={cashId}>Uang dihitung (Rp)</label>
+            <input id={cashId} className="input" inputMode="numeric" value={cash.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} onChange={(e) => setCash(e.target.value.replace(/\./g, ""))} />
+          </div>
+          <Button variant="primary" className="shift-close-submit" disabled={!canClose || busy} onClick={() => setConfirming(true)}>Tutup shift</Button>
+        </div>
+        {cash !== "" && !valid && <p role="alert">Masukkan bilangan rupiah bulat dari 0 sampai 1.000.000.000.</p>}
+        {estimatedVariance !== null && (
+          <p>
+            Perkiraan selisih:{" "}
+            <span className={varianceClass(estimatedVariance)}>
+              {estimatedVariance > 0 ? "+" : ""}
+              <MoneyText amountRp={estimatedVariance} />
+            </span>
+          </p>
+        )}
+        {needsNote && (
+          <div className="shift-close-note">
+            <label className="field-label" htmlFor={noteId}>Catatan/Alasan Selisih</label>
+            <input
+              id={noteId}
+              className="input"
+              type="text"
+              maxLength={500}
+              placeholder="Jelaskan alasan selisih kas"
+              value={varianceNote}
+              onChange={(e) => setVarianceNote(e.target.value)}
+              required
+            />
+            {trimmedNote.length === 0 && (
+              <p className="muted">Wajib diisi sebelum menutup shift karena selisih bukan Rp0.</p>
+            )}
+          </div>
+        )}
+        {estimatedVariance !== null && preview.qrisTotalRp > 0 && estimatedVariance !== 0 && Math.abs(estimatedVariance) === preview.qrisTotalRp && (
+          <p className="muted" role="note">
+            Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={preview.qrisTotalRp} />). Periksa apakah ada transaksi QRIS yang salah dicatat sebagai Tunai atau sebaliknya.
+          </p>
+        )}
+      </div>
     </>}
     {pending && <div><p>Upaya penutupan shift #{pending.shiftId}: <code>{pending.closeKey}</code>. Jangan membuat penutupan baru.</p>
       <Button disabled={busy} onClick={() => void checkStatus()}>Cek status penutupan</Button>{" "}
@@ -173,7 +296,18 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     </div>}
     {closing && <div><h2>Penutupan tersimpan</h2><p>Shift #{closing.shiftId} · CASH <MoneyText amountRp={closing.totals.cashRp} /> · QRIS <MoneyText amountRp={closing.totals.qrisManualRp} /></p>
       <p>Total penghasilan (CASH + QRIS): <MoneyText amountRp={closing.totals.cashRp + closing.totals.qrisManualRp} /></p>
-      <p>Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih {closing.varianceRp === null ? "tidak dicatat" : <>{closing.varianceRp > 0 ? "+" : ""}<MoneyText amountRp={closing.varianceRp} /></>}</p>
+      <p>
+        Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih{" "}
+        {closing.varianceRp === null ? (
+          "tidak dicatat"
+        ) : (
+          <span className={varianceClass(closing.varianceRp)}>
+            {closing.varianceRp > 0 ? "+" : ""}
+            <MoneyText amountRp={closing.varianceRp} />
+          </span>
+        )}
+      </p>
+      {closing.varianceNote && <p>Catatan selisih: <strong>{closing.varianceNote}</strong></p>}
       {closing.totals.qrisManualRp > 0 && closing.varianceRp !== null && closing.varianceRp !== 0 && Math.abs(closing.varianceRp) === closing.totals.qrisManualRp && (
         <p className="muted" role="note">
           Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={closing.totals.qrisManualRp} />). Periksa kemungkinan salah klasifikasi Tunai/QRIS.
@@ -189,6 +323,14 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
         {paymentReport.qrisSales.map(sale => <tr key={sale.saleId}><td>{sale.saleNo}</td><td>{new Date(sale.verifiedAtMs).toLocaleString("id-ID")}</td><td>{sale.cashierUsername ?? `#${sale.verifiedBy}`}</td><td>{sale.evidenceRef ?? "—"}</td><td>Terverifikasi</td><td><MoneyText amountRp={sale.totalRp} /></td></tr>)}
         </tbody></table></div>}</>}
     </section>}
-    {confirming && <ConfirmDialog title="Konfirmasi tutup shift" message="Tutup shift milik Anda dengan uang yang dihitung? Hasil akhir mengikuti transaksi tersimpan." confirmLabel="Ya, tutup shift" onCancel={() => setConfirming(false)} onConfirm={start} />}
+    {confirming && shift && value !== null && estimatedVariance !== null && (
+      <ConfirmDialog
+        title="Konfirmasi tutup shift"
+        message={`Yakin tutup shift #${shift.id} dengan uang dihitung Rp${value.toLocaleString("id-ID")} dan selisih ${formatSignedRp(estimatedVariance)}? Hasil akhir mengikuti transaksi tersimpan.`}
+        confirmLabel="Ya, tutup shift"
+        onCancel={() => setConfirming(false)}
+        onConfirm={start}
+      />
+    )}
   </section>;
 }
