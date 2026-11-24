@@ -236,6 +236,7 @@ export function CashierPage({
   const recoveryKeyRef = useRef<string | null>(initialRecovery.key);
   const [cashInput, setCashInput] = useState("");
   const [openingCashInput, setOpeningCashInput] = useState("");
+  const [openingCashCaretTick, setOpeningCashCaretTick] = useState(0);
   const openingCashInputRef = useRef<HTMLInputElement>(null);
   const openingCashCaretRef = useRef<number | null>(null);
   const formattedOpeningCash = openingCashInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -263,7 +264,7 @@ export function CashierPage({
       }
     }
     input.setSelectionRange(nextPos, nextPos);
-  }, [formattedOpeningCash]);
+  }, [formattedOpeningCash, openingCashCaretTick]);
   const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>("CASH");
   const [merchantConfirmed, setMerchantConfirmed] = useState(false);
   const [merchantAmountInput, setMerchantAmountInput] = useState("");
@@ -1201,13 +1202,14 @@ export function CashierPage({
                 onChange={event => {
                   const rawValue = event.target.value;
                   const nextUnformatted = rawValue.replace(/\./g, "");
-                  if (nextUnformatted !== openingCashInput) {
-                    const caret = event.target.selectionStart ?? rawValue.length;
-                    openingCashCaretRef.current = rawValue
-                      .slice(0, caret)
-                      .replace(/\./g, "").length;
-                  }
+                  const caret = event.target.selectionStart ?? rawValue.length;
+                  openingCashCaretRef.current = rawValue
+                    .slice(0, caret)
+                    .replace(/\./g, "").length;
                   setOpeningCashInput(nextUnformatted);
+                  if (nextUnformatted === openingCashInput) {
+                    setOpeningCashCaretTick(tick => tick + 1);
+                  }
                 }}
               />
               <Button type="submit" variant="primary" disabled={isOpeningShift}>

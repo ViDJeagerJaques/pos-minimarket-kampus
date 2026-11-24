@@ -952,4 +952,53 @@ describe("PR 50 UI integration", () => {
       expect(openShift).toHaveBeenCalledWith({ openingCashRp: 23100000 }),
     );
   });
+
+  it("BUG-221: kursor modal awal tidak meloncat ke akhir saat menghapus pemisah ribuan", async () => {
+    const user = userEvent.setup();
+    const openShift = vi.fn(async () => ACTIVE_SHIFT);
+    const prepareCheckout = vi.fn(async () => PREPARE_OK);
+    const commitCheckout = vi.fn(async () => {
+      throw new ApiError(409, "SHIFT_NOT_ACTIVE", "Shift sudah ditutup.");
+    });
+
+    render(
+      <CashierPage
+        dataSource={makeSource({
+          getCurrentShift: async () => null,
+          openShift,
+          prepareCheckout,
+          commitCheckout,
+        })}
+        lines={SAMPLE_LINES}
+        draftId="draft-221"
+        onDraftConsumed={vi.fn()}
+        onDraftRestore={vi.fn()}
+        onLinesChange={vi.fn()}
+        sessionEpoch={1}
+        cashierId={2}
+        onSessionExpired={vi.fn()}
+      />,
+    );
+
+    const modalInput = (await screen.findByLabelText(/Modal awal/)) as HTMLInputElement;
+    await user.type(modalInput, "100000");
+    expect(modalInput.value).toBe("100.000");
+
+    await user.type(modalInput, "{Backspace}", {
+      initialSelectionStart: 4,
+      initialSelectionEnd: 4,
+    });
+
+    expect(modalInput.value).toBe("100.000");
+    expect(modalInput.selectionStart).toBe(3);
+
+    await user.keyboard("5");
+    expect(modalInput.value).toBe("1.005.000");
+    expect(modalInput.selectionStart).toBe(5);
+
+    await user.click(screen.getByRole("button", { name: "Buka shift" }));
+    await waitFor(() =>
+      expect(openShift).toHaveBeenCalledWith({ openingCashRp: 1005000 }),
+    );
+  });
 });
