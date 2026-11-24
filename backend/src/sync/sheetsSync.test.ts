@@ -689,3 +689,66 @@ test("BUG-253: retry otomatis terus berjalan melewati 11 kali kegagalan selama a
     await ctx.cleanup();
   }
 });
+
+test("BUG-254: startup menghapus pending yang sudah di-ack permanen dan mempertahankan pending yang belum di-ack", async () => {
+  const secret = makeSyntheticSecret();
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+  });
+  try {
+    const ackedEntry = {
+      attemptKey: "attempt-already-acked",
+      saleNo: "S-ACK-1",
+      totalRp: 5000,
+      method: "CASH",
+      cashier: "kasir.fixture",
+      committedAtMs: FIXED_NOW,
+      items: "Barang A x 1",
+    };
+    const unackedEntry = {
+      attemptKey: "attempt-still-pending",
+      saleNo: "S-PEND-2",
+      totalRp: 7500,
+      method: "CASH",
+      cashier: "kasir.fixture",
+      committedAtMs: FIXED_NOW + 1000,
+      items: "Barang B x 1",
+    };
+    const staleQueuePath = path.join(ctx.database.dir, "stale-queue.json");
+    writeFileSync(
+      staleQueuePath,
+      JSON.stringify({ pending: [ackedEntry, unackedEntry], sentKeys: [] }),
+      "utf8",
+    );
+    writeFileSync(`${staleQueuePath}.ack.ndjson`, `${ackedEntry.attemptKey}\n`, "utf8");
+
+    const restarted = createSheetsSyncService({
+      db: ctx.db,
+      dbPath: ctx.database.dbPath,
+      configPath: ctx.configPath,
+      queuePath: staleQueuePath,
+      fetchImpl,
+    });
+    try {
+      assert.equal(restarted.getPendingCount(), 1);
+      await restarted.flush();
+      assert.equal(restarted.getPendingCount(), 0);
+      assert.equal(delivered.length, 1);
+      assert.equal(delivered[0]?.saleNo, "S-PEND-2");
+    } finally {
+      restarted.stop();
+    }
+  } finally {
+    await ctx.cleanup();
+  }
+});

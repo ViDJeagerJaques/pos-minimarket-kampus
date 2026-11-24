@@ -291,12 +291,19 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
 
   const ackPath = `${queuePath}.ack.ndjson`;
   const durableAckKeys = readDurableAckKeys(ackPath);
-  let state = readQueueState(queuePath);
-  for (const key of state.sentKeys) {
+  const loadedState = readQueueState(queuePath);
+  for (const key of loadedState.sentKeys) {
     durableAckKeys.add(key);
   }
+  const filteredPending = loadedState.pending.filter(
+    (item) => !durableAckKeys.has(item.attemptKey),
+  );
+  const prunedPending = filteredPending.length !== loadedState.pending.length;
+  let state: QueueState = prunedPending
+    ? { pending: filteredPending, sentKeys: loadedState.sentKeys }
+    : loadedState;
   const reconciled = reconcileCommittedSales(options.db, state, durableAckKeys);
-  if (reconciled.recovered) {
+  if (reconciled.recovered || prunedPending) {
     state = reconciled.state;
     try {
       writeQueueState(queuePath, state);
