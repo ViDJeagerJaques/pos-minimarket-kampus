@@ -28,6 +28,7 @@ import { CheckoutError } from "../checkout/errors.ts";
 import type { CheckoutService } from "../checkout/service.ts";
 import { PrintError } from "../print/errors.ts";
 import type { PrintService } from "../print/service.ts";
+import type { SheetsSyncService } from "../sync/sheetsSync.ts";
 import type { ReportService } from "../reports/service.ts";
 import { InventoryError } from "../inventory/errors.ts";
 import type { AdjustmentService } from "../inventory/adjustments.ts";
@@ -63,6 +64,8 @@ export type HttpAppOptions = {
   receiving?: ReceivingService;
   /** Koreksi stok TASK-039; ADMIN, kunci retry dan audit atomik. */
   adjustments?: AdjustmentService;
+  /** Sinkronisasi penjualan ke Google Sheets (Ide #10); opsional & tidak menghambat checkout. */
+  sheetsSync?: SheetsSyncService;
   /** Direktori build frontend (mis. resources/frontend/dist) untuk sajikan same-origin. */
   staticDir?: string;
   loginRateLimiter?: LoginRateLimiter;
@@ -507,7 +510,10 @@ function createShiftRoutes(shift: ShiftService): Route[] {
   ];
 }
 
-function createCheckoutRoutes(checkout: CheckoutService): Route[] {
+function createCheckoutRoutes(
+  checkout: CheckoutService,
+  sheetsSync?: SheetsSyncService,
+): Route[] {
   const actorOf = (ctx: RequestContext): SessionUser => ctx.actor as SessionUser;
   return [
     {
@@ -520,7 +526,18 @@ function createCheckoutRoutes(checkout: CheckoutService): Route[] {
       method: "POST",
       pattern: /^\/checkouts\/commit$/,
       roles: ["CASHIER"],
-      handler: (ctx) => ({ data: checkout.commit(actorOf(ctx), asObject(ctx.body)) }),
+      handler: (ctx) => {
+        const actor = actorOf(ctx);
+        const result = checkout.commit(actor, asObject(ctx.body));
+        if (sheetsSync) {
+          try {
+            sheetsSync.notifySaleCommitted(result, actor.username);
+          } catch {
+            // Kegagalan sinkronisasi tidak boleh mengganggu hasil checkout.
+          }
+        }
+        return { data: result };
+      },
     },
     {
       method: "GET",
@@ -789,7 +806,7 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
     routes.push(...createShiftRoutes(options.shift));
   }
   if (options.checkout) {
-    routes.push(...createCheckoutRoutes(options.checkout));
+    routes.push(...createCheckoutRoutes(options.checkout, options.sheetsSync));
   }
   if (options.reports) {
     routes.push(...createReportRoutes(options.reports));

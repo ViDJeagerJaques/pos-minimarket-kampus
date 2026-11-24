@@ -11,6 +11,7 @@ import { createPrintService } from "../print/service.ts";
 import { createReportService } from "../reports/service.ts";
 import { createAdjustmentService } from "../inventory/adjustments.ts";
 import { createReceivingService } from "../receiving/service.ts";
+import { createSheetsSyncService } from "../sync/sheetsSync.ts";
 import { startHttpServer } from "./app.ts";
 
 /**
@@ -144,6 +145,7 @@ async function main(argv: string[]): Promise<number> {
     const receiving = createReceivingService(db);
     // DEMO: adapter virtual (pratinjau), bukan printer fisik/ESC-POS.
     const print = createPrintService(db);
+    const sheetsSync = createSheetsSyncService({ db, dbPath: options.dbPath });
     const running = await startHttpServer({
       backupDbPath: options.dbPath,
       auth,
@@ -156,9 +158,11 @@ async function main(argv: string[]): Promise<number> {
       receiving,
       adjustments: createAdjustmentService(db),
       print,
+      sheetsSync,
       staticDir: options.staticDir,
       port: options.port,
     });
+    void sheetsSync.flush();
     process.stdout.write(
       `Server DEMO berjalan di ${running.url} (base /api/v1).\n` +
         `Login: POST /api/v1/auth/login. Secret sesi hanya di memori proses ini.\n`,
