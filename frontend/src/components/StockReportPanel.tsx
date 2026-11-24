@@ -80,6 +80,7 @@ export function StockReportPanel({ dataSource, onSessionExpired }: StockReportPa
           {isLoading ? "Memuat…" : "Muat stok"}
         </Button>
       </form>
+      <p className="muted">Aturan: stok 0 = Habis, stok kurang dari atau sama dengan ambang = Menipis, di atas ambang = Aman.</p>
       {error && <p className="field-error" role="alert">{error}</p>}
       {!error && report && (
         <>

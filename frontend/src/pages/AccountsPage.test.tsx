@@ -225,3 +225,20 @@ describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
     });
   });
 });
+
+it("BUG-207: lihat sandi, validasi konfirmasi dan ubah hanya sandi sendiri", async () => {
+  const changePassword = vi.fn(async () => {});
+  const { user, onSessionExpired } = renderAccounts(makeSource({ changePassword }));
+  const old = makeTestPassword(); const next = makeTestPassword();
+  await user.type(screen.getByLabelText("Sandi lama"), old);
+  await user.type(screen.getByLabelText("Sandi baru"), next);
+  await user.click(screen.getByRole("button", { name: "Lihat sandi baru" }));
+  expect((screen.getByLabelText("Sandi baru") as HTMLInputElement).type).toBe("text");
+  await user.click(screen.getByRole("button", { name: "Ubah sandi" }));
+  expect(changePassword).not.toHaveBeenCalled();
+  await user.type(screen.getByLabelText("Konfirmasi sandi baru"), next);
+  await user.click(screen.getByRole("button", { name: "Ubah sandi" }));
+  await waitFor(() => expect(onSessionExpired).toHaveBeenCalledOnce());
+  expect(changePassword).toHaveBeenCalledWith({ oldPassword: old, newPassword: next });
+  expect((screen.getByLabelText("Sandi baru") as HTMLInputElement).value).toBe("");
+});

@@ -103,3 +103,7 @@ Tidak boleh mengandalkan middleware saja: business service mengulang pemeriksaan
 ## 8. Keputusan belum final
 
 Timeout sesi, aturan panjang password dan lockout, ownership akun pertama, prosedur shift takeover dan admin cetak ulang memerlukan review David/Rahmat/pengelola. Jangan mengubah status DEC-019 atau membuka endpoint karena kemudahan UI. Bukti pengujian ditulis dalam `docs/operations/TEST_CASES.md` ketika dokumen tersebut dibuat dan test benar-benar dijalankan.
+
+### Tambahan BUG-207 (24 November 2026)
+
+Perubahan sandi sendiri melalui `POST /auth/password` tersedia untuk sesi aktif ADMIN/CASHIER, dengan pemeriksaan sandi lama, validasi sandi baru, dan pembatasan percobaan. Menu Akun tetap khusus ADMIN. Tidak ada reset sandi akun lain. Semua sesi pemilik dicabut secara atomik bersama hash baru dan audit `PASSWORD_CHANGED`; shift tidak diubah. Audit tidak berisi sandi, hash, atau token.

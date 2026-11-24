@@ -12,7 +12,7 @@ const DAILY: DailyReport = {
   totalRp: 10000, saleCount: 3, cash: { totalRp: 7500, count: 2 },
   qrisManual: { totalRp: 2500, count: 1, verifiedCount: 1 }, salesTruncated: false,
   sales: [
-    { saleId: 1, saleNo: "DEMO-1", shiftId: 10, cashierUsername: "pagi", committedAtMs: 1000, method: "CASH", amountRp: 5000 },
+    { saleId: 1, saleNo: "DEMO-1", shiftId: 10, cashierUsername: "pagi", committedAtMs: 1000, method: "CASH", amountRp: 5000, items: [{ sku: "SKU-DEMO", name: "Barang DEMO", quantity: 2, unitPriceRp: 2500, lineTotalRp: 5000 }] },
     { saleId: 2, saleNo: "DEMO-2", shiftId: 10, cashierUsername: "pagi", committedAtMs: 2000, method: "QRIS_MANUAL", amountRp: 2500 },
     { saleId: 3, saleNo: "DEMO-3", shiftId: 11, cashierUsername: "sore", committedAtMs: 3000, method: "CASH", amountRp: 2500 },
   ],
@@ -205,11 +205,18 @@ describe("TASK-040 Dashboard ADMIN", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ekspor CSV" }));
     await userEvent.click(screen.getByRole("button", { name: "Ekspor Excel" }));
 
-    expect(downloads).toEqual(["laporan-penjualan-2026-11-17.csv", "laporan-penjualan-2026-11-17.xls"]);
+    expect(downloads).toEqual(["laporan-penjualan-2026-11-17.csv", "laporan-penjualan-2026-11-17.xlsx"]);
     const csvText = await blobs[0]!.text();
     expect(csvText).toContain("10000");
     expect(csvText).toContain("#10");
     expect(csvText).toContain("#11");
+    expect(csvText).toContain("Barang DEMO,SKU-DEMO,2,2500,5000");
+    const xlsx = new Uint8Array(await blobs[1]!.arrayBuffer());
+    expect(Array.from(xlsx.slice(0, 4))).toEqual([80, 75, 3, 4]);
+    const xml = new TextDecoder().decode(xlsx);
+    expect(xml).toContain("xl/worksheets/sheet1.xml");
+    expect(xml).toContain("Barang DEMO");
+    expect(xml).toContain("SKU-DEMO");
     clickSpy.mockRestore();
     vi.unstubAllGlobals();
   });

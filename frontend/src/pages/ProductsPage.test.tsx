@@ -72,6 +72,7 @@ async function fillCreateForm(user: ReturnType<typeof userEvent.setup>, barcode 
   await user.type(screen.getByLabelText("SKU"), "SKU-001");
   await user.type(screen.getByLabelText("Nama produk"), "Produk Uji");
   await user.type(screen.getByLabelText("Harga (Rp)"), "5000");
+  expect((screen.getByLabelText("Harga (Rp)") as HTMLInputElement).value).toBe("5.000");
   await user.selectOptions(screen.getByLabelText("Kategori"), "1");
   await user.type(screen.getByLabelText("Barcode (satu per baris)"), barcode);
 }
@@ -399,4 +400,20 @@ describe("TASK-012 katalog ADMIN", () => {
     });
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+});
+
+it("BUG-205/206: harga edit berformat ribuan dan badge stok mengikuti saldo", async () => {
+  const updateProduct = vi.fn(async () => ({ ...PRODUCT, priceRp: 3000 }));
+  const { user } = renderPage(buildSource({ listCatalogProducts: vi.fn(async () => [PRODUCT, { ...PRODUCT, id: 8, sku: "SKU-002", stockOnHand: 5 }, { ...PRODUCT, id: 9, sku: "SKU-003", stockOnHand: 6 }]), updateProduct }));
+  await screen.findByText("Stok habis");
+  expect(screen.getByText("Stok menipis")).toBeTruthy();
+  expect(screen.getByText("Stok aman")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Ubah SKU-001" }));
+  const form = screen.getByRole("form", { name: "Ubah produk" });
+  const input = within(form).getByLabelText("Harga (Rp)");
+  expect((input as HTMLInputElement).value).toBe("5.000");
+  await user.clear(input); await user.type(input, "3000");
+  expect((input as HTMLInputElement).value).toBe("3.000");
+  await user.click(within(form).getByRole("button", { name: "Simpan perubahan" }));
+  await waitFor(() => expect(updateProduct).toHaveBeenCalledWith(7, expect.objectContaining({ priceRp: 3000 })));
 });

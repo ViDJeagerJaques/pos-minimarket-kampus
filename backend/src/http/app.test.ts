@@ -1001,3 +1001,20 @@ test("BUG-151: database kosong memicu bootstrap admin pertama, sandi lemah ditol
     database.cleanup();
   }
 });
+
+test("BUG-207 HTTP: sesi wajib dan target perubahan sandi selalu pemilik token", async () => {
+  const { database, db } = createDatabase();
+  const handle = await startServerFor(db);
+  try {
+    const base = handle.running.url;
+    const next = makeRuntimePassword();
+    const body = JSON.stringify({ oldPassword: ADMIN_PASSWORD, newPassword: next, userId: 2 });
+    assert.equal((await call(base, "/auth/password", { payload: body })).status, 401);
+    const session = handle.auth.login({ username: "admin.http", password: ADMIN_PASSWORD });
+    assert.equal((await call(base, "/auth/password", { token: session.token, payload: body })).status, 200);
+    assert.equal((await call(base, "/auth/me", { token: session.token })).status, 401);
+    assert.equal(handle.auth.login({ username: "admin.http", password: next }).user.id, session.user.id);
+    assert.ok(handle.auth.login({ username: "kasir.http", password: CASHIER_PASSWORD }));
+    assert.equal(handle.securityLines.join("").includes(next), false);
+  } finally { await handle.running.close(); db.close(); database.cleanup(); }
+});

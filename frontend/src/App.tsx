@@ -38,6 +38,7 @@ const PAGE_LABEL: Record<PageId, string> = {
   "stock-adjustment": "Koreksi Stok",
   reports: "Laporan",
   accounts: "Akun",
+  password: "Ganti Sandi",
   backup: "Backup",
 };
 
@@ -332,6 +333,16 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}
+        />
+      );
+    }
+    if (activePage === "password") {
+      return (
+        <AccountsPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={handleSessionExpired}
+          selfServiceOnly
         />
       );
     }

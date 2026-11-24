@@ -710,6 +710,24 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
     },
     {
       method: "POST",
+      pattern: /^\/auth\/password$/,
+      roles: ["ADMIN", "CASHIER"],
+      handler: (ctx) => {
+        const actor = ctx.actor as SessionUser;
+        const key = `password:${actor.userId}`;
+        loginRateLimiter.assertAllowed(key);
+        try {
+          const data = auth.changePassword(actor, asObject(ctx.body));
+          loginRateLimiter.reset(key);
+          return { data };
+        } catch (error) {
+          if (error instanceof ValidationError) loginRateLimiter.recordFailure(key);
+          throw error;
+        }
+      },
+    },
+    {
+      method: "POST",
       pattern: /^\/auth\/logout$/,
       roles: ["ADMIN", "CASHIER"],
       handler: (ctx) => ({ data: auth.logout(ctx.actor as SessionUser, ctx.token as string) }),

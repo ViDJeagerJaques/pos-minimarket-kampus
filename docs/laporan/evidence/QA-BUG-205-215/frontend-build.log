@@ -1,0 +1,25 @@
+> pos-minimarket-kampus-frontend@0.0.0-demo build
+> npm run typecheck && vite build
+
+
+> pos-minimarket-kampus-frontend@0.0.0-demo typecheck
+> tsc --noEmit -p tsconfig.json
+
+vite v8.3.8 building client environment for production...
+transforming...
+✓ 256 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                        0.70 kB │ gzip:   0.42 kB
+dist/assets/index-Domc00Gy.css        15.74 kB │ gzip:   3.41 kB
+dist/assets/purify.es-BQJV6A36.js     30.01 kB │ gzip:  11.98 kB
+dist/assets/index.es-IVhOAdwm.js     151.37 kB │ gzip:  48.88 kB
+dist/assets/html2canvas-B-F9ey8O.js  199.39 kB │ gzip:  46.73 kB
+dist/assets/index-DRw0q7Om.js        804.40 kB │ gzip: 245.60 kB
+
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 443ms

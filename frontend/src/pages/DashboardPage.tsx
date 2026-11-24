@@ -4,7 +4,9 @@ import type { DailyReport, PosDataSource, SessionUser, StockReport } from "../ap
 import { Button } from "../components/Button";
 import { exclusiveEndMs, parseDay, toDateInputValue } from "../components/DailyReportPanel";
 import { MoneyText } from "../components/MoneyText";
-import { buildCsv, buildExcelHtml, triggerFileDownload } from "../domain/iposFeatures";
+import { buildCsv, triggerFileDownload } from "../domain/iposFeatures";
+
+import { buildExcelWorkbook } from "../domain/excel";
 
 interface Props {
   dataSource: PosDataSource;
@@ -167,6 +169,11 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
                 rows.push(["Shift", `#${id}`, row.count, row.cash, row.qris, row.cash + row.qris]);
               }
             }
+            rows.push([], ["Rincian barang"], ["No. penjualan", "Waktu", "Barang", "SKU", "Jumlah", "Harga", "Total"]);
+            for (const sale of daily.sales) {
+              if (sale.items === undefined) rows.push([sale.saleNo, "Rincian barang tidak tersedia dari backend ini."]);
+              for (const item of sale.items ?? []) rows.push([sale.saleNo, new Date(sale.committedAtMs).toLocaleString("id-ID"), item.name, item.sku, item.quantity, item.unitPriceRp, item.lineTotalRp]);
+            }
             triggerFileDownload(`laporan-penjualan-${request.date}.csv`, buildCsv(headers, rows), "text/csv;charset=utf-8");
           }}
         >
@@ -189,10 +196,15 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
                 rows.push(["Shift", `#${id}`, row.count, row.cash, row.qris, row.cash + row.qris]);
               }
             }
+            rows.push([], ["Rincian barang"], ["No. penjualan", "Waktu", "Barang", "SKU", "Jumlah", "Harga", "Total"]);
+            for (const sale of daily.sales) {
+              if (sale.items === undefined) rows.push([sale.saleNo, "Rincian barang tidak tersedia dari backend ini."]);
+              for (const item of sale.items ?? []) rows.push([sale.saleNo, new Date(sale.committedAtMs).toLocaleString("id-ID"), item.name, item.sku, item.quantity, item.unitPriceRp, item.lineTotalRp]);
+            }
             triggerFileDownload(
-              `laporan-penjualan-${request.date}.xls`,
-              buildExcelHtml(`Laporan Penjualan ${request.date}`, headers, rows),
-              "application/vnd.ms-excel;charset=utf-8",
+              `laporan-penjualan-${request.date}.xlsx`,
+              buildExcelWorkbook(`Laporan Penjualan ${request.date}`, headers, rows),
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             );
           }}
         >

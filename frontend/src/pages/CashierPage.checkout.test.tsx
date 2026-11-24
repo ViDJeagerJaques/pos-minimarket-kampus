@@ -569,9 +569,12 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     expect(pay.disabled).toBe(true);
     expect(await screen.findByText(/Belum ada shift aktif/)).toBeTruthy();
 
+    await user.type(screen.getByLabelText("Modal awal (Rp, opsional)"), "300000");
+    expect((screen.getByLabelText("Modal awal (Rp, opsional)") as HTMLInputElement).value).toBe("300.000");
     await user.click(screen.getByRole("button", { name: "Buka shift" }));
     await waitFor(() => expect((pay as HTMLButtonElement).disabled).toBe(false));
     expect(openShift).toHaveBeenCalledTimes(1);
+    expect(openShift).toHaveBeenCalledWith({ openingCashRp: 300000 });
     expect(screen.getAllByText(/#7/).length).toBeGreaterThan(0);
   });
 

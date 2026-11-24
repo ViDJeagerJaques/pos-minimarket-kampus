@@ -637,6 +637,14 @@ function toReceiptResult(value: unknown): ReceiptResult {
   };
 }
 
+function decodeDailyItems(value: unknown): Receipt["items"] {
+  if (!Array.isArray(value)) throw invalidResponse("Rincian barang laporan tidak valid.");
+  return value.map(item => {
+    if (!isRecord(item) || typeof item.sku !== "string" || typeof item.name !== "string" || !isPositiveInt(item.quantity) || !isNonNegativeInt(item.unitPriceRp) || !isNonNegativeInt(item.lineTotalRp)) throw invalidResponse("Rincian barang laporan tidak valid.");
+    return { sku: item.sku, name: item.name, quantity: item.quantity, unitPriceRp: item.unitPriceRp, lineTotalRp: item.lineTotalRp };
+  });
+}
+
 function toDailyReport(value: unknown): DailyReport {
   if (
     !isRecord(value) ||
@@ -675,6 +683,7 @@ function toDailyReport(value: unknown): DailyReport {
       cashierUsername: raw.cashierUsername as string | null,
       method: raw.method,
       amountRp: raw.amountRp,
+      ...(raw.items === undefined ? {} : { items: decodeDailyItems(raw.items) }),
     };
   });
   return {
@@ -1378,6 +1387,10 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
     login,
     logout,
     getProfile,
+    async changePassword(input) {
+      const data = await request("POST", "/auth/password", input, requireToken());
+      if (!isRecord(data) || data.changed !== true) throw invalidResponse("Perubahan sandi tidak dapat dikonfirmasi.");
+    },
     listAccounts,
     createAccount,
     setAccountActive,

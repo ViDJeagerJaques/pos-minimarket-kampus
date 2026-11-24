@@ -134,6 +134,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
 
     const dialog = await openQrisPayment(user);
     expect(dialog.textContent).toContain("PENDING");
+    expect(dialog.querySelector(".money--total")?.textContent).toBe("Rp5.000");
     expect(source.prepareCheckout).toHaveBeenCalledWith(
       expect.objectContaining({ paymentMethod: "QRIS_MANUAL" }),
     );

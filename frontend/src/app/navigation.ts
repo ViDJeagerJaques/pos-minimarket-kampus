@@ -15,6 +15,7 @@ export type PageId =
   | "stock-adjustment"
   | "reports"
   | "accounts"
+  | "password"
   | "backup";
 
 export interface NavItem {
@@ -27,6 +28,7 @@ export const NAV_BY_ROLE: Record<Role, readonly NavItem[]> = {
     { id: "cashier", label: "Kasir" },
     { id: "history", label: "Riwayat/Struk" },
     { id: "shift", label: "Shift" },
+    { id: "password", label: "Ganti Sandi" },
   ],
   ADMIN: [
     { id: "dashboard", label: "Dashboard" },

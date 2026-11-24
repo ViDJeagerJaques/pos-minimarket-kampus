@@ -616,3 +616,30 @@ test("BUG-166: getBootstrapStatus mengembalikan needsSetup=false pada DB DEMO ya
     database.cleanup();
   }
 });
+
+test("BUG-207: perubahan sandi milik sendiri atomik, audit aman, seluruh sesi lama dicabut", () => {
+  const { database, db, auth, sessions, admin, cashier } = setup();
+  try {
+    const old = auth.login({ username: admin.username, password: ADMIN_PASSWORD });
+    const other = auth.login({ username: cashier.username, password: CASHIER_PASSWORD });
+    const next = makeRuntimePassword();
+    assert.throws(() => auth.changePassword(admin, { oldPassword: next, newPassword: next }), ValidationError);
+    assert.throws(() => auth.changePassword(admin, { oldPassword: ADMIN_PASSWORD, newPassword: "x" }), ValidationError);
+    assert.ok(sessions.verify(old.token));
+    assert.equal(auditRows(db, "PASSWORD_CHANGED").length, 0);
+    db.exec("CREATE TRIGGER reject_password_audit BEFORE INSERT ON audit_log WHEN NEW.action = 'PASSWORD_CHANGED' BEGIN SELECT RAISE(ABORT, 'fixture'); END");
+    assert.throws(() => auth.changePassword(admin, { oldPassword: ADMIN_PASSWORD, newPassword: next }));
+    assert.ok(auth.login({ username: admin.username, password: ADMIN_PASSWORD }));
+    db.exec("DROP TRIGGER reject_password_audit");
+    assert.deepEqual(auth.changePassword(admin, { oldPassword: ADMIN_PASSWORD, newPassword: next }), { changed: true });
+    assert.equal(sessions.verify(old.token), null);
+    assert.ok(sessions.verify(other.token));
+    assert.throws(() => auth.login({ username: admin.username, password: ADMIN_PASSWORD }), InvalidCredentialsError);
+    assert.ok(auth.login({ username: admin.username, password: next }));
+    const audit = auditRows(db, "PASSWORD_CHANGED");
+    assert.equal(audit.length, 1);
+    assert.equal(JSON.stringify(audit).includes(next), false);
+    assert.equal(JSON.stringify(audit).includes(ADMIN_PASSWORD), false);
+    assert.equal(audit[0].actor_id, admin.userId);
+  } finally { db.close(); database.cleanup(); }
+});

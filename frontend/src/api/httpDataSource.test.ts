@@ -971,6 +971,7 @@ describe("TASK-021 klien struk & cetak ulang", () => {
           cashierUsername: "kasir.demo",
           method: "CASH",
           amountRp: 125_000,
+          items: [{ sku: "DEMO-1", name: "Barang DEMO", quantity: 5, unitPriceRp: 25000, lineTotalRp: 125000 }],
         },
       ],
       salesTruncated: true,
@@ -989,6 +990,7 @@ describe("TASK-021 klien struk & cetak ulang", () => {
     });
     expect(report.totalRp).toBe(150_000);
     expect(report.sales[0]?.saleNo).toBe("S-000001");
+    expect(report.sales[0]?.items).toEqual(daily.sales[0]!.items);
     expect(calls[2]?.url).toBe(
       "/api/v1/reports/daily?start=1700000000000&end=1700086400000&shiftId=7",
     );

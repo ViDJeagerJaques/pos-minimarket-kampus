@@ -10,6 +10,7 @@ interface AccountsPageProps {
   currentUser: SessionUser;
   /** Dipanggil saat backend menjawab 401: App wajib membersihkan sesi dan kembali ke login. */
   onSessionExpired: () => void;
+  selfServiceOnly?: boolean;
 }
 
 type CreateConfirmation = {
@@ -56,13 +57,37 @@ function validateCreateForm(username: string, password: string): string | null {
  * Otorisasi sesungguhnya tetap di backend; halaman ini tidak boleh dianggap izin.
  * Form tidak pernah menampilkan/mencatat kata sandi di dialog, log, atau pesan error.
  */
-export function AccountsPage({ dataSource, currentUser, onSessionExpired }: AccountsPageProps) {
+export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfServiceOnly = false }: AccountsPageProps) {
+  const canManageAccounts = currentUser.role === "ADMIN" && !selfServiceOnly;
   const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [visible, setVisible] = useState<Record<string, boolean>>({});
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmationPassword, setConfirmationPassword] = useState("");
+  const [changing, setChanging] = useState(false);
+  const passwordLock = useRef(false);
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    if (passwordLock.current) return;
+    if (!oldPassword || newPassword.length < 8 || newPassword.length > 1024 || newPassword !== confirmationPassword) {
+      setStatus({ tone: "danger", text: "Isi sandi lama, sandi baru 8-1024 karakter, dan konfirmasi yang sama." }); return;
+    }
+    passwordLock.current = true; setChanging(true);
+    try {
+      await dataSource.changePassword({ oldPassword, newPassword });
+      setOldPassword(""); setNewPassword(""); setConfirmationPassword(""); setVisible({});
+      onSessionExpired();
+    } catch (error) { handleActionError(error); }
+    finally { passwordLock.current = false; setChanging(false); }
+  }
+  function visibility(key: string, label: string) {
+    return <Button type="button" aria-label={`${visible[key] ? "Sembunyikan" : "Lihat"} ${label}`} aria-pressed={!!visible[key]} onClick={() => setVisible(previous => ({ ...previous, [key]: !previous[key] }))}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />{visible[key] && <path d="m3 3 18 18" />}</svg></Button>;
+  }
   const [status, setStatus] = useState<Status | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,6 +103,10 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
   const formErrorId = useId();
 
   useEffect(() => {
+    if (!canManageAccounts) {
+      setIsLoading(false);
+      return;
+    }
     let isActive = true;
     const seq = ++listRequestSeqRef.current;
     const mutationAtStart = listMutationSeqRef.current;
@@ -119,7 +148,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
     return () => {
       isActive = false;
     };
-  }, [dataSource, reloadKey, onSessionExpired]);
+  }, [canManageAccounts, dataSource, reloadKey, onSessionExpired]);
 
   function handleActionError(error: unknown): void {
     if (error instanceof ApiError && error.isSessionExpired) {
@@ -212,19 +241,35 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
   return (
     <section className="panel" aria-labelledby="accounts-title" aria-busy={isLoading}>
       <h1 id="accounts-title" className="page-title">
-        Akun <span className="chip chip--warning">ADMIN · API lokal</span>
+        {canManageAccounts ? (
+          <>
+            Akun <span className="chip chip--warning">ADMIN · API lokal</span>
+          </>
+        ) : (
+          "Ganti Sandi"
+        )}
       </h1>
       <p className="muted">
-        Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada setiap
-        permintaan; CASHIER yang memanggil endpoint ini menerima <strong>403</strong>.
+        {canManageAccounts ? (
+          <>
+            Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
+            setiap permintaan; CASHIER yang memanggil endpoint ini menerima <strong>403</strong>.
+          </>
+        ) : (
+          <>
+            Masuk sebagai <strong>{currentUser.username}</strong>. Anda hanya dapat mengubah kata
+            sandi akun Anda sendiri.
+          </>
+        )}
       </p>
-      {dataSource.authMode === "DEMO" && (
+      {canManageAccounts && dataSource.authMode === "DEMO" && (
         <StatusMessage
           tone="warning"
           text="Mode DEMO hanya menampilkan akun sintetis. Pembuatan/penonaktifan akun memerlukan backend lokal."
         />
       )}
 
+      {canManageAccounts && (
       <form className="account-form" onSubmit={handleSubmit} aria-label="Buat akun kasir" noValidate>
         <h2 className="section-title">Buat akun kasir</h2>
         <div className="form-grid">
@@ -251,7 +296,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
             <input
               id={passwordId}
               className="input"
-              type="password"
+              type={visible.initial ? "text" : "password"}
               autoComplete="new-password"
               maxLength={1024}
               value={password}
@@ -260,19 +305,37 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
               aria-describedby={formErrorId}
               required
             />
+            {visibility("initial", "kata sandi awal")}
           </div>
         </div>
         <p id={formErrorId} className="muted">
           Minimal {PASSWORD_MIN_LENGTH} karakter. Kata sandi hanya dikirim ke backend lokal, tidak
-          ditampilkan lagi, dan tidak dicatat di log.
+          disimpan sebagai teks, dan tidak dicatat di log.
         </p>
         <Button type="submit" variant="primary" disabled={isSubmitting}>
           {isSubmitting ? "Menyimpan…" : "Buat akun kasir"}
         </Button>
       </form>
+      )}
 
+      <form className="account-form" aria-label="Ubah sandi sendiri" onSubmit={changePassword}>
+        <h2>Ubah sandi akun sendiri</h2>
+        <p>Sandi berhasil diubah akan mengakhiri semua sesi akun Anda. Masuk kembali dengan sandi baru.</p>
+        {([
+          ["old", "Sandi lama", oldPassword, setOldPassword],
+          ["new", "Sandi baru", newPassword, setNewPassword],
+          ["confirm", "Konfirmasi sandi baru", confirmationPassword, setConfirmationPassword],
+        ] as const).map(([key, label, value, setter]) => <div key={key}>
+          <label className="field-label" htmlFor={`password-${key}`}>{label}</label>
+          <input id={`password-${key}`} className="input" type={visible[key] ? "text" : "password"} autoComplete={key === "old" ? "current-password" : "new-password"} value={value} onChange={event => setter(event.target.value)} maxLength={1024} disabled={changing} required />
+          {visibility(key, label.toLowerCase())}
+        </div>)}
+        <Button type="submit" disabled={changing}>Ubah sandi</Button>
+      </form>
       {status && <StatusMessage tone={status.tone} text={status.text} />}
 
+      {canManageAccounts && (
+      <>
       <h2 className="section-title">Daftar akun</h2>
       {loadError && (
         <div className="account-load-error">
@@ -334,6 +397,8 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired }: Acco
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
 
       {confirmation?.kind === "create" && (

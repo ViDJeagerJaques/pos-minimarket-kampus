@@ -139,6 +139,10 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       return currentUser;
     },
 
+    async changePassword() {
+      throw new ApiError(0, "DEMO_UNSUPPORTED", "Ubah sandi memerlukan backend lokal, tidak tersedia pada mock DEMO.");
+    },
+
     async listAccounts(): Promise<AccountSummary[]> {
       callLog.push({ operation: "listAccounts", isMutation: false });
       await delay();
@@ -436,9 +440,9 @@ export function createMockDataSource(options: { latencyMs?: number } = {}): PosD
       // Dua shift sintetis, mengikuti rentang yang diminta; bukan transaksi nyata.
       const sales: DailyReport["sales"] = [
         { saleId: 9001, saleNo: "DEMO-DAILY-001", committedAtMs: filter.startMs,
-          shiftId: 7, cashierUsername: "kasir.demo", method: "CASH", amountRp: 125_000 },
+          shiftId: 7, cashierUsername: "kasir.demo", method: "CASH", amountRp: 125_000, items: [{ sku: "DEMO-REPORT-1", name: "Barang laporan DEMO", quantity: 5, unitPriceRp: 25000, lineTotalRp: 125000 }] },
         { saleId: 9002, saleNo: "DEMO-DAILY-002", committedAtMs: filter.startMs,
-          shiftId: 8, cashierUsername: "kasir.demo2", method: "QRIS_MANUAL", amountRp: 25_000 },
+          shiftId: 8, cashierUsername: "kasir.demo2", method: "QRIS_MANUAL", amountRp: 25_000, items: [{ sku: "DEMO-REPORT-1", name: "Barang laporan DEMO", quantity: 1, unitPriceRp: 25000, lineTotalRp: 25000 }] },
       ].filter((sale) => filter.shiftId == null || sale.shiftId === filter.shiftId) as DailyReport["sales"];
       const cash = sales.filter((sale) => sale.method === "CASH");
       const qris = sales.filter((sale) => sale.method === "QRIS_MANUAL");

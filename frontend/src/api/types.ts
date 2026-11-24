@@ -299,6 +299,7 @@ export interface DailyReportFilter {
 }
 
 export interface DailySaleRow {
+  items?: ReceiptItem[];
   saleId: number;
   saleNo: string;
   committedAtMs: number;
@@ -403,6 +404,7 @@ export interface PosDataSource {
   readonly catalogMode: CatalogMode;
   login(username: string, password: string): Promise<LoginResult>;
   logout(): Promise<void>;
+  changePassword(input: { oldPassword: string; newPassword: string }): Promise<void>;
   /** `GET /auth/me`; profil/role diambil ulang dari backend, bukan dari UI. */
   getProfile(): Promise<SessionUser>;
   listAccounts(): Promise<AccountSummary[]>;

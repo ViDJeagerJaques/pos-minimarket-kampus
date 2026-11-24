@@ -44,7 +44,10 @@ export type DailyReportFilter = {
   shiftId?: unknown;
 };
 
+export type DailySaleItem = { sku: string; name: string; quantity: number; unitPriceRp: number; lineTotalRp: number };
+
 export type DailySaleRow = {
+  items: DailySaleItem[];
   saleId: number;
   saleNo: string;
   committedAtMs: number;
@@ -335,6 +338,7 @@ export function createReportService(db: DatabaseSync): ReportService {
             cashierUsername: row.cashier_username,
             method: row.method_code === "QRIS_MANUAL" ? "QRIS_MANUAL" : "CASH",
             amountRp: Number(row.amount_rp),
+            items: db.prepare("SELECT sku_snapshot AS sku, name_snapshot AS name, quantity, unit_price_rp AS unitPriceRp, line_total_rp AS lineTotalRp FROM sale_items WHERE sale_id = ? ORDER BY id").all(row.sale_id) as DailySaleItem[],
           })),
           salesTruncated,
           generatedAtMs: Date.now(),

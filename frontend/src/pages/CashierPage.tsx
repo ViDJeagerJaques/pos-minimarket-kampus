@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -234,6 +235,36 @@ export function CashierPage({
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const recoveryKeyRef = useRef<string | null>(initialRecovery.key);
   const [cashInput, setCashInput] = useState("");
+  const [openingCashInput, setOpeningCashInput] = useState("");
+  const [openingCashCaretTick, setOpeningCashCaretTick] = useState(0);
+  const openingCashInputRef = useRef<HTMLInputElement>(null);
+  const openingCashCaretRef = useRef<number | null>(null);
+  const formattedOpeningCash = openingCashInput.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+
+  useLayoutEffect(() => {
+    const targetChars = openingCashCaretRef.current;
+    const input = openingCashInputRef.current;
+    if (targetChars === null || !input) {
+      return;
+    }
+    openingCashCaretRef.current = null;
+    let seen = 0;
+    let nextPos = formattedOpeningCash.length;
+    if (targetChars === 0) {
+      nextPos = 0;
+    } else {
+      for (let i = 0; i < formattedOpeningCash.length; i += 1) {
+        if (formattedOpeningCash[i] !== ".") {
+          seen += 1;
+          if (seen === targetChars) {
+            nextPos = i + 1;
+            break;
+          }
+        }
+      }
+    }
+    input.setSelectionRange(nextPos, nextPos);
+  }, [formattedOpeningCash, openingCashCaretTick]);
   const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>("CASH");
   const [merchantConfirmed, setMerchantConfirmed] = useState(false);
   const [merchantAmountInput, setMerchantAmountInput] = useState("");
@@ -506,7 +537,7 @@ export function CashierPage({
     if (isOpeningShift || checkoutLockRef.current) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const raw = String(data.get("openingCash") ?? "").trim();
+    const raw = String(data.get("openingCash") ?? "").replace(/\./g, "").trim();
     const openingCashRp = raw.length === 0 ? undefined : parseRupiahInput(raw);
     if (openingCashRp === null) {
       setShiftError("Modal awal harus bilangan rupiah bulat dan tidak negatif.");
@@ -518,6 +549,7 @@ export function CashierPage({
         openingCashRp === undefined ? {} : { openingCashRp },
       );
       setShift(opened);
+      setOpeningCashInput("");
       setShiftError(null);
       setStatus({ tone: "success", text: `Shift #${opened.id} dibuka untuk kasir ini.` });
     } catch (error) {
@@ -1159,7 +1191,27 @@ export function CashierPage({
               <label htmlFor={openingCashId} className="field-label">
                 Modal awal (Rp, opsional)
               </label>
-              <input id={openingCashId} className="input" type="text" inputMode="numeric" name="openingCash" />
+              <input
+                ref={openingCashInputRef}
+                id={openingCashId}
+                className="input"
+                type="text"
+                inputMode="numeric"
+                name="openingCash"
+                value={formattedOpeningCash}
+                onChange={event => {
+                  const rawValue = event.target.value;
+                  const nextUnformatted = rawValue.replace(/\./g, "");
+                  const caret = event.target.selectionStart ?? rawValue.length;
+                  openingCashCaretRef.current = rawValue
+                    .slice(0, caret)
+                    .replace(/\./g, "").length;
+                  setOpeningCashInput(nextUnformatted);
+                  if (nextUnformatted === openingCashInput) {
+                    setOpeningCashCaretTick(tick => tick + 1);
+                  }
+                }}
+              />
               <Button type="submit" variant="primary" disabled={isOpeningShift}>
                 {isOpeningShift ? "Membuka…" : "Buka shift"}
               </Button>
@@ -1341,10 +1393,8 @@ export function CashierPage({
             <h2 id="payment-title" className="dialog__title">
               {paymentIsQris ? "Konfirmasi QRIS manual" : "Konfirmasi pembayaran tunai"}
             </h2>
-            <p>
-              <span className="badge badge--warning">PENDING — belum ada penjualan</span> · Total:{" "}
-              <MoneyText amountRp={phase.attempt.quote.totalRp} />
-            </p>
+            <p>Total: <MoneyText className="money--total" amountRp={phase.attempt.quote.totalRp} /></p>
+            <p><span className="badge badge--warning">PENDING - belum ada penjualan</span></p>
             <p className="muted" role="note">
               {paymentIsQris
                 ? "Pemeriksaan metode: pastikan pelanggan membayar lewat QRIS merchant, bukan uang tunai."
