@@ -29,6 +29,7 @@ coverage/
 .env
 .env.*
 !.env.example
+backend/config/sheets-sync.json
 
 # ---------------------------------------------------------------------------
 # Log, editor, OS
