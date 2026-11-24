@@ -34,6 +34,10 @@ function makeSyntheticPassword(): string {
 async function setupCheckoutHttp(options: {
   writeConfig?: { webhookUrl: string; secret: string } | null;
   fetchImpl: typeof fetch;
+  queuePath?: string;
+  retryBaseDelayMs?: number;
+  retryMaxDelayMs?: number;
+  maxRetryAttempts?: number;
 }) {
   const database = createTempDatabase();
   migrateFresh(database);
@@ -52,7 +56,7 @@ async function setupCheckoutHttp(options: {
   ).run(ids.productId, ids.adminId, FIXED_NOW);
 
   const configPath = path.join(database.dir, "sheets-sync.json");
-  const queuePath = path.join(database.dir, "sheets-sync-queue.json");
+  const queuePath = options.queuePath ?? path.join(database.dir, "sheets-sync-queue.json");
   if (options.writeConfig) {
     writeFileSync(configPath, JSON.stringify(options.writeConfig), "utf8");
   }
@@ -68,6 +72,9 @@ async function setupCheckoutHttp(options: {
     configPath,
     queuePath,
     fetchImpl: options.fetchImpl,
+    retryBaseDelayMs: options.retryBaseDelayMs,
+    retryMaxDelayMs: options.retryMaxDelayMs,
+    maxRetryAttempts: options.maxRetryAttempts,
   });
 
   const server = await startHttpServer({
@@ -110,6 +117,7 @@ async function setupCheckoutHttp(options: {
     configPath,
     queuePath,
     async cleanup() {
+      sheetsSync.stop();
       await server.close();
       db.close();
       database.cleanup();
@@ -341,4 +349,251 @@ test("Ide #10: secret salah ditolak webhook tanpa crash dan tidak mengganggu che
 test("Ide #10: .gitignore mengecualikan backend/config/sheets-sync.json", () => {
   const gitignore = readFileSync(path.join(REPO_ROOT, ".gitignore"), "utf8");
   assert.match(gitignore, /^backend\/config\/sheets-sync\.json$/m);
+});
+
+test("BUG-247: menolak URL http: dan redirect HTTPS ke HTTP, tetapi tetap mengikuti redirect HTTPS ke HTTPS", async () => {
+  const database = createTempDatabase();
+  try {
+    const httpConfigPath = path.join(database.dir, "http-config.json");
+    writeFileSync(
+      httpConfigPath,
+      JSON.stringify({ webhookUrl: "http://sheets.example.invalid/webhook", secret: makeSyntheticSecret() }),
+      "utf8",
+    );
+    assert.equal(loadSheetsSyncConfig(httpConfigPath), null);
+  } finally {
+    database.cleanup();
+  }
+
+  const secret = makeSyntheticSecret();
+  const downgradeUrls: string[] = [];
+  const downgradeFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    downgradeUrls.push(url);
+    return new Response(null, {
+      status: 307,
+      headers: { location: "http://insecure.example.invalid/steal" },
+    });
+  };
+  const downgradeCtx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://script.google.com/macros/s/test/exec", secret },
+    fetchImpl: downgradeFetch,
+    retryBaseDelayMs: 60_000,
+  });
+  try {
+    await prepareAndCommit(
+      downgradeCtx.server.url,
+      downgradeCtx.token,
+      downgradeCtx.shiftId,
+      downgradeCtx.ids.productId,
+      "attempt-downgrade-1",
+    );
+    await downgradeCtx.sheetsSync.flush();
+    assert.ok(downgradeUrls.length >= 1);
+    assert.equal(
+      downgradeUrls.every((u) => u === "https://script.google.com/macros/s/test/exec"),
+      true,
+    );
+    assert.equal(downgradeCtx.sheetsSync.getPendingCount(), 1);
+  } finally {
+    await downgradeCtx.cleanup();
+  }
+
+  const httpsCalls: Array<{ url: string; method: string; hasBody: boolean }> = [];
+  const httpsRedirectFetch: typeof fetch = async (input, init) => {
+    const url = String(input);
+    httpsCalls.push({ url, method: init?.method ?? "GET", hasBody: init?.body !== undefined });
+    if (httpsCalls.length === 1) {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://script.googleusercontent.com/macros/echo?key=1" },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const httpsCtx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://script.google.com/macros/s/test/exec", secret },
+    fetchImpl: httpsRedirectFetch,
+  });
+  try {
+    await prepareAndCommit(
+      httpsCtx.server.url,
+      httpsCtx.token,
+      httpsCtx.shiftId,
+      httpsCtx.ids.productId,
+      "attempt-https-redirect-1",
+    );
+    await httpsCtx.sheetsSync.flush();
+    assert.equal(httpsCalls.length, 2);
+    assert.deepEqual(httpsCalls[0], {
+      url: "https://script.google.com/macros/s/test/exec",
+      method: "POST",
+      hasBody: true,
+    });
+    assert.deepEqual(httpsCalls[1], {
+      url: "https://script.googleusercontent.com/macros/echo?key=1",
+      method: "GET",
+      hasBody: false,
+    });
+    assert.equal(httpsCtx.sheetsSync.getPendingCount(), 0);
+  } finally {
+    await httpsCtx.cleanup();
+  }
+});
+
+test("BUG-248: ringkasan barang memakai sale_items.name_snapshot walau produk sudah diganti nama", async () => {
+  const secret = makeSyntheticSecret();
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    retryBaseDelayMs: 60_000,
+  });
+  try {
+    await prepareAndCommit(
+      ctx.server.url,
+      ctx.token,
+      ctx.shiftId,
+      ctx.ids.productId,
+      "attempt-snapshot-1",
+    );
+    await ctx.sheetsSync.flush();
+
+    // Ubah nama produk live setelah commit, lalu rekonsiliasi ulang dari SQLite.
+    ctx.db.prepare("UPDATE products SET name = ? WHERE id = ?").run("Nama Baru Setelah Commit", ctx.ids.productId);
+    online = true;
+    const freshQueue = path.join(ctx.database.dir, "reconciled-snapshot-queue.json");
+    const restarted = createSheetsSyncService({
+      db: ctx.db,
+      dbPath: ctx.database.dbPath,
+      configPath: ctx.configPath,
+      queuePath: freshQueue,
+      fetchImpl,
+    });
+    try {
+      await restarted.flush();
+      assert.equal(delivered.length, 1);
+      assert.equal(delivered[0]?.items, "Fixture Produk x 2");
+    } finally {
+      restarted.stop();
+    }
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("BUG-250: penjualan gagal saat offline terkirim otomatis lewat backoff retry tanpa checkout baru", async () => {
+  const secret = makeSyntheticSecret();
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    retryBaseDelayMs: 25,
+    retryMaxDelayMs: 50,
+    maxRetryAttempts: 5,
+  });
+  try {
+    await prepareAndCommit(
+      ctx.server.url,
+      ctx.token,
+      ctx.shiftId,
+      ctx.ids.productId,
+      "attempt-backoff-1",
+    );
+    await ctx.sheetsSync.flush();
+    assert.equal(ctx.sheetsSync.getPendingCount(), 1);
+
+    online = true;
+    // Tunggu timer backoff mengeksekusi retry otomatis tanpa memanggil flush atau checkout baru.
+    const deadline = Date.now() + 2000;
+    while (delivered.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(delivered.length, 1);
+    assert.equal(ctx.sheetsSync.getPendingCount(), 0);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("BUG-251: penjualan yang gagal ditulis ke antrean tetap pulih dan terkirim setelah restart lewat rekonsiliasi SQLite", async () => {
+  const secret = makeSyntheticSecret();
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  // Simulasi tulis antrean gagal: arahkan queuePath ke direktori yang sudah ada.
+  const tempRoot = createTempDatabase();
+  const unwritableQueuePath = tempRoot.dir;
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    queuePath: unwritableQueuePath,
+    retryBaseDelayMs: 60_000,
+  });
+  try {
+    const first = await prepareAndCommit(
+      ctx.server.url,
+      ctx.token,
+      ctx.shiftId,
+      ctx.ids.productId,
+      "attempt-reconcile-1",
+    );
+    await ctx.sheetsSync.flush();
+    assert.equal(first.committed.status, "COMMITTED");
+    assert.equal(delivered.length, 0);
+
+    // Restart dengan file antrean kosong/baru: rekonsiliasi dari SQLite harus menemukan penjualan yang hilang.
+    online = true;
+    const recoveredQueuePath = path.join(ctx.database.dir, "recovered-queue.json");
+    const restarted = createSheetsSyncService({
+      db: ctx.db,
+      dbPath: ctx.database.dbPath,
+      configPath: ctx.configPath,
+      queuePath: recoveredQueuePath,
+      fetchImpl,
+    });
+    try {
+      assert.equal(restarted.getPendingCount(), 1);
+      await restarted.flush();
+      assert.equal(restarted.getPendingCount(), 0);
+      assert.equal(delivered.length, 1);
+      assert.equal(delivered[0]?.saleNo, first.committed.saleNo);
+    } finally {
+      restarted.stop();
+    }
+  } finally {
+    await ctx.cleanup();
+    tempRoot.cleanup();
+  }
 });

@@ -28,6 +28,7 @@ export type SheetsSyncService = {
   readonly enabled: boolean;
   notifySaleCommitted(result: CommitCheckoutResult, cashierUsername: string): void;
   flush(): Promise<void>;
+  stop(): void;
   getPendingCount(): number;
 };
 
@@ -38,10 +39,18 @@ export type SheetsSyncOptions = {
   queuePath?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  retryBaseDelayMs?: number;
+  retryMaxDelayMs?: number;
+  maxRetryAttempts?: number;
 };
 
 const MAX_SENT_KEYS = 5000;
 const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_REDIRECTS = 5;
+const DEFAULT_RETRY_BASE_DELAY_MS = 5_000;
+const DEFAULT_RETRY_MAX_DELAY_MS = 300_000;
+const DEFAULT_MAX_RETRY_ATTEMPTS = 10;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const BACKEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export function resolveDefaultSheetsConfigPath(): string {
@@ -77,7 +86,7 @@ export function loadSheetsSyncConfig(configPath = resolveDefaultSheetsConfigPath
     } catch {
       return null;
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
+    if (url.protocol !== "https:") {
       return null;
     }
     return { webhookUrl: url.toString(), secret };
@@ -139,11 +148,10 @@ function formatItemsSummary(db: DatabaseSync, saleId: number, attemptKey: string
   try {
     const rows = db
       .prepare(
-        `SELECT p.name AS name, si.quantity AS quantity
-         FROM sale_items si
-         JOIN products p ON p.id = si.product_id
-         WHERE si.sale_id = ?
-         ORDER BY si.id ASC`,
+        `SELECT name_snapshot AS name, quantity
+         FROM sale_items
+         WHERE sale_id = ?
+         ORDER BY id ASC`,
       )
       .all(saleId) as Array<{ name: string; quantity: number }>;
     if (rows.length > 0) {
@@ -173,6 +181,65 @@ function formatItemsSummary(db: DatabaseSync, saleId: number, attemptKey: string
   return "";
 }
 
+function reconcileCommittedSales(db: DatabaseSync, current: QueueState): { state: QueueState; recovered: boolean } {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT s.id AS sale_id, s.sale_no, s.attempt_key, s.total_rp, s.committed_at_ms,
+                p.method_code AS method, u.username AS cashier
+         FROM sales s
+         JOIN payments p ON p.sale_id = s.id
+         JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
+         JOIN users u ON u.id = ca.cashier_id
+         GROUP BY s.id
+         ORDER BY s.committed_at_ms ASC, s.id ASC`,
+      )
+      .all() as Array<{
+      sale_id: number;
+      sale_no: string;
+      attempt_key: string;
+      total_rp: number;
+      committed_at_ms: number;
+      method: string;
+      cashier: string;
+    }>;
+
+    const knownKeys = new Set<string>([
+      ...current.sentKeys,
+      ...current.pending.map((item) => item.attemptKey),
+    ]);
+    const missing: QueuedSaleSync[] = [];
+    for (const row of rows) {
+      const attemptKey = String(row.attempt_key);
+      if (knownKeys.has(attemptKey)) {
+        continue;
+      }
+      knownKeys.add(attemptKey);
+      missing.push({
+        attemptKey,
+        saleNo: String(row.sale_no),
+        totalRp: Number(row.total_rp),
+        method: String(row.method),
+        cashier: String(row.cashier),
+        committedAtMs: Number(row.committed_at_ms),
+        items: formatItemsSummary(db, Number(row.sale_id), attemptKey),
+      });
+    }
+    if (missing.length === 0) {
+      return { state: current, recovered: false };
+    }
+    return {
+      state: {
+        pending: [...current.pending, ...missing],
+        sentKeys: current.sentKeys,
+      },
+      recovered: true,
+    };
+  } catch {
+    return { state: current, recovered: false };
+  }
+}
+
 export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncService {
   const config = loadSheetsSyncConfig(options.configPath);
   const queuePath =
@@ -180,12 +247,16 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     (options.dbPath ? path.join(path.dirname(path.resolve(options.dbPath)), "sheets-sync-queue.json") : null);
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
+  const retryMaxDelayMs = options.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_DELAY_MS;
+  const maxRetryAttempts = options.maxRetryAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS;
 
   if (!config || !queuePath) {
     return {
       enabled: false,
       notifySaleCommitted() {},
       async flush() {},
+      stop() {},
       getPendingCount() {
         return 0;
       },
@@ -193,43 +264,121 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   }
 
   let state = readQueueState(queuePath);
+  const reconciled = reconcileCommittedSales(options.db, state);
+  if (reconciled.recovered) {
+    state = reconciled.state;
+    try {
+      writeQueueState(queuePath, state);
+    } catch {
+      // Abaikan kegagalan tulis saat startup; antrean memori tetap aktif.
+    }
+  }
+
   let activeFlush: Promise<void> | null = null;
   let flushRequestedAgain = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let consecutiveFailures = 0;
+  let stopped = false;
+
+  function clearRetryTimer(): void {
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  }
+
+  function scheduleRetry(): void {
+    if (stopped || state.pending.length === 0 || consecutiveFailures > maxRetryAttempts) {
+      return;
+    }
+    clearRetryTimer();
+    const delayMs = Math.min(
+      retryMaxDelayMs,
+      retryBaseDelayMs * 2 ** Math.max(0, consecutiveFailures - 1),
+    );
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (!stopped && state.pending.length > 0) {
+        void flush();
+      }
+    }, delayMs);
+    retryTimer.unref?.();
+  }
 
   async function postOne(item: QueuedSaleSync): Promise<boolean> {
     if (!config) return false;
     try {
-      const response = await fetchImpl(config.webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          secret: config.secret,
-          saleNo: item.saleNo,
-          totalRp: item.totalRp,
-          method: item.method,
-          cashier: item.cashier,
-          committedAtMs: item.committedAtMs,
-          items: item.items,
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
+      let currentUrl = config.webhookUrl;
+      let method: "POST" | "GET" = "POST";
+      const payload = JSON.stringify({
+        secret: config.secret,
+        saleNo: item.saleNo,
+        totalRp: item.totalRp,
+        method: item.method,
+        cashier: item.cashier,
+        committedAtMs: item.committedAtMs,
+        items: item.items,
       });
-      if (!response.ok) {
-        return false;
+
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+        const parsedCurrent = new URL(currentUrl);
+        if (parsedCurrent.protocol !== "https:") {
+          return false;
+        }
+        const response = await fetchImpl(currentUrl, {
+          method,
+          ...(method === "POST"
+            ? {
+                headers: { "Content-Type": "application/json" },
+                body: payload,
+              }
+            : {}),
+          redirect: "manual",
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+
+        if (REDIRECT_STATUSES.has(response.status)) {
+          if (hop === MAX_REDIRECTS) {
+            return false;
+          }
+          const location = response.headers.get("location");
+          if (!location) {
+            return false;
+          }
+          const nextUrl = new URL(location, currentUrl);
+          if (nextUrl.protocol !== "https:") {
+            return false;
+          }
+          if (response.status === 301 || response.status === 302 || response.status === 303) {
+            method = "GET";
+          }
+          currentUrl = nextUrl.toString();
+          continue;
+        }
+
+        if (!response.ok) {
+          return false;
+        }
+        const data = (await response.json()) as unknown;
+        return Boolean(data && typeof data === "object" && (data as { ok?: unknown }).ok === true);
       }
-      const data = (await response.json()) as unknown;
-      return Boolean(data && typeof data === "object" && (data as { ok?: unknown }).ok === true);
+      return false;
     } catch {
       return false;
     }
   }
 
   async function drainQueue(): Promise<void> {
-    while (state.pending.length > 0) {
+    while (!stopped && state.pending.length > 0) {
       const next = state.pending[0]!;
       const delivered = await postOne(next);
       if (!delivered) {
+        consecutiveFailures += 1;
+        scheduleRetry();
         break;
       }
+      consecutiveFailures = 0;
+      clearRetryTimer();
       state = {
         pending: state.pending.slice(1),
         sentKeys: [...state.sentKeys, next.attemptKey].slice(-MAX_SENT_KEYS),
@@ -240,9 +389,16 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
         // Kegagalan tulis antrean tidak boleh membatalkan transaksi yang sudah selesai.
       }
     }
+    if (state.pending.length === 0) {
+      consecutiveFailures = 0;
+      clearRetryTimer();
+    }
   }
 
   function flush(): Promise<void> {
+    if (stopped) {
+      return Promise.resolve();
+    }
     if (activeFlush) {
       flushRequestedAgain = true;
       return activeFlush;
@@ -252,7 +408,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
         do {
           flushRequestedAgain = false;
           await drainQueue();
-        } while (flushRequestedAgain && state.pending.length > 0);
+        } while (!stopped && flushRequestedAgain && state.pending.length > 0);
       } finally {
         activeFlush = null;
       }
@@ -280,16 +436,24 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
       try {
         writeQueueState(queuePath!, state);
       } catch {
-        // Jangan pernah melempar error ke jalur checkout.
+        // Jangan pernah melempar error ke jalur checkout; rekonsiliasi startup memulihkan dari SQLite.
       }
     }
+    consecutiveFailures = 0;
+    clearRetryTimer();
     void flush();
+  }
+
+  function stop(): void {
+    stopped = true;
+    clearRetryTimer();
   }
 
   return {
     enabled: true,
     notifySaleCommitted,
     flush,
+    stop,
     getPendingCount() {
       return state.pending.length;
     },

@@ -169,6 +169,7 @@ async function main(argv: string[]): Promise<number> {
     );
 
     const shutdown = () => {
+      sheetsSync.stop();
       void running.close().finally(() => {
         db.close();
         process.exit(0);
