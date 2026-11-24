@@ -70,11 +70,35 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
       setMessage("Hasil tersimpan, tetapi catatan pemulihan tidak dapat dibersihkan. Cek kembali sebelum melanjutkan.");
     }
   }
-  async function check(attempt: PendingShiftClose) {
+  async function check(attempt: PendingShiftClose, rejectedMessage?: string) {
     setChecked(false);
     try { accept(await dataSource.getShiftClosing(attempt.shiftId), attempt); }
     catch (error) {
       if (error instanceof ApiError && error.status === 404) {
+        if (rejectedMessage) {
+          try {
+            localStorage.removeItem(`${closePrefix(currentUser.userId)}${attempt.closeKey}`);
+            const remaining = pendingClose(currentUser.userId);
+            setPending(remaining?.value ?? null);
+            onPendingChange(remaining !== null);
+            if (!remaining) {
+              try {
+                const fresh = await dataSource.getShiftClosePreview(attempt.shiftId);
+                if (fresh.shiftId === attempt.shiftId) setPreview(fresh);
+              } catch (previewError) {
+                if (previewError instanceof ApiError && previewError.isSessionExpired) {
+                  onSessionExpired();
+                  return;
+                }
+              }
+            }
+            setMessage(rejectedMessage);
+          } catch {
+            setChecked(true);
+            setMessage("Penutupan ditolak, tetapi catatan lokal tidak dapat dibersihkan. Cek kembali sebelum melanjutkan.");
+          }
+          return;
+        }
         setChecked(true);
         setMessage("Hasil belum ditemukan; penutupan mungkin masih berjalan. Cek lagi atau ulangi permintaan yang sama.");
       } else errorMessage(error);
@@ -151,7 +175,9 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
     }
     catch (error) {
       if (error instanceof ApiError && error.isSessionExpired) onSessionExpired();
-      else await check(attempt);
+      else if (error instanceof ApiError && error.status === 422 && error.code === "VALIDATION_ERROR") {
+        await check(attempt, error.message);
+      } else await check(attempt);
     } finally { lock.current = false; setBusy(false); }
   }
   function start() {

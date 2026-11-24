@@ -267,3 +267,29 @@ it("BUG-226: admin dapat mereset sandi kasir lewat dialog tanpa menampilkan sand
   const status = await screen.findByText(/Kata sandi akun "kasir\.uji" berhasil direset/);
   expect(status.textContent).not.toContain(next);
 });
+
+it("BUG-236: dialog reset sandi memindahkan fokus saat dibuka, menjebak Tab, dan mengembalikan fokus saat ditutup", async () => {
+  const { user } = renderAccounts(
+    makeSource({
+      authMode: "LOCAL_API",
+      listAccounts: vi.fn(async () => [ADMIN_ACCOUNT, CASHIER_ACCOUNT]),
+    }),
+  );
+  const resetButton = await screen.findByRole("button", { name: "Ubah sandi kasir.uji" });
+  await user.click(resetButton);
+
+  const dialog = screen.getByRole("dialog");
+  const newInput = within(dialog).getByLabelText("Sandi baru");
+  const submitButton = within(dialog).getByRole("button", { name: "Simpan sandi baru" });
+  expect(document.activeElement).toBe(newInput);
+
+  await user.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(document.activeElement).toBe(submitButton);
+
+  await user.keyboard("{Tab}");
+  expect(document.activeElement).toBe(newInput);
+
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(resetButton);
+});

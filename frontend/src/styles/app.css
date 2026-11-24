@@ -827,7 +827,8 @@ body {
 
 .dialog--receipt {
   max-width: 560px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .dialog__body {

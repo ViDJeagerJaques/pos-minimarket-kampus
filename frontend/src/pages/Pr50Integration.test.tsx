@@ -170,6 +170,7 @@ describe("PR 50 UI integration", () => {
     expect(successDialog.className).toContain("dialog--receipt");
     expect(successDialog.querySelector(".dialog__body")).toBeTruthy();
     expect(successDialog.querySelector(".dialog__actions--sticky")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Transaksi baru" })).toBeTruthy();
     expect(await screen.findByTestId("receipt-text")).toBeTruthy();
   });
 

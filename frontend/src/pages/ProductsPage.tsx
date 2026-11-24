@@ -78,6 +78,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const [categories, setCategories] = useState<CategorySummary[] | null>(null);
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
+  const [fullProducts, setFullProducts] = useState<CatalogProduct[] | null>(null);
   const [allActiveProducts, setAllActiveProducts] = useState<CatalogProduct[] | null>(null);
   const [tagLoadError, setTagLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,6 +132,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
     let isActive = true;
     const seq = ++listSeqRef.current;
     setIsLoading(true);
+    setFullProducts(null);
     setAllActiveProducts(null);
     setTagLoadError(null);
     Promise.all([
@@ -206,6 +208,52 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
     };
   }, [dataSource, reloadKey, appliedQuery, onSessionExpired]);
 
+  useEffect(() => {
+    if (listCategoryId === "all" || products === null || products.length < MAX_PRODUCTS) {
+      setFullProducts(null);
+      return;
+    }
+    let isActive = true;
+    const seq = listSeqRef.current;
+    (async () => {
+      try {
+        const collected: CatalogProduct[] = [...products];
+        const seenIds = new Set<number>(products.map((item) => item.id));
+        let offset = MAX_PRODUCTS;
+        while (true) {
+          const page = await dataSource.listCatalogProducts({
+            query: appliedQuery || undefined,
+            includeInactive: true,
+            limit: MAX_PRODUCTS,
+            offset,
+          });
+          if (!isActive || seq !== listSeqRef.current) return;
+          let added = 0;
+          for (const item of page) {
+            if (!seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              collected.push(item);
+              added += 1;
+            }
+          }
+          if (page.length < MAX_PRODUCTS || added === 0) break;
+          offset += MAX_PRODUCTS;
+        }
+        if (isActive && seq === listSeqRef.current) {
+          setFullProducts(sortProducts(collected));
+        }
+      } catch (error: unknown) {
+        if (!isActive || seq !== listSeqRef.current) return;
+        if (error instanceof ApiError && error.isSessionExpired) {
+          onSessionExpired();
+        }
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+  }, [listCategoryId, products, appliedQuery, dataSource, onSessionExpired]);
+
   function invalidatePendingReadsAndRefresh(): void {
     listSeqRef.current += 1;
     setReloadKey((previous) => previous + 1);
@@ -213,6 +261,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
 
   function replaceProduct(updated: CatalogProduct): void {
     setProducts((previous) =>
+      previous === null
+        ? previous
+        : sortProducts(previous.map((item) => (item.id === updated.id ? updated : item))),
+    );
+    setFullProducts((previous) =>
       previous === null
         ? previous
         : sortProducts(previous.map((item) => (item.id === updated.id ? updated : item))),
@@ -455,9 +508,10 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
 
   const canCreateProduct = categories !== null && categories.length > 0;
   const searchNeedle = searchInput.trim().toLowerCase();
-  const visibleProducts = products === null
+  const productCollection = listCategoryId !== "all" && fullProducts !== null ? fullProducts : products;
+  const visibleProducts = productCollection === null
     ? null
-    : products.filter((product) => {
+    : productCollection.filter((product) => {
         if (listCategoryId !== "all" && product.categoryId !== Number(listCategoryId)) {
           return false;
         }
@@ -826,8 +880,12 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
             value={searchInput}
             onFocus={() => setShowSuggestions(true)}
             onChange={(event) => {
-              setSearchInput(event.target.value);
+              const nextValue = event.target.value;
+              setSearchInput(nextValue);
               setShowSuggestions(true);
+              if (appliedQuery !== "" && nextValue.trim() !== appliedQuery) {
+                setAppliedQuery("");
+              }
             }}
           />
           {searchSuggestions.length > 0 && (
@@ -974,12 +1032,12 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
               ))}
             </tbody>
           </table>
-          {products !== null && products.length === MAX_PRODUCTS && (
-            <p className="muted" role="note">
-              Menampilkan 100 produk pertama. Gunakan pencarian untuk produk lainnya.
-            </p>
-          )}
         </div>
+      )}
+      {!loadError && products !== null && products.length === MAX_PRODUCTS && (
+        <p className="muted" role="note">
+          Menampilkan 100 produk pertama. Gunakan pencarian untuk produk lainnya.
+        </p>
       )}
       </>
       )}

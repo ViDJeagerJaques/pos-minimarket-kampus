@@ -177,3 +177,38 @@ it("BUG-230/231/232/233: tata letak, warna selisih, catatan wajib saat selisih !
   expect(screen.getByText(/Catatan selisih/).textContent).toContain("Uang receh kurang");
   expect(document.querySelector(".variance--negative")).toBeTruthy();
 });
+
+it("BUG-235: penolakan 422 kurang catatan selisih melepas pending dan memungkinkan tutup shift dengan closeKey baru", async () => {
+  const keys: string[] = [];
+  const getShiftClosePreview = vi
+    .fn()
+    .mockResolvedValueOnce(preview)
+    .mockResolvedValueOnce({ ...preview, cashTotalRp: 510000, expectedCashRp: 610000 });
+  const closeShift = vi
+    .fn<PosDataSource["closeShift"]>()
+    .mockImplementationOnce(async (_id, input) => {
+      keys.push(input.closeKey);
+      throw new ApiError(422, "VALIDATION_ERROR", "Catatan selisih wajib diisi jika terdapat selisih kas.");
+    })
+    .mockImplementationOnce(async (_id, input) => {
+      keys.push(input.closeKey);
+      return result(input.closeKey, input.varianceNote ?? null);
+    });
+  const api = source({ getShiftClosePreview, closeShift });
+  const { u } = show(api);
+
+  await u.type(await screen.findByLabelText("Uang dihitung (Rp)"), "600000");
+  await u.click(screen.getByRole("button", { name: "Tutup shift" }));
+  await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
+
+  expect(await screen.findByText(/Catatan selisih wajib diisi/)).toBeTruthy();
+  expect(localStorage.length).toBe(0);
+  const noteInput = await screen.findByLabelText("Catatan/Alasan Selisih");
+  await u.type(noteInput, "Ada transaksi baru sebelum tutup");
+  await u.click(screen.getByRole("button", { name: "Tutup shift" }));
+  await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
+
+  expect(await screen.findByRole("heading", { name: "Penutupan tersimpan" })).toBeTruthy();
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).not.toBe(keys[1]);
+});

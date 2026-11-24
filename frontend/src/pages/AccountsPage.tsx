@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ApiError } from "../api/errors";
 import type { AccountSummary, PosDataSource, Role, SessionUser } from "../api/types";
 import { Button } from "../components/Button";
@@ -77,6 +77,42 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const resetLock = useRef(false);
+  const resetDialogRef = useRef<HTMLFormElement>(null);
+  const resetNewInputRef = useRef<HTMLInputElement>(null);
+  const resetOpenerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!resetTarget) return;
+    resetNewInputRef.current?.focus();
+    const opener = resetOpenerRef.current;
+    return () => {
+      opener?.focus();
+    };
+  }, [resetTarget]);
+
+  function handleResetDialogKeyDown(event: KeyboardEvent<HTMLFormElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeResetDialog();
+      return;
+    }
+    if (event.key !== "Tab" || !resetDialogRef.current) return;
+    const focusables = Array.from(
+      resetDialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
 
   function closeResetDialog() {
     if (resetting) return;
@@ -433,7 +469,8 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
                         {account.id !== currentUser.userId && (
                           <Button
                             variant="secondary"
-                            onClick={() => {
+                            onClick={(event) => {
+                              resetOpenerRef.current = event.currentTarget;
                               setResetTarget(account);
                               setResetPassword("");
                               setResetConfirm("");
@@ -498,11 +535,13 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
       {resetTarget && (
         <div className="dialog-backdrop">
           <form
+            ref={resetDialogRef}
             className="dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="reset-password-title"
             onSubmit={submitResetPassword}
+            onKeyDown={handleResetDialogKeyDown}
             noValidate
           >
             <h2 id="reset-password-title" className="dialog__title">
@@ -517,6 +556,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
                 Sandi baru
               </label>
               <input
+                ref={resetNewInputRef}
                 id="reset-password-new"
                 className="input"
                 type={visible.resetNew ? "text" : "password"}

@@ -660,3 +660,34 @@ test("Pemeliharaan barcode/supplier, pencarian manual, escape LIKE, dan limit", 
     database.cleanup();
   }
 });
+
+test("BUG-239: pencarian produk di backend juga mencocokkan nama kategori secara case-insensitive", () => {
+  const { database, db, service, admin } = setup();
+  try {
+    const minuman = service.createCategory(admin, { name: "Minuman Dingin" });
+    const makanan = service.createCategory(admin, { name: "Makanan Ringan" });
+    service.createProduct(admin, {
+      sku: "CAT-001",
+      name: "Teh Melati",
+      priceRp: 4000,
+      categoryId: minuman.id,
+      barcodes: [],
+    });
+    service.createProduct(admin, {
+      sku: "CAT-002",
+      name: "Keripik Kentang",
+      priceRp: 6000,
+      categoryId: makanan.id,
+      barcodes: [],
+    });
+
+    const found = service.listProducts(admin, { query: "minuman", includeInactive: true });
+    assert.deepEqual(
+      found.map((item) => item.sku),
+      ["CAT-001"],
+    );
+  } finally {
+    db.close();
+    database.cleanup();
+  }
+});
