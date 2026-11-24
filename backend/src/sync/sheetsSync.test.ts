@@ -37,7 +37,6 @@ async function setupCheckoutHttp(options: {
   queuePath?: string;
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
-  maxRetryAttempts?: number;
 }) {
   const database = createTempDatabase();
   migrateFresh(database);
@@ -74,7 +73,6 @@ async function setupCheckoutHttp(options: {
     fetchImpl: options.fetchImpl,
     retryBaseDelayMs: options.retryBaseDelayMs,
     retryMaxDelayMs: options.retryMaxDelayMs,
-    maxRetryAttempts: options.maxRetryAttempts,
   });
 
   const server = await startHttpServer({
@@ -513,7 +511,6 @@ test("BUG-250: penjualan gagal saat offline terkirim otomatis lewat backoff retr
     fetchImpl,
     retryBaseDelayMs: 25,
     retryMaxDelayMs: 50,
-    maxRetryAttempts: 5,
   });
   try {
     await prepareAndCommit(
@@ -595,5 +592,100 @@ test("BUG-251: penjualan yang gagal ditulis ke antrean tetap pulih dan terkirim 
   } finally {
     await ctx.cleanup();
     tempRoot.cleanup();
+  }
+});
+
+test("BUG-252: ack pengiriman permanen mencegah replay setelah lebih dari 5.000 pengiriman sukses", async () => {
+  const secret = makeSyntheticSecret();
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+  });
+  try {
+    await prepareAndCommit(
+      ctx.server.url,
+      ctx.token,
+      ctx.shiftId,
+      ctx.ids.productId,
+      "attempt-durable-ack-1",
+    );
+    await ctx.sheetsSync.flush();
+    assert.equal(delivered.length, 1);
+
+    const overflowKeys = Array.from({ length: 5005 }, (_, i) => `other-attempt-${i}`);
+    writeFileSync(
+      ctx.queuePath,
+      JSON.stringify({ pending: [], sentKeys: overflowKeys }),
+      "utf8",
+    );
+
+    const restarted = createSheetsSyncService({
+      db: ctx.db,
+      dbPath: ctx.database.dbPath,
+      configPath: ctx.configPath,
+      queuePath: ctx.queuePath,
+      fetchImpl,
+    });
+    try {
+      assert.equal(restarted.getPendingCount(), 0);
+      await restarted.flush();
+      assert.equal(delivered.length, 1);
+    } finally {
+      restarted.stop();
+    }
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("BUG-253: retry otomatis terus berjalan melewati 11 kali kegagalan selama antrean tidak kosong", async () => {
+  const secret = makeSyntheticSecret();
+  let attempts = 0;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    attempts += 1;
+    if (attempts <= 12) {
+      throw new TypeError("offline");
+    }
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    retryBaseDelayMs: 5,
+    retryMaxDelayMs: 10,
+  });
+  try {
+    await prepareAndCommit(
+      ctx.server.url,
+      ctx.token,
+      ctx.shiftId,
+      ctx.ids.productId,
+      "attempt-many-retries-1",
+    );
+
+    const deadline = Date.now() + 3000;
+    while (delivered.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    assert.ok(attempts >= 13);
+    assert.equal(delivered.length, 1);
+    assert.equal(ctx.sheetsSync.getPendingCount(), 0);
+  } finally {
+    await ctx.cleanup();
   }
 });

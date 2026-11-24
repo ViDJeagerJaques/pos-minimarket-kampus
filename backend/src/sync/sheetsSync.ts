@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -41,7 +41,6 @@ export type SheetsSyncOptions = {
   timeoutMs?: number;
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
-  maxRetryAttempts?: number;
 };
 
 const MAX_SENT_KEYS = 5000;
@@ -49,7 +48,6 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
 const DEFAULT_RETRY_BASE_DELAY_MS = 5_000;
 const DEFAULT_RETRY_MAX_DELAY_MS = 300_000;
-const DEFAULT_MAX_RETRY_ATTEMPTS = 10;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const BACKEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -181,7 +179,35 @@ function formatItemsSummary(db: DatabaseSync, saleId: number, attemptKey: string
   return "";
 }
 
-function reconcileCommittedSales(db: DatabaseSync, current: QueueState): { state: QueueState; recovered: boolean } {
+function readDurableAckKeys(ackPath: string): Set<string> {
+  const keys = new Set<string>();
+  try {
+    if (!existsSync(ackPath)) {
+      return keys;
+    }
+    const raw = readFileSync(ackPath, "utf8");
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed.length > 0) {
+        keys.add(trimmed);
+      }
+    }
+  } catch {
+    return keys;
+  }
+  return keys;
+}
+
+function appendDurableAckKey(ackPath: string, attemptKey: string): void {
+  mkdirSync(path.dirname(ackPath), { recursive: true });
+  appendFileSync(ackPath, `${attemptKey}\n`, "utf8");
+}
+
+function reconcileCommittedSales(
+  db: DatabaseSync,
+  current: QueueState,
+  durableAckKeys: Set<string>,
+): { state: QueueState; recovered: boolean } {
   try {
     const rows = db
       .prepare(
@@ -205,6 +231,7 @@ function reconcileCommittedSales(db: DatabaseSync, current: QueueState): { state
     }>;
 
     const knownKeys = new Set<string>([
+      ...durableAckKeys,
       ...current.sentKeys,
       ...current.pending.map((item) => item.attemptKey),
     ]);
@@ -249,7 +276,6 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
   const retryMaxDelayMs = options.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_DELAY_MS;
-  const maxRetryAttempts = options.maxRetryAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS;
 
   if (!config || !queuePath) {
     return {
@@ -263,14 +289,18 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     };
   }
 
+  const ackPath = `${queuePath}.ack.ndjson`;
+  const durableAckKeys = readDurableAckKeys(ackPath);
   let state = readQueueState(queuePath);
-  const reconciled = reconcileCommittedSales(options.db, state);
+  for (const key of state.sentKeys) {
+    durableAckKeys.add(key);
+  }
+  const reconciled = reconcileCommittedSales(options.db, state, durableAckKeys);
   if (reconciled.recovered) {
     state = reconciled.state;
     try {
       writeQueueState(queuePath, state);
     } catch {
-      // Abaikan kegagalan tulis saat startup; antrean memori tetap aktif.
     }
   }
 
@@ -288,14 +318,12 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   }
 
   function scheduleRetry(): void {
-    if (stopped || state.pending.length === 0 || consecutiveFailures > maxRetryAttempts) {
+    if (stopped || state.pending.length === 0) {
       return;
     }
     clearRetryTimer();
-    const delayMs = Math.min(
-      retryMaxDelayMs,
-      retryBaseDelayMs * 2 ** Math.max(0, consecutiveFailures - 1),
-    );
+    const exp = Math.min(20, Math.max(0, consecutiveFailures - 1));
+    const delayMs = Math.min(retryMaxDelayMs, retryBaseDelayMs * 2 ** exp);
     retryTimer = setTimeout(() => {
       retryTimer = null;
       if (!stopped && state.pending.length > 0) {
@@ -379,6 +407,11 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
       }
       consecutiveFailures = 0;
       clearRetryTimer();
+      durableAckKeys.add(next.attemptKey);
+      try {
+        appendDurableAckKey(ackPath, next.attemptKey);
+      } catch {
+      }
       state = {
         pending: state.pending.slice(1),
         sentKeys: [...state.sentKeys, next.attemptKey].slice(-MAX_SENT_KEYS),
@@ -417,7 +450,8 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   }
 
   function notifySaleCommitted(result: CommitCheckoutResult, cashierUsername: string): void {
-    const alreadySent = state.sentKeys.includes(result.attemptKey);
+    const alreadySent =
+      durableAckKeys.has(result.attemptKey) || state.sentKeys.includes(result.attemptKey);
     const alreadyPending = state.pending.some((item) => item.attemptKey === result.attemptKey);
     if (!alreadySent && !alreadyPending) {
       const entry: QueuedSaleSync = {
