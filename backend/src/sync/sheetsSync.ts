@@ -422,6 +422,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
     let processed = 0;
     while (!stopped && state.pending.length > 0) {
       if (maxItems !== undefined && processed >= maxItems) {
+        scheduleRetry();
         break;
       }
       const next = state.pending[0]!;

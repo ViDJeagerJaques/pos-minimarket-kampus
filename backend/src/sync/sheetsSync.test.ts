@@ -903,3 +903,44 @@ test("BUG-260: POST /sync/sheets/flush dengan maxItems memproses antrean per bat
     await ctx.cleanup();
   }
 });
+
+test("BUG-265: drain berbatas yang sukses menjadwalkan retry latar belakang untuk penjualan sisa", async () => {
+  const secret = makeSyntheticSecret();
+  let online = false;
+  const delivered: Array<Record<string, unknown>> = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    if (!online) throw new TypeError("offline");
+    delivered.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const ctx = await setupCheckoutHttp({
+    writeConfig: { webhookUrl: "https://sheets.example.invalid/webhook", secret },
+    fetchImpl,
+    retryBaseDelayMs: 30,
+    retryMaxDelayMs: 60,
+  });
+  try {
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-bg-1");
+    await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "attempt-bg-2");
+    await ctx.sheetsSync.flush();
+    assert.equal(ctx.sheetsSync.getPendingCount(), 2);
+
+    online = true;
+    const bounded = await ctx.sheetsSync.syncNow({ maxItems: 1 });
+    assert.deepEqual(bounded, { enabled: true, sentCount: 1, pendingCount: 1 });
+    assert.equal(delivered.length, 1);
+
+    const deadline = Date.now() + 2000;
+    while (delivered.length < 2 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(delivered.length, 2);
+    assert.equal(ctx.sheetsSync.getPendingCount(), 0);
+  } finally {
+    await ctx.cleanup();
+  }
+});
