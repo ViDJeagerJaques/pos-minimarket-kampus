@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/errors";
 import { createMockDataSource } from "../api/mockDataSource";
 import type { DailyReport, PosDataSource, SessionUser, StockReport } from "../api/types";
+import { toDateInputValue } from "../components/DailyReportPanel";
 import { DashboardPage } from "./DashboardPage";
 
 const ADMIN: SessionUser = { userId: 1, username: "admin.fixture", displayName: "Admin DEMO", role: "ADMIN" };
@@ -267,6 +268,119 @@ describe("TASK-040 Dashboard ADMIN", () => {
       startMs: new Date(now.getFullYear(), 0, 1).getTime(),
       endMs: new Date(now.getFullYear() + 1, 0, 1).getTime(),
     });
+  });
+
+  it("BUG-216: tanggal penjualan dibatasi max hari ini dan menolak tanggal masa depan", async () => {
+    const api = source();
+    show(api);
+    await loaded();
+
+    const now = new Date();
+    const todayStr = toDateInputValue(now);
+    const tomorrowStr = toDateInputValue(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+
+    const dateInput = screen.getByLabelText("Tanggal penjualan") as HTMLInputElement;
+    expect(dateInput.max).toBe(todayStr);
+
+    fireEvent.change(dateInput, { target: { value: tomorrowStr } });
+    await userEvent.click(screen.getByRole("button", { name: "Perbarui dashboard" }));
+    expect(screen.getByRole("alert").textContent).toContain("Tanggal tidak boleh lebih dari hari ini");
+    expect(api.getDailyReport).toHaveBeenCalledTimes(1);
+
+    await userEvent.selectOptions(screen.getByLabelText("Periode"), "month");
+    expect(screen.getByRole("alert").textContent).toContain("Tanggal tidak boleh lebih dari hari ini");
+    expect(api.getDailyReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("BUG-217: periode Mingguan menghitung Senin-Minggu, menyesuaikan judul omzet, dan dipakai ekspor", async () => {
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn((blob: Blob) => {
+        blobs.push(blob);
+        return "blob:week-url";
+      }),
+      revokeObjectURL: vi.fn(),
+    });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    const api = source();
+    show(api);
+    await loaded();
+
+    await userEvent.selectOptions(screen.getByLabelText("Periode"), "week");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Omzet minggu ini" })).toBeTruthy());
+    const now = new Date();
+    const daysSinceMonday = (now.getDay() + 6) % 7;
+    expect(api.getDailyReport).toHaveBeenLastCalledWith({
+      startMs: new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday).getTime(),
+      endMs: new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday + 7).getTime(),
+    });
+
+    const prevWeekSunday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - daysSinceMonday - 1,
+    );
+    const prevWeekSundayStr = toDateInputValue(prevWeekSunday);
+    const prevWeekStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - daysSinceMonday - 7,
+    ).getTime();
+    const prevWeekEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - daysSinceMonday,
+    ).getTime();
+
+    fireEvent.change(screen.getByLabelText("Tanggal penjualan"), {
+      target: { value: prevWeekSundayStr },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Perbarui dashboard" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Omzet minggu terpilih" })).toBeTruthy());
+    expect(api.getDailyReport).toHaveBeenLastCalledWith({
+      startMs: prevWeekStart,
+      endMs: prevWeekEnd,
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Ekspor CSV" }));
+    expect(await blobs[0]!.text()).toContain(`Periode week (${prevWeekSundayStr})`);
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("BUG-223: max tanggal dan judul omzet diperbarui saat melewati tengah malam lokal dan saat fokus kembali", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 10, 24, 23, 59, 59, 0));
+      const api = source();
+      const view = show(api);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const dateInput = screen.getByLabelText("Tanggal penjualan") as HTMLInputElement;
+      expect(dateInput.max).toBe("2026-11-24");
+      expect(screen.getByRole("heading", { name: "Omzet hari ini" })).toBeTruthy();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(dateInput.max).toBe("2026-11-25");
+      expect(screen.getByRole("heading", { name: "Omzet tanggal terpilih" })).toBeTruthy();
+
+      vi.setSystemTime(new Date(2026, 10, 26, 8, 0, 0, 0));
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(dateInput.max).toBe("2026-11-26");
+
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
 });

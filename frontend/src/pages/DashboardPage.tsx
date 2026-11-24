@@ -13,7 +13,7 @@ interface Props {
   currentUser: SessionUser;
   onSessionExpired: () => void;
 }
-type DashboardPeriod = "day" | "month" | "year";
+type DashboardPeriod = "day" | "week" | "month" | "year";
 type Snapshot = { daily: DailyReport; stock: StockReport };
 
 function getPeriodRangeMs(dateStr: string, period: DashboardPeriod): { startMs: number; endMs: number } | null {
@@ -21,7 +21,15 @@ function getPeriodRangeMs(dateStr: string, period: DashboardPeriod): { startMs: 
   const dayEnd = exclusiveEndMs(dateStr);
   if (dayStart === null || dayEnd === null) return null;
   if (period === "day") return { startMs: dayStart, endMs: dayEnd };
-  const [year, month] = dateStr.split("-").map(Number);
+  const [year, month, day] = dateStr.split("-").map(Number);
+  if (period === "week") {
+    const selected = new Date(year!, month! - 1, day!);
+    const daysSinceMonday = (selected.getDay() + 6) % 7;
+    return {
+      startMs: new Date(year!, month! - 1, day! - daysSinceMonday).getTime(),
+      endMs: new Date(year!, month! - 1, day! - daysSinceMonday + 7).getTime(),
+    };
+  }
   if (period === "month") {
     return {
       startMs: new Date(year!, month! - 1, 1).getTime(),
@@ -36,6 +44,7 @@ function getPeriodRangeMs(dateStr: string, period: DashboardPeriod): { startMs: 
 
 /** Dashboard read-only; nominal dan status stok hanya dari laporan backend. */
 export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Props) {
+  const [today, setToday] = useState(() => toDateInputValue(new Date()));
   const [date, setDate] = useState(() => toDateInputValue(new Date()));
   const [period, setPeriod] = useState<DashboardPeriod>("day");
   const [threshold, setThreshold] = useState("5");
@@ -46,6 +55,44 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
   const [validation, setValidation] = useState<string | null>(null);
   const isAdmin = currentUser.role === "ADMIN";
   const isDemo = dataSource.authMode === "DEMO" || dataSource.catalogMode === "DEMO";
+
+  useEffect(() => {
+    let timerId: number | null = null;
+    function syncToday() {
+      setToday(toDateInputValue(new Date()));
+    }
+    function scheduleNextMidnight() {
+      if (timerId !== null) window.clearTimeout(timerId);
+      const now = new Date();
+      const nextMidnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+      );
+      const delayMs = Math.max(1, nextMidnight.getTime() - now.getTime());
+      timerId = window.setTimeout(() => {
+        syncToday();
+        scheduleNextMidnight();
+      }, delayMs);
+    }
+    function handleFocus() {
+      syncToday();
+      scheduleNextMidnight();
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        handleFocus();
+      }
+    }
+    scheduleNextMidnight();
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      if (timerId !== null) window.clearTimeout(timerId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -82,6 +129,10 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
       setValidation("Isi tanggal valid dan ambang stok berupa bilangan bulat non-negatif.");
       return;
     }
+    if (date > toDateInputValue(new Date())) {
+      setValidation("Tanggal tidak boleh lebih dari hari ini.");
+      return;
+    }
     setValidation(null);
     setRequest({ date, period, threshold: Number(threshold), revision: request.revision + 1 });
   }
@@ -104,7 +155,7 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
   return <section className="panel dashboard" aria-labelledby="dashboard-title" aria-busy={loading}>
     <h1 id="dashboard-title" className="page-title">Dashboard</h1>
     <p className="muted">Ringkasan ADMIN · {isDemo ? "DEMO — data sintetis, bukan transaksi nyata." : "Sumber: laporan backend lokal."}</p>
-    <form className="report-filter dashboard__filters" onSubmit={refresh}>
+    <form className="report-filter dashboard__filters" noValidate onSubmit={refresh}>
       <div><label className="field-label" htmlFor="dashboard-period">Periode</label>
         <select
           id="dashboard-period"
@@ -114,19 +165,25 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
           onChange={(e) => {
             const nextPeriod = e.target.value as DashboardPeriod;
             setPeriod(nextPeriod);
-            if (getPeriodRangeMs(date, nextPeriod) !== null && /^\d+$/.test(threshold) && Number.isSafeInteger(Number(threshold))) {
-              setValidation(null);
-              setRequest({ date, period: nextPeriod, threshold: Number(threshold), revision: request.revision + 1 });
+            if (getPeriodRangeMs(date, nextPeriod) === null || !/^\d+$/.test(threshold) || !Number.isSafeInteger(Number(threshold))) {
+              return;
             }
+            if (date > toDateInputValue(new Date())) {
+              setValidation("Tanggal tidak boleh lebih dari hari ini.");
+              return;
+            }
+            setValidation(null);
+            setRequest({ date, period: nextPeriod, threshold: Number(threshold), revision: request.revision + 1 });
           }}
         >
           <option value="day">Hari</option>
+          <option value="week">Minggu</option>
           <option value="month">Bulan</option>
           <option value="year">Tahun</option>
         </select>
       </div>
       <div><label className="field-label" htmlFor="dashboard-date">Tanggal penjualan</label>
-        <input id="dashboard-date" className="input" type="date" value={date} disabled={loading} onChange={(e) => setDate(e.target.value)} /></div>
+        <input id="dashboard-date" className="input" type="date" max={today} value={date} disabled={loading} onChange={(e) => setDate(e.target.value)} /></div>
       <div><label className="field-label" htmlFor="dashboard-threshold">Ambang stok menipis (DEMO)</label>
         <input id="dashboard-threshold" className="input" inputMode="numeric" value={threshold} disabled={loading} onChange={(e) => setThreshold(e.target.value)} /></div>
       <Button type="submit" variant="primary" disabled={loading}>{loading ? "Memuat dashboard…" : "Perbarui dashboard"}</Button>
@@ -140,7 +197,11 @@ export function DashboardPage({ dataSource, currentUser, onSessionExpired }: Pro
         Penjualan diperbarui {new Date(daily.generatedAtMs).toLocaleString("id-ID")}; stok diperbarui {new Date(stock.generatedAtMs).toLocaleString("id-ID")}. Kedua laporan dimuat terpisah.</p>
       <div className="report-cards dashboard__cards">
         <article className="report-card dashboard__primary" aria-label="Omzet"><h2 className="section-title">{(() => {
-          const today = toDateInputValue(new Date());
+          if (request.period === "week") {
+            const reqWeek = getPeriodRangeMs(request.date, "week");
+            const curWeek = getPeriodRangeMs(today, "week");
+            return reqWeek && curWeek && reqWeek.startMs === curWeek.startMs ? "Omzet minggu ini" : "Omzet minggu terpilih";
+          }
           if (request.period === "month") return request.date.slice(0, 7) === today.slice(0, 7) ? "Omzet bulan ini" : "Omzet bulan terpilih";
           if (request.period === "year") return request.date.slice(0, 4) === today.slice(0, 4) ? "Omzet tahun ini" : "Omzet tahun terpilih";
           return request.date === today ? "Omzet hari ini" : "Omzet tanggal terpilih";
