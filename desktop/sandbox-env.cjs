@@ -36,6 +36,21 @@ function isInside(parent, child) {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+function canonicalPath(target) {
+  let current = path.resolve(target);
+  const suffix = [];
+  for (;;) {
+    try { fs.lstatSync(current); }
+    catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const parent = path.dirname(current); if (parent === current) throw error;
+      suffix.unshift(path.basename(current)); current = parent;
+      continue;
+    }
+    return path.join(fs.realpathSync(current), ...suffix);
+  }
+}
+
 function roamingAppData(env) {
   return env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 }
@@ -52,6 +67,7 @@ function existingAppDataDirs(env) {
     path.join(local, "PosMinimarketKampus"),
     path.join(appData, "pos-minimarket-kampus-desktop"),
     path.join(local, "Programs", "POS Minimarket Kampus DEMO"),
+    path.join(os.homedir(), ".local", "share", "pos-minimarket-kampus", "data"),
   ];
 }
 
@@ -73,8 +89,10 @@ function resolveSandboxRoot(env = process.env) {
 function assertSandboxRoot(root, env = process.env) {
   const absolute = path.resolve(root);
   if (!path.isAbsolute(absolute)) throw new Error("Root sandbox harus absolut.");
+  const canonical = canonicalPath(absolute);
   for (const dir of existingAppDataDirs(env)) {
-    if (isInside(dir, absolute) || isInside(absolute, dir)) {
+    const protectedPath = canonicalPath(dir);
+    if (isInside(dir, absolute) || isInside(absolute, dir) || isInside(protectedPath, canonical) || isInside(canonical, protectedPath)) {
       throw new Error(
         `Root sandbox ${absolute} bertabrakan dengan direktori aplikasi existing: ${dir}.`,
       );
@@ -85,8 +103,9 @@ function assertSandboxRoot(root, env = process.env) {
 function enforceSandboxPath(candidate, label, env = process.env) {
   if (!isSandboxEnabled(env)) return;
   const absolute = path.resolve(candidate);
+  const canonical = canonicalPath(absolute);
   for (const dir of existingAppDataDirs(env)) {
-    if (isInside(dir, absolute)) {
+    if (isInside(dir, absolute) || isInside(canonicalPath(dir), canonical)) {
       throw new Error(
         `${label} sandbox ditolak: mengarah ke direktori aplikasi existing (${dir}).`,
       );

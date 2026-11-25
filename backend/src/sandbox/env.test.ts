@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { mkdtempSync, mkdirSync, symlinkSync, unlinkSync, rmdirSync } from "node:fs";
 import {
   applySandboxEnvironment,
   enforceSandboxPath,
@@ -85,4 +86,16 @@ test("konfigurasi Sheets dari environment induk selalu ditimpa", () => {
   });
   const info = applySandboxEnvironment(env);
   assert.equal(env.POS_SHEETS_SYNC_CONFIG, path.join(info.root!, "config", "sheets-sync.json"));
+});
+
+test("junction menuju direktori existing dan file baru di dalamnya ditolak", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "sandbox-alias-"));
+  const protectedDir = path.join(root, "PosMinimarketKampus"); const alias = path.join(root, "alias");
+  mkdirSync(protectedDir); symlinkSync(protectedDir, alias, "junction");
+  try {
+    const env = syntheticEnv({ POS_SANDBOX: "1", LOCALAPPDATA: root });
+    assert.throws(() => enforceSandboxPath(path.join(alias, "new", "pos.sqlite"), "database", env), /existing/);
+    assert.throws(() => applySandboxEnvironment({ ...env, POS_SANDBOX_ROOT: alias }), /bertabrakan/);
+    assert.throws(() => enforceSandboxPath(path.join(os.homedir(), ".local", "share", "pos-minimarket-kampus", "data", "pos.sqlite"), "db", env), /existing/);
+  } finally { unlinkSync(alias); rmdirSync(protectedDir); rmdirSync(root); }
 });

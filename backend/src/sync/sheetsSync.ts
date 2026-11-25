@@ -88,6 +88,7 @@ export function loadSheetsSyncConfig(configPath = resolveDefaultSheetsConfigPath
       return null;
     }
     const record = parsed as Record<string, unknown>;
+    if (record.version === 2) return null;
     const webhookUrl = typeof record.webhookUrl === "string" ? record.webhookUrl.trim() : "";
     const secret = typeof record.secret === "string" ? record.secret.trim() : "";
     if (webhookUrl.length === 0 || secret.length === 0) {

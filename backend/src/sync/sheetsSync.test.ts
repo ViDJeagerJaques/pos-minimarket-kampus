@@ -32,6 +32,18 @@ function makeSyntheticPassword(): string {
   return `Pw-${randomBytes(8).toString("hex")}`;
 }
 
+test("loader legacy menolak dokumen versi 2 yang identitasnya tidak valid", () => {
+ const database = createTempDatabase();
+ const file = path.join(database.dir, "sheets.json");
+ try {
+  const webhookUrl = "https://example.invalid/webhook", secret = makeSyntheticSecret();
+  writeFileSync(file, JSON.stringify({ version: 2, webhookUrl, secret, databaseNamespace: "invalid" }));
+  assert.equal(loadSheetsSyncConfig(file), null);
+  writeFileSync(file, JSON.stringify({ webhookUrl, secret }));
+  assert.deepEqual(loadSheetsSyncConfig(file), { webhookUrl, secret });
+ } finally { database.cleanup(); }
+});
+
 async function setupCheckoutHttp(options: {
   writeConfig?: { webhookUrl: string; secret: string } | null;
   fetchImpl: typeof fetch;

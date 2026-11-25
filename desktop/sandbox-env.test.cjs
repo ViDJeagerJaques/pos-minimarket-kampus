@@ -13,6 +13,7 @@ const {
   existingAppDataDirs,
   isSandboxEnabled,
   resolveSandboxRoot,
+  enforceSandboxPath,
 } = require("./sandbox-env.cjs");
 
 const LOCAL = path.join(os.tmpdir(), "pos-desktop-sandbox-test", "Local");
@@ -93,4 +94,15 @@ test("kegagalan membuat direktori atau menulis log tidak dilempar", () => {
   assert.equal(appendBackendLog("", "teks"), false);
   assert.equal(appendBackendLog("log/backend.log", "teks", { mkdirSync() { throw new Error("akses ditolak"); } }), false);
   assert.equal(appendBackendLog("log/backend.log", "teks", { mkdirSync() {}, appendFileSync() { throw new Error("disk penuh"); } }), false);
+});
+
+test("junction ke direktori aplikasi existing ditolak sebelum path dibuat", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "desktop-alias-"));
+  const protectedDir = path.join(root, "PosMinimarketKampus"); const alias = path.join(root, "alias");
+  fs.mkdirSync(protectedDir); fs.symlinkSync(protectedDir, alias, "junction");
+  try {
+    const e = env({ POS_SANDBOX: "1", LOCALAPPDATA: root });
+    assert.throws(() => enforceSandboxPath(path.join(alias, "new", "db.sqlite"), "db", e), /existing/);
+    assert.throws(() => applySandboxEnvironment({ ...e, POS_SANDBOX_ROOT: alias }), /bertabrakan/);
+  } finally { fs.unlinkSync(alias); fs.rmdirSync(protectedDir); fs.rmdirSync(root); }
 });

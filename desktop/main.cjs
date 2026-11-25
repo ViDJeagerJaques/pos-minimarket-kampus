@@ -44,15 +44,18 @@ const BENCH = process.env.POS_ELECTRON_BENCH === "1";
 if (SANDBOX) {
   // Berlaku juga saat tidak di-pack: userData, cache, dan log Electron ikut
   // ke akar sandbox. --user-data-dir hanya diterima bila masih di dalam root.
-  app.setPath("userData", SANDBOX_INFO.userDataDir);
   const requested = app.commandLine.getSwitchValue("user-data-dir");
-  if (requested && path.resolve(requested) !== path.resolve(SANDBOX_INFO.userDataDir)) {
+  if (requested && path.relative(path.resolve(requested), path.resolve(SANDBOX_INFO.userDataDir)) !== "") {
     throw new Error("Sandbox menolak --user-data-dir di luar direktori data sandbox.");
   }
+  fs.mkdirSync(SANDBOX_INFO.userDataDir, { recursive: true });
+  app.setPath("userData", SANDBOX_INFO.userDataDir);
 } else if (app.isPackaged) {
   const testDataDir = app.commandLine.getSwitchValue("user-data-dir");
   if (testDataDir && !path.isAbsolute(testDataDir)) throw new Error("user-data-dir harus absolut.");
-  app.setPath("userData", testDataDir || path.join(app.getPath("appData"), "PosMinimarketKampus-DEMO"));
+  const userDataDir = testDataDir || path.join(app.getPath("appData"), "PosMinimarketKampus-DEMO");
+  fs.mkdirSync(userDataDir, { recursive: true });
+  app.setPath("userData", userDataDir);
 }
 const primaryInstance = app.requestSingleInstanceLock();
 if (!primaryInstance) app.quit();

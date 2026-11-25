@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import path from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
 import { assertOutsideSourceTree } from "../../db/src/paths.ts";
 
 /**
@@ -31,6 +32,21 @@ function isInside(parent: string, child: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+function canonicalPath(target: string): string {
+  let current = path.resolve(target);
+  const suffix: string[] = [];
+  for (;;) {
+    try { lstatSync(current); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = path.dirname(current); if (parent === current) throw error;
+      suffix.unshift(path.basename(current)); current = parent;
+      continue;
+    }
+    return path.join(realpathSync(current), ...suffix);
+  }
+}
+
 function roamingAppData(env: Env): string {
   return env.APPDATA?.trim() || path.join(homedir(), "AppData", "Roaming");
 }
@@ -48,6 +64,7 @@ export function existingAppDataDirs(env: Env = process.env): string[] {
     path.join(local, "PosMinimarketKampus"),
     path.join(appData, "pos-minimarket-kampus-desktop"),
     path.join(local, "Programs", "POS Minimarket Kampus DEMO"),
+    path.join(homedir(), ".local", "share", "pos-minimarket-kampus", "data"),
   ];
 }
 
@@ -72,8 +89,11 @@ export function assertSandboxRoot(root: string, env: Env = process.env): void {
     throw new Error("Root sandbox harus absolut.");
   }
   assertOutsideSourceTree(absolute);
+  const canonical = canonicalPath(absolute);
+  assertOutsideSourceTree(canonical);
   for (const dir of existingAppDataDirs(env)) {
-    if (isInside(dir, absolute) || isInside(absolute, dir)) {
+    const protectedPath = canonicalPath(dir);
+    if (isInside(dir, absolute) || isInside(absolute, dir) || isInside(protectedPath, canonical) || isInside(canonical, protectedPath)) {
       throw new Error(
         `Root sandbox ${absolute} bertabrakan dengan direktori aplikasi existing: ${dir}.`,
       );
@@ -94,8 +114,10 @@ export function enforceSandboxPath(
   if (!isSandboxEnabled(env)) return;
   const absolute = path.resolve(candidate);
   assertOutsideSourceTree(absolute);
+  const canonical = canonicalPath(absolute);
+  assertOutsideSourceTree(canonical);
   for (const dir of existingAppDataDirs(env)) {
-    if (isInside(dir, absolute)) {
+    if (isInside(dir, absolute) || isInside(canonicalPath(dir), canonical)) {
       throw new Error(
         `${label} sandbox ditolak: mengarah ke direktori aplikasi existing (${dir}).`,
       );
