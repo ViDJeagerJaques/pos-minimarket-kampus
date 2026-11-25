@@ -544,6 +544,27 @@ body {
   font-size: 13px;
 }
 
+.login { background: var(--color-bg); }
+.login__main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; text-align: center; }
+.login__brand h1 { margin: 14px 0 4px; font-size: 26px; color: var(--color-text); }
+.login__brand p, .login__description, .login__local, .login__main footer { color: var(--color-text-muted); }
+.login__brand p { margin: 0 0 24px; }
+.login__store { display: inline-flex; align-items: center; justify-content: center; width: 60px; height: 60px; color: white; background: var(--color-primary); border-radius: 14px; }
+.login__card { margin: 0; max-width: 448px; padding: 32px; gap: 0; text-align: left; border-radius: 14px; }
+.login__title { color: var(--color-text); font-size: 21px; }
+.login__description { margin: 8px 0 20px; }
+.login__card .field-label { margin: 0 0 8px; }
+.login__input-wrap { display: flex; align-items: center; position: relative; margin-bottom: 16px; }
+.login__input-wrap > svg { position: absolute; left: 14px; width: 20px; height: 20px; color: var(--color-text-muted); pointer-events: none; }
+.login__input-wrap .input { height: 48px; padding-left: 44px; padding-right: 48px; border-radius: 10px; }
+.login__toggle { position: absolute; right: 4px; width: 40px; height: 40px; border: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; }
+.login__toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; border-radius: 8px; }
+.login__card .btn--primary { min-height: 48px; border-radius: 10px; }
+.login__help { border-top: 1px solid var(--color-border); margin-top: 24px; padding-top: 20px; color: var(--color-text-muted); font-size: 14px; text-align: center; }
+.login__help strong { color: var(--color-primary); }
+.login__local { margin: 20px 0 12px; font-size: 14px; }
+.login__main footer { font-size: 13px; }
+
 /* Halaman Kasir (1366x768 desktop fallback & responsif) */
 .cashier {
   display: grid;

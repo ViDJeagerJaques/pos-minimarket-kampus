@@ -6,8 +6,11 @@
   "main": "main.cjs",
   "scripts": {
     "start:spike": "electron .",
+    "start:sandbox": "node sandbox-launch.cjs",
     "prepare:runtime": "node prepare-runtime.mjs",
-    "build": "npm --prefix ../frontend run build && npm run prepare:runtime && electron-builder --win nsis --x64 --publish never"
+    "build": "npm --prefix ../frontend run build && npm run prepare:runtime && electron-builder --win nsis --x64 --publish never",
+    "build:sandbox": "npm --prefix ../frontend run build && npm run prepare:runtime && electron-builder --win nsis --x64 --publish never --config builder-sandbox.json",
+    "test:sandbox-env": "node --test sandbox-env.test.cjs"
   },
   "build": {
     "appId": "id.kampus.pos.demo",
@@ -18,6 +21,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "sandbox-env.cjs",
       "package.json"
     ],
     "extraResources": [

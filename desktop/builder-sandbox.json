@@ -1,0 +1,63 @@
+{
+  "extraMetadata": { "sandboxBuild": true },
+  "appId": "id.kampus.pos.sandbox",
+  "productName": "POS Minimarket Kampus SANDBOX",
+  "directories": {
+    "output": "../dist-electron-sandbox"
+  },
+  "files": [
+    "main.cjs",
+    "preload.cjs",
+    "sandbox-env.cjs",
+    "package.json"
+  ],
+  "extraResources": [
+    { "from": "maintenance.mjs", "to": "maintenance.mjs" },
+    {
+      "from": "runtime",
+      "to": "runtime",
+      "filter": [
+        "node.exe",
+        "LICENSE",
+        "manifest.json"
+      ]
+    },
+    {
+      "from": "../backend",
+      "to": "backend",
+      "filter": [
+        "package.json",
+        "src/**/*.ts",
+        "db/src/**/*.ts",
+        "db/migrations/*.sql",
+        "!**/*.test.ts",
+        "!config/**"
+      ]
+    },
+    {
+      "from": "../shared",
+      "to": "shared",
+      "filter": [
+        "**/*.ts",
+        "!**/*.test.ts"
+      ]
+    },
+    {
+      "from": "../frontend/dist",
+      "to": "frontend/dist"
+    }
+  ],
+  "win": {
+    "target": "nsis",
+    "signExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": false
+  },
+  "artifactName": "POS-Minimarket-SANDBOX-${version}-${arch}-Setup.${ext}"
+}

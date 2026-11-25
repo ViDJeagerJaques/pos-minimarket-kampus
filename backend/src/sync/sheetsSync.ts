@@ -2,6 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { buildDemoSalePayload, sendDemoPayloadResult, type SheetsFailure } from "./sheetsProtocol.ts";
+import { databaseBinding, readDemoConfig } from "./sheetsDemoConfig.ts";
 import type { CommitCheckoutResult } from "../checkout/types.ts";
 
 export type SheetsSyncConfig = {
@@ -28,6 +30,7 @@ export type SheetsSyncFlushResult = {
   enabled: boolean;
   sentCount: number;
   pendingCount: number;
+  failure?: SheetsFailure;
 };
 
 export type SheetsSyncFlushOptions = {
@@ -47,6 +50,7 @@ export type SheetsSyncOptions = {
   db: DatabaseSync;
   dbPath?: string;
   configPath?: string;
+  demoOnly?: boolean;
   queuePath?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
@@ -84,6 +88,7 @@ export function loadSheetsSyncConfig(configPath = resolveDefaultSheetsConfigPath
       return null;
     }
     const record = parsed as Record<string, unknown>;
+    if (record.version === 2) return null;
     const webhookUrl = typeof record.webhookUrl === "string" ? record.webhookUrl.trim() : "";
     const secret = typeof record.secret === "string" ? record.secret.trim() : "";
     if (webhookUrl.length === 0 || secret.length === 0) {
@@ -218,6 +223,7 @@ function reconcileCommittedSales(
   db: DatabaseSync,
   current: QueueState,
   durableAckKeys: Set<string>,
+  afterSaleId = 0,
 ): { state: QueueState; recovered: boolean } {
   try {
     const rows = db
@@ -228,10 +234,11 @@ function reconcileCommittedSales(
          JOIN payments p ON p.sale_id = s.id
          JOIN checkout_attempts ca ON ca.attempt_key = s.attempt_key
          JOIN users u ON u.id = ca.cashier_id
+         WHERE s.id > ?
          GROUP BY s.id
          ORDER BY s.committed_at_ms ASC, s.id ASC`,
       )
-      .all() as Array<{
+      .all(afterSaleId) as Array<{
       sale_id: number;
       sale_no: string;
       attempt_key: string;
@@ -279,8 +286,12 @@ function reconcileCommittedSales(
 }
 
 export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncService {
-  const config = loadSheetsSyncConfig(options.configPath);
-  const queuePath =
+  const demo = options.demoOnly ? readDemoConfig(options.configPath ?? resolveDefaultSheetsConfigPath()) : null;
+  let bindingMatches = false;
+  try { bindingMatches = !!demo && !!options.dbPath && demo.dbBinding === databaseBinding(options.dbPath); } catch { bindingMatches = false; }
+  const activeDemo = demo && bindingMatches ? demo : null;
+  const config = options.demoOnly ? activeDemo : loadSheetsSyncConfig(options.configPath);
+  const queuePath = activeDemo && options.dbPath ? path.join(path.dirname(path.resolve(options.dbPath)), `sheets-sync-${activeDemo.databaseNamespace}-${activeDemo.targetId}.json`) : options.demoOnly ? null :
     options.queuePath ??
     (options.dbPath ? path.join(path.dirname(path.resolve(options.dbPath)), "sheets-sync-queue.json") : null);
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
@@ -316,7 +327,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   let state: QueueState = prunedPending
     ? { pending: filteredPending, sentKeys: loadedState.sentKeys }
     : loadedState;
-  const reconciled = reconcileCommittedSales(options.db, state, durableAckKeys);
+  const reconciled = reconcileCommittedSales(options.db, state, durableAckKeys, activeDemo?.afterSaleId ?? 0);
   if (reconciled.recovered || prunedPending) {
     state = reconciled.state;
     try {
@@ -330,6 +341,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   let flushRequestedAgain = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let consecutiveFailures = 0;
+  let lastFailure: SheetsFailure | undefined;
   let stopped = false;
 
   function clearRetryTimer(): void {
@@ -357,6 +369,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
 
   async function postOne(item: QueuedSaleSync): Promise<boolean> {
     if (!config) return false;
+    if (activeDemo) { const result = await sendDemoPayloadResult(activeDemo.webhookUrl, buildDemoSalePayload(activeDemo.secret, activeDemo.databaseNamespace, item), fetchImpl); lastFailure = result.failure; return result.ok; }
     try {
       let currentUrl = config.webhookUrl;
       let method: "POST" | "GET" = "POST";
@@ -495,6 +508,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   }
 
   function notifySaleCommitted(result: CommitCheckoutResult, cashierUsername: string): void {
+    if (activeDemo && result.saleId <= activeDemo.afterSaleId) return;
     const alreadySent =
       durableAckKeys.has(result.attemptKey) || state.sentKeys.includes(result.attemptKey);
     const alreadyPending = state.pending.some((item) => item.attemptKey === result.attemptKey);
@@ -539,6 +553,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
       enabled: true,
       sentCount: Math.max(0, durableAckKeys.size - beforeAckCount),
       pendingCount: state.pending.length,
+      ...(state.pending.length && lastFailure ? { failure: lastFailure } : {}),
     };
   }
 

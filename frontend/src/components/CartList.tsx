@@ -1,6 +1,6 @@
 import type { CartLine } from "../domain/cart";
 import { lineTotalRp } from "../domain/cart";
-import { Button } from "./Button";
+import { IconMinus, IconPlus, IconShoppingCart, IconTrash } from "./AdminIcons";
 import { MoneyText } from "./MoneyText";
 
 interface CartListProps {
@@ -23,24 +23,32 @@ export function CartList({
   disabled = false,
 }: CartListProps) {
   if (lines.length === 0) {
-    return <p className="cart__empty muted">Keranjang kosong. Scan barcode atau cari barang untuk mulai.</p>;
+    return (
+      <div className="cashier-cart-empty">
+        <span className="cashier-cart-empty__icon" aria-hidden="true">
+          <IconShoppingCart size={24} />
+        </span>
+        <p className="cashier-cart-empty__title">Keranjang kosong</p>
+        <p className="cashier-cart-empty__hint">Scan barcode atau cari barang untuk mulai transaksi.</p>
+      </div>
+    );
   }
   return (
-    <div className="table-wrap">
-      <table className="table" aria-label="Keranjang">
+    <div className="cashier-cart-scroll">
+      <table className="cashier-cart-table" aria-label="Keranjang">
         <thead>
           <tr>
             <th scope="col">Barang</th>
-            <th scope="col" className="num">
+            <th scope="col" className="cashier-cart-table__num">
               Harga
             </th>
-            <th scope="col" className="num">
+            <th scope="col" className="cashier-cart-table__num">
               Qty
             </th>
-            <th scope="col" className="num">
+            <th scope="col" className="cashier-cart-table__num">
               Pot (%)
             </th>
-            <th scope="col" className="num">
+            <th scope="col" className="cashier-cart-table__num">
               Subtotal
             </th>
             <th scope="col">
@@ -52,36 +60,38 @@ export function CartList({
           {lines.map((line) => (
             <tr key={line.productId}>
               <td>
-                <span className="cart__name">{line.name}</span>
-                <span className="cart__sku muted">{line.sku}</span>
+                <div className="cashier-cart-table__product">{line.name}</div>
+                <div className="cashier-cart-table__sku">{line.sku}</div>
               </td>
-              <td className="num">
+              <td className="cashier-cart-table__num">
                 <MoneyText amountRp={line.unitPriceRp} />
               </td>
-              <td className="num">
-                <div className="qty">
-                  <Button
-                    className="btn--icon"
+              <td className="cashier-cart-table__num">
+                <div className="cashier-qty-ctrl">
+                  <button
+                    type="button"
+                    className="cashier-qty-btn"
                     onClick={() => onDecrease(line.productId)}
                     disabled={disabled || line.quantity <= 1}
                     aria-label={`Kurangi ${line.name}`}
                   >
-                    −
-                  </Button>
-                  <span className="qty__value" aria-label={`Jumlah ${line.name}`}>
+                    <IconMinus size={14} />
+                  </button>
+                  <span className="cashier-qty-val" aria-label={`Jumlah ${line.name}`}>
                     {line.quantity}
                   </span>
-                  <Button
-                    className="btn--icon"
+                  <button
+                    type="button"
+                    className="cashier-qty-btn"
                     onClick={() => onIncrease(line.productId)}
                     disabled={disabled}
                     aria-label={`Tambah satu ${line.name}`}
                   >
-                    +
-                  </Button>
+                    <IconPlus size={14} />
+                  </button>
                 </div>
               </td>
-              <td className="num">
+              <td className="cashier-cart-table__num">
                 {onDiscountChange ? (
                   <input
                     type="number"
@@ -89,7 +99,7 @@ export function CartList({
                     max={100}
                     step={1}
                     className="input input--compact"
-                    style={{ width: "64px", textAlign: "right" }}
+                    style={{ width: "62px", textAlign: "right" }}
                     value={line.discountPct ?? 0}
                     disabled={disabled}
                     aria-label={`Potongan persen ${line.name}`}
@@ -102,13 +112,20 @@ export function CartList({
                   <span>{line.discountPct ?? 0}%</span>
                 )}
               </td>
-              <td className="num">
+              <td className="cashier-cart-table__num">
                 <MoneyText amountRp={lineTotalRp(line)} />
               </td>
               <td>
-                <Button variant="secondary" onClick={() => onRemove(line.productId)} disabled={disabled} aria-label={`Hapus ${line.name}`}>
-                  Hapus
-                </Button>
+                <button
+                  type="button"
+                  className="cashier-icon-btn cashier-icon-btn--danger"
+                  onClick={() => onRemove(line.productId)}
+                  disabled={disabled}
+                  aria-label={`Hapus ${line.name}`}
+                  title={`Hapus ${line.name}`}
+                >
+                  <IconTrash size={15} />
+                </button>
               </td>
             </tr>
           ))}

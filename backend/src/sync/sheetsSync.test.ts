@@ -19,6 +19,7 @@ import { createCheckoutService } from "../checkout/service.ts";
 import { startHttpServer } from "../http/app.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { createShiftService } from "../shift/service.ts";
+import { createDemoConfigManager } from "./sheetsDemoConfig.ts";
 import { createSheetsSyncService, loadSheetsSyncConfig } from "./sheetsSync.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -31,12 +32,25 @@ function makeSyntheticPassword(): string {
   return `Pw-${randomBytes(8).toString("hex")}`;
 }
 
+test("loader legacy menolak dokumen versi 2 yang identitasnya tidak valid", () => {
+ const database = createTempDatabase();
+ const file = path.join(database.dir, "sheets.json");
+ try {
+  const webhookUrl = "https://example.invalid/webhook", secret = makeSyntheticSecret();
+  writeFileSync(file, JSON.stringify({ version: 2, webhookUrl, secret, databaseNamespace: "invalid" }));
+  assert.equal(loadSheetsSyncConfig(file), null);
+  writeFileSync(file, JSON.stringify({ webhookUrl, secret }));
+  assert.deepEqual(loadSheetsSyncConfig(file), { webhookUrl, secret });
+ } finally { database.cleanup(); }
+});
+
 async function setupCheckoutHttp(options: {
   writeConfig?: { webhookUrl: string; secret: string } | null;
   fetchImpl: typeof fetch;
   queuePath?: string;
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
+  demoOnly?: boolean;
 }) {
   const database = createTempDatabase();
   migrateFresh(database);
@@ -57,7 +71,8 @@ async function setupCheckoutHttp(options: {
   const configPath = path.join(database.dir, "sheets-sync.json");
   const queuePath = options.queuePath ?? path.join(database.dir, "sheets-sync-queue.json");
   if (options.writeConfig) {
-    writeFileSync(configPath, JSON.stringify(options.writeConfig), "utf8");
+    if (options.demoOnly) createDemoConfigManager(db, database.dbPath, configPath, null, options.fetchImpl).save({ ...options.writeConfig, futureSalesOnly: true });
+    else writeFileSync(configPath, JSON.stringify(options.writeConfig), "utf8");
   }
 
   const sessions = createSessionStore(db, { secret: randomBytes(32), ttlMs: 3_600_000 });
@@ -68,6 +83,7 @@ async function setupCheckoutHttp(options: {
   const sheetsSync = createSheetsSyncService({
     db,
     dbPath: database.dbPath,
+    demoOnly: options.demoOnly,
     configPath,
     queuePath,
     fetchImpl: options.fetchImpl,
@@ -943,4 +959,34 @@ test("BUG-265: drain berbatas yang sukses menjadwalkan retry latar belakang untu
   } finally {
     await ctx.cleanup();
   }
+});
+
+test("DEMO v2 checkout tetap tersimpan saat Sheets offline", async () => {
+ const fetchImpl: typeof fetch = async () => { throw new Error("offline"); };
+ const ctx = await setupCheckoutHttp({ demoOnly: true, writeConfig: { webhookUrl: "https://script.google.com/macros/s/fixture/exec", secret: makeSyntheticSecret() }, fetchImpl, retryBaseDelayMs: 60000 });
+ try {
+  const result = await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "demo-v2-offline");
+  assert.equal(result.committed.status, "COMMITTED");
+  await ctx.sheetsSync.flush(); assert.equal(ctx.sheetsSync.getPendingCount(), 1);
+  assert.equal((ctx.db.prepare("SELECT COUNT(*) AS count FROM sales").get() as { count: number }).count, 1);
+ } finally { await ctx.cleanup(); }
+});
+
+test("konflik receiver menahan empat transaksi dan melaporkan alasan aman hingga retry berhasil", async () => {
+ let reject = true; const delivered: string[] = [];
+ const fetchImpl: typeof fetch = async (_url, init) => {
+  const body = JSON.parse(String(init?.body)) as { saleNo: string };
+  if (reject) return new Response(JSON.stringify({ ok: false, error: "nomor struk sudah digunakan" }), { status: 200 });
+  delivered.push(body.saleNo); return new Response(JSON.stringify({ ok: true, duplicate: delivered.length === 1 }), { status: 200 });
+ };
+ const ctx = await setupCheckoutHttp({ demoOnly: true, writeConfig: { webhookUrl: "https://script.google.com/macros/s/fixture/exec", secret: makeSyntheticSecret() }, fetchImpl, retryBaseDelayMs: 60000 });
+ try {
+  for (let i = 0; i < 4; i++) await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, `attempt-recovery-${i}`);
+  await ctx.sheetsSync.flush();
+  assert.equal(ctx.sheetsSync.getPendingCount(), 4);
+  assert.deepEqual(await ctx.sheetsSync.syncNow(), { enabled: true, sentCount: 0, pendingCount: 4, failure: "SALE_CONFLICT" });
+  reject = false;
+  assert.deepEqual(await ctx.sheetsSync.syncNow(), { enabled: true, sentCount: 4, pendingCount: 0 });
+  assert.equal(new Set(delivered).size, 4);
+ } finally { await ctx.cleanup(); }
 });

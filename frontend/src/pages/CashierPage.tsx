@@ -20,6 +20,15 @@ import type {
   ProductSummary,
   ShiftSummary,
 } from "../api/types";
+import {
+  IconBanknote,
+  IconCheckCircle,
+  IconChevronDown,
+  IconChevronUp,
+  IconClock,
+  IconQrCode,
+  IconShoppingCart,
+} from "../components/AdminIcons";
 import { BarcodeInput } from "../components/BarcodeInput";
 import { Button } from "../components/Button";
 import { CartList } from "../components/CartList";
@@ -58,6 +67,10 @@ interface CashierPageProps {
   cashierId: number;
   /** 401 dari shift/checkout: App wajib membersihkan sesi dan kembali ke login. */
   onSessionExpired: () => void;
+  /** Beri tahu shell tentang status shift aktif kasir saat ini. */
+  onShiftActiveChange?: (active: boolean) => void;
+  /** Fitur Layar Pelanggan dinonaktifkan untuk MVP (UI_UX_CASHIER §3), dapat diaktifkan di test integrasi. */
+  enableCustomerDisplay?: boolean;
 }
 
 interface Status {
@@ -138,6 +151,8 @@ export function CashierPage({
   sessionEpoch,
   cashierId,
   onSessionExpired,
+  onShiftActiveChange,
+  enableCustomerDisplay = false,
 }: CashierPageProps) {
   const isDemo = dataSource.authMode === "DEMO";
   const [status, setStatus] = useState<Status>({ tone: "info", text: "Siap scan barang." });
@@ -282,6 +297,7 @@ export function CashierPage({
   const [pointsNotice, setPointsNotice] = useState<string | null>(null);
   const [promoKind, setPromoKind] = useState<PromoKind>("NONE");
   const [showCustomerDisplay, setShowCustomerDisplay] = useState(false);
+  const [showModalItems, setShowModalItems] = useState(false);
 
   const cashierRef = useRef<HTMLDivElement>(null);
   const customerDisplayPopupRef = useRef<Window | null>(null);
@@ -307,6 +323,12 @@ export function CashierPage({
   sessionEpochRef.current = sessionEpoch;
   /** Draft dikunci sejak prepare sampai checkout selesai atau dibatalkan. */
   const isCheckoutActive = phase.kind !== "idle";
+
+  useEffect(() => {
+    if (!isDemo && shift !== undefined) {
+      onShiftActiveChange?.(shift !== null);
+    }
+  }, [isDemo, onShiftActiveChange, shift]);
 
   const handleActionError = useCallback(
     (error: unknown, fallback: string) => {
@@ -748,7 +770,7 @@ export function CashierPage({
     setStatus({
       tone: "danger",
       text: blockReplay
-        ? "Shift sudah ditutup. Transfer QRIS tercatat; periksa aplikasi merchant dan status upaya. Jangan ulang commit attempt ini tanpa rekonsiliasi."
+        ? "Shift sudah ditutup. Transfer QRIS tercatat; periksa aplikasi merchant dan status upaya. Jangan ulangi penyimpanan ini tanpa rekonsiliasi."
         : "Transfer QRIS tercatat. Periksa aplikasi merchant dan status upaya; jangan bayar ulang tanpa rekonsiliasi.",
     });
   }
@@ -1008,8 +1030,8 @@ export function CashierPage({
         tone: result.status === "PREPARED" ? "warning" : "danger",
         text:
           result.status === "PREPARED"
-            ? "Upaya masih PREPARED dan belum menghasilkan penjualan. Periksa bukti pembayaran fisik sebelum melanjutkan commit upaya ini."
-            : "Upaya ini sudah ABANDONED dan tidak dapat di-commit. Buat draft baru.",
+            ? "Upaya masih PREPARED dan belum menghasilkan penjualan. Periksa bukti pembayaran fisik sebelum melanjutkan penyimpanan ini."
+            : "Upaya ini sudah ABANDONED dan tidak dapat disimpan. Buat draft baru.",
       });
     } catch (error) {
       handleActionError(error, "Status upaya belum dapat dipastikan. Jangan bayar ulang.");
@@ -1151,216 +1173,306 @@ export function CashierPage({
   });
 
   return (
-    <div className="cashier" ref={cashierRef}>
-      <p className="muted cashier__hint">F2 Cari/scan · F9 Bayar · Esc Kembali dari pembayaran · Enter Konfirmasi nominal</p>
-      <section className="cashier__work panel" aria-label="Scan dan keranjang">
-        <div className="shift-panel" aria-label="Shift kasir">
-          {isDemo ? (
-            <p className="muted">Shift/checkout tidak tersedia di MODE DEMO mock.</p>
-          ) : shift === undefined ? (
-            <p className="muted">Memuat shift…</p>
-          ) : shift === null ? (
-            <form onSubmit={(event) => void handleOpenShift(event)} aria-label="Buka shift">
-              <p className="field-error" role="alert">
-                {shiftError ?? "Belum ada shift aktif milik kasir ini."}
-              </p>
+    <div className="cashier-workspace" ref={cashierRef}>
+      <section className="cashier-left" aria-label="Scan dan keranjang">
+        {!isDemo && shift === null ? (
+          <div className="shift-open-wrap" style={{ padding: "8px 0" }}>
+            <div className="shift-open-card" aria-label="Shift kasir">
+              <div className="shift-open-card__head">
+                <span className="shift-open-card__icon" aria-hidden="true">
+                  <IconClock size={22} />
+                </span>
+                <div>
+                  <h2 className="shift-open-card__title">Buka Shift Kasir</h2>
+                  <p className="shift-open-card__subtitle">
+                    Belum ada shift aktif milik kasir ini. Masukkan modal awal kas laci untuk mulai melayani transaksi.
+                  </p>
+                </div>
+              </div>
               {shiftError !== null && (
+                <div style={{ marginBottom: "14px" }}>
+                  <p className="field-error" role="alert">
+                    {shiftError}
+                  </p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setShiftError(null);
+                      void reloadShift();
+                    }}
+                  >
+                    Coba lagi
+                  </Button>
+                </div>
+              )}
+              <form onSubmit={(event) => void handleOpenShift(event)} aria-label="Buka shift" className="stack-form">
+                <label htmlFor={openingCashId} className="field-label">
+                  Modal awal (Rp, opsional)
+                </label>
+                <input
+                  ref={openingCashInputRef}
+                  id={openingCashId}
+                  className="input"
+                  type="text"
+                  inputMode="numeric"
+                  name="openingCash"
+                  placeholder="0"
+                  value={formattedOpeningCash}
+                  onChange={(event) => {
+                    const rawValue = event.target.value;
+                    const nextUnformatted = rawValue.replace(/\./g, "");
+                    const caret = event.target.selectionStart ?? rawValue.length;
+                    openingCashCaretRef.current = rawValue
+                      .slice(0, caret)
+                      .replace(/\./g, "").length;
+                    setOpeningCashInput(nextUnformatted);
+                    if (nextUnformatted === openingCashInput) {
+                      setOpeningCashCaretTick((tick) => tick + 1);
+                    }
+                  }}
+                />
+                <Button type="submit" variant="primary" block disabled={isOpeningShift}>
+                  {isOpeningShift ? "Membuka…" : "Buka shift"}
+                </Button>
+              </form>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="cashier-input-bar">
+              <BarcodeInput
+                ref={barcodeRef}
+                onSubmitCode={(code) => void handleBarcode(code)}
+                disabled={isCheckoutActive}
+              />
+              <ProductSearch
+                search={(query) => dataSource.searchActiveProducts(query)}
+                onAdd={handleAddFromSearch}
+                disabled={isCheckoutActive}
+              />
+            </div>
+
+            <div className="cashier-cart-card">
+              <div className="cashier-cart-card__header">
+                <h2 className="cashier-cart-card__title">
+                  <IconShoppingCart size={16} />
+                  <span>Keranjang</span>
+                </h2>
+                {isDemo ? (
+                  <span className="cashier-chip cashier-chip--warning">Mode DEMO</span>
+                ) : shift === undefined ? (
+                  <span className="cashier-chip cashier-chip--neutral">Memuat shift…</span>
+                ) : shift ? (
+                  <span className="cashier-chip cashier-chip--success">
+                    Shift #{shift.id} · dibuka {formatShiftTime(shift.openedAtMs)}
+                  </span>
+                ) : null}
+              </div>
+
+              <CartList
+                lines={lines}
+                onIncrease={(id) => changeQuantity(id, 1)}
+                onDecrease={(id) => changeQuantity(id, -1)}
+                onRemove={handleRemove}
+                disabled={isCheckoutActive}
+              />
+
+              <div className="cashier-cart-footer">
+                <span className="cashier-cart-footer__meta">{lines.length} baris</span>
+                <Button
+                  variant="secondary"
+                  disabled={isCartEmpty || phase.kind !== "idle"}
+                  onClick={openCancelDialog}
+                >
+                  Batal draft
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="cashier__status">
+          <StatusMessage tone={status.tone} text={status.text} />
+          {storageWarning && <StatusMessage tone="warning" text={storageWarning} />}
+        </div>
+      </section>
+
+      <aside className="cashier-summary-card" aria-label="Ringkasan belanja">
+        <h2 className="cashier-summary-card__title">Ringkasan Belanja</h2>
+
+        <div className="cashier-summary-rows">
+          <div className="cashier-summary-row">
+            <span>Jumlah barang</span>
+            <strong>{itemCount} barang</strong>
+          </div>
+          <div className="cashier-summary-row">
+            <span>Subtotal</span>
+            <strong><MoneyText amountRp={totalRp} /></strong>
+          </div>
+          {promoDiscountRp > 0 && (
+            <div className="cashier-summary-row" role="status">
+              <span>Potongan promo lokal (DEMO)</span>
+              <strong>-<MoneyText amountRp={promoDiscountRp} /></strong>
+            </div>
+          )}
+          {promoDiscountRp > 0 && (
+            <div className="cashier-summary-row">
+              <span>Estimasi bersih</span>
+              <strong><MoneyText amountRp={netPreviewTotalRp} /></strong>
+            </div>
+          )}
+        </div>
+
+        <div className="cashier-summary-total">
+          <span className="cashier-summary-total__label">Total Bayar</span>
+          <MoneyText amountRp={totalRp} className="cashier-summary-total__value" />
+        </div>
+
+        <fieldset style={{ border: "none", padding: 0, margin: 0 }} disabled={isDemo || isCheckoutActive}>
+          <legend className="cashier-input-group__label" style={{ marginBottom: "8px" }}>
+            Metode pembayaran
+          </legend>
+          <div className="pay-method-group">
+            <label
+              className={
+                selectedMethod === "CASH"
+                  ? "pay-method-btn pay-method-btn--active"
+                  : "pay-method-btn"
+              }
+            >
+              <input
+                type="radio"
+                className="visually-hidden"
+                name="payment-method"
+                checked={selectedMethod === "CASH"}
+                onChange={() => setSelectedMethod("CASH")}
+              />
+              <IconBanknote size={18} />
+              <span>Tunai</span>
+            </label>
+            <label
+              className={
+                selectedMethod === "QRIS_MANUAL"
+                  ? "pay-method-btn pay-method-btn--active"
+                  : "pay-method-btn"
+              }
+            >
+              <input
+                type="radio"
+                className="visually-hidden"
+                name="payment-method"
+                checked={selectedMethod === "QRIS_MANUAL"}
+                onChange={() => setSelectedMethod("QRIS_MANUAL")}
+              />
+              <IconQrCode size={18} />
+              <span>QRIS manual</span>
+            </label>
+          </div>
+          <p className="muted" style={{ fontSize: "11.5px", marginTop: "6px", marginBottom: 0 }}>
+            QRIS tidak otomatis lunas dan tidak masuk kas fisik.
+          </p>
+        </fieldset>
+
+        <Button
+          variant="primary"
+          block
+          className="cashier-pay-cta"
+          disabled={!canPay}
+          aria-describedby="payment-disabled-reason"
+          onClick={() => void startCheckout()}
+        >
+          {phase.kind === "preparing" ? "Menyiapkan…" : "Lanjut pembayaran"}
+        </Button>
+
+        {payReason && (
+          <p id="payment-disabled-reason" className="summary__reason" style={{ margin: 0 }}>
+            {payReason}
+          </p>
+        )}
+
+        <details>
+          <summary className="cashier-collapse-btn">
+            <span>Promo &amp; Pelanggan</span>
+            <IconChevronDown size={15} />
+          </summary>
+          <div className="cashier-collapse-body">
+            <label className="field-label" htmlFor={promoSelectId}>
+              Promo lokal (DEMO)
+            </label>
+            <select
+              id={promoSelectId}
+              className="input"
+              value={promoKind}
+              disabled={isCheckoutActive}
+              onChange={(event) => setPromoKind(event.target.value as PromoKind)}
+            >
+              <option value="NONE">Tanpa promo</option>
+              <option value="BUY_2_GET_1">Beli 2 gratis 1 (item termurah)</option>
+              <option value="TEBUS_MURAH">Tebus murah (hemat Rp2.000 min. Rp50.000)</option>
+            </select>
+            <label className="field-label" htmlFor={customerCodeId}>
+              Kode pelanggan / poin (opsional)
+            </label>
+            <input
+              id={customerCodeId}
+              className="input"
+              type="text"
+              value={customerCode}
+              disabled={isCheckoutActive}
+              onChange={(event) => setCustomerCode(event.target.value)}
+              placeholder="Mis. MHS001"
+            />
+            {normalizedCustomerCode && (
+              <p className="muted" role="status" style={{ margin: 0 }}>
+                Pelanggan {normalizedCustomerCode}: <strong>{currentCustomerPoints} poin</strong> tersimpan.
+              </p>
+            )}
+          </div>
+        </details>
+
+        {enableCustomerDisplay && (
+          <>
+            <Button
+              variant="secondary"
+              block
+              onClick={() => setShowCustomerDisplay((prev) => !prev)}
+            >
+              {showCustomerDisplay ? "Tutup layar pelanggan" : "Layar pelanggan"}
+            </Button>
+            {showCustomerDisplay && (
+              <section className="customer-display-preview panel" aria-label="Layar pelanggan">
+                <p>
+                  <strong>Layar pelanggan</strong> · {customerDisplayState.items.length} baris ·{" "}
+                  <MoneyText amountRp={customerDisplayState.totalRp} />
+                </p>
+                {customerDisplayState.promoLabel && (
+                  <p className="muted">
+                    {customerDisplayState.promoLabel}: -<MoneyText amountRp={promoDiscountRp} />
+                  </p>
+                )}
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    setShiftError(null);
-                    void reloadShift();
+                    const popup = window.open("", "pos-customer-display", "width=480,height=640");
+                    customerDisplayPopupRef.current = popup;
+                    if (popup && !popup.closed) {
+                      popup.document.open();
+                      popup.document.write(customerDisplayHtml);
+                      popup.document.close();
+                    }
                   }}
                 >
-                  Coba lagi
+                  Buka jendela pelanggan
                 </Button>
-              )}
-              <label htmlFor={openingCashId} className="field-label">
-                Modal awal (Rp, opsional)
-              </label>
-              <input
-                ref={openingCashInputRef}
-                id={openingCashId}
-                className="input"
-                type="text"
-                inputMode="numeric"
-                name="openingCash"
-                value={formattedOpeningCash}
-                onChange={event => {
-                  const rawValue = event.target.value;
-                  const nextUnformatted = rawValue.replace(/\./g, "");
-                  const caret = event.target.selectionStart ?? rawValue.length;
-                  openingCashCaretRef.current = rawValue
-                    .slice(0, caret)
-                    .replace(/\./g, "").length;
-                  setOpeningCashInput(nextUnformatted);
-                  if (nextUnformatted === openingCashInput) {
-                    setOpeningCashCaretTick(tick => tick + 1);
-                  }
-                }}
-              />
-              <Button type="submit" variant="primary" disabled={isOpeningShift}>
-                {isOpeningShift ? "Membuka…" : "Buka shift"}
-              </Button>
-            </form>
-          ) : (
-            <p>
-              <span className="badge badge--ok">Shift aktif</span> #{shift.id} · dibuka{" "}
-              {formatShiftTime(shift.openedAtMs)}
-            </p>
-          )}
-        </div>
-        <BarcodeInput
-          ref={barcodeRef}
-          onSubmitCode={(code) => void handleBarcode(code)}
-          disabled={isCheckoutActive}
-        />
-        <ProductSearch
-          search={(query) => dataSource.searchActiveProducts(query)}
-          onAdd={handleAddFromSearch}
-          disabled={isCheckoutActive}
-        />
-        <h2 className="section-title">Keranjang</h2>
-        <CartList
-          lines={lines}
-          onIncrease={(id) => changeQuantity(id, 1)}
-          onDecrease={(id) => changeQuantity(id, -1)}
-          onRemove={handleRemove}
-          disabled={isCheckoutActive}
-        />
-      </section>
-
-      <aside className="cashier__summary panel" aria-label="Ringkasan belanja">
-        <h2 className="section-title">Ringkasan belanja</h2>
-        <p className="summary__count">{itemCount} barang</p>
-        <div className="summary__total">
-          <span>TOTAL</span>
-          <MoneyText amountRp={totalRp} className="money--total" />
-        </div>
-        {promoDiscountRp > 0 && (
-          <p className="muted" role="status">
-            Potongan promo lokal (DEMO): -<MoneyText amountRp={promoDiscountRp} /> · Estimasi bersih:{" "}
-            <strong><MoneyText amountRp={netPreviewTotalRp} /></strong>
-          </p>
+              </section>
+            )}
+          </>
         )}
-        <div className="summary__extras">
-          <label className="field-label" htmlFor={promoSelectId}>Promo lokal (DEMO)</label>
-          <select
-            id={promoSelectId}
-            className="input"
-            value={promoKind}
-            disabled={isCheckoutActive}
-            onChange={(event) => setPromoKind(event.target.value as PromoKind)}
-          >
-            <option value="NONE">Tanpa promo</option>
-            <option value="BUY_2_GET_1">Beli 2 gratis 1 (item termurah)</option>
-            <option value="TEBUS_MURAH">Tebus murah (hemat Rp2.000 min. Rp50.000)</option>
-          </select>
-          <label className="field-label" htmlFor={customerCodeId}>Kode pelanggan / poin (opsional)</label>
-          <input
-            id={customerCodeId}
-            className="input"
-            type="text"
-            value={customerCode}
-            disabled={isCheckoutActive}
-            onChange={(event) => setCustomerCode(event.target.value)}
-            placeholder="Mis. MHS001"
-          />
-          {normalizedCustomerCode && (
-            <p className="muted" role="status">
-              Pelanggan {normalizedCustomerCode}: <strong>{currentCustomerPoints} poin</strong> tersimpan.
-            </p>
-          )}
-        </div>
-        <p className="summary__draft-note muted">
-          Draft belum tersimpan sebagai transaksi sampai commit dikonfirmasi backend.
-        </p>
-        <fieldset className="method-chooser" disabled={isDemo || isCheckoutActive}>
-          <legend className="field-label">Metode pembayaran</legend>
-          <label className="checkbox-row">
-            <input
-              type="radio"
-              name="payment-method"
-              checked={selectedMethod === "CASH"}
-              onChange={() => setSelectedMethod("CASH")}
-            />
-            Tunai
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="radio"
-              name="payment-method"
-              checked={selectedMethod === "QRIS_MANUAL"}
-              onChange={() => setSelectedMethod("QRIS_MANUAL")}
-            />
-            QRIS manual (cek di aplikasi merchant)
-          </label>
-          <p className="muted">QRIS tidak otomatis lunas dan tidak masuk kas fisik.</p>
-        </fieldset>
-        <div className="summary__actions">
-          <Button
-            variant="primary"
-            block
-            disabled={!canPay}
-            aria-describedby="payment-disabled-reason"
-            onClick={() => void startCheckout()}
-          >
-            {phase.kind === "preparing" ? "Menyiapkan…" : "Lanjut pembayaran"}
-          </Button>
-          {payReason && (
-            <p id="payment-disabled-reason" className="summary__reason">
-              {payReason}
-            </p>
-          )}
-          <Button
-            variant="secondary"
-            block
-            disabled={isCartEmpty || phase.kind !== "idle"}
-            onClick={openCancelDialog}
-          >
-            Batal draft
-          </Button>
-          <Button
-            variant="secondary"
-            block
-            onClick={() => setShowCustomerDisplay((prev) => !prev)}
-          >
-            {showCustomerDisplay ? "Tutup layar pelanggan" : "Layar pelanggan"}
-          </Button>
-          {showCustomerDisplay && (
-            <section className="customer-display-preview panel" aria-label="Layar pelanggan">
-              <p>
-                <strong>Layar pelanggan</strong> · {customerDisplayState.items.length} baris ·{" "}
-                <MoneyText amountRp={customerDisplayState.totalRp} />
-              </p>
-              {customerDisplayState.promoLabel && (
-                <p className="muted">
-                  {customerDisplayState.promoLabel}: -<MoneyText amountRp={promoDiscountRp} />
-                </p>
-              )}
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  const popup = window.open("", "pos-customer-display", "width=480,height=640");
-                  customerDisplayPopupRef.current = popup;
-                  if (popup && !popup.closed) {
-                    popup.document.open();
-                    popup.document.write(customerDisplayHtml);
-                    popup.document.close();
-                  }
-                }}
-              >
-                Buka jendela pelanggan
-              </Button>
-            </section>
-          )}
-        </div>
-      </aside>
 
-      <div className="cashier__status">
-        <StatusMessage tone={status.tone} text={status.text} />
-        {storageWarning && <StatusMessage tone="warning" text={storageWarning} />}
-      </div>
+        <p className="cashier-shortcut-hint" style={{ margin: 0 }}>
+          F2 Cari/scan · F9 Bayar · Esc Kembali · Enter Konfirmasi
+        </p>
+      </aside>
 
       {isConfirmingCancel && (
         <ConfirmDialog
@@ -1376,25 +1488,25 @@ export function CashierPage({
 
       {phase.kind === "payment" && (
         <div className="dialog-backdrop">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+          <div className="dialog cashier-modal" role="dialog" aria-modal="true" aria-labelledby="payment-title">
             <h2 id="payment-title" className="dialog__title">
               {paymentIsQris ? "Konfirmasi QRIS manual" : "Konfirmasi pembayaran tunai"}
             </h2>
-            <p>Total: <MoneyText className="money--total" amountRp={phase.attempt.quote.totalRp} /></p>
-            <p><span className="badge badge--warning">PENDING - belum ada penjualan</span></p>
-            <p className="muted" role="note">
+            <p className="cashier-modal__amount-box" style={{ margin: "0 0 14px" }}>
+              <span>Total:</span>
+              <MoneyText className="money--total" amountRp={phase.attempt.quote.totalRp} />
+            </p>
+            <p style={{ margin: "0 0 8px" }}>
+              <span className="cashier-chip cashier-chip--warning">
+                {paymentIsQris ? "PENDING · Menunggu verifikasi kasir — belum ada penjualan" : "PENDING - belum ada penjualan"}
+              </span>
+            </p>
+            <p className="muted" role="note" style={{ margin: "0 0 10px", fontSize: "12.5px" }}>
               {paymentIsQris
                 ? "Pemeriksaan metode: pastikan pelanggan membayar lewat QRIS merchant, bukan uang tunai."
                 : "Pemeriksaan metode: pastikan pelanggan membayar tunai langsung, bukan transfer QRIS."}
             </p>
-            <ul className="catalog-list">
-              {phase.attempt.quote.items.map((item) => (
-                <li key={item.productId}>
-                  {item.name} · {item.quantity} × <MoneyText amountRp={item.unitPriceRp} /> ={" "}
-                  <MoneyText amountRp={item.lineTotalRp} />
-                </li>
-              ))}
-            </ul>
+
             {paymentIsQris ? (
               <div className="qris-panel">
                 {priorQrisConfirmation?.method === "QRIS_MANUAL" && (
@@ -1414,7 +1526,7 @@ export function CashierPage({
                     Transfer lama tidak dipakai untuk quote ini; sudah saya cocokkan dengan aplikasi merchant
                   </label>
                 )}
-                <p className="muted">
+                <p className="muted" style={{ fontSize: "12.5px" }}>
                   Buka aplikasi merchant di luar POS. Periksa transaksi berhasil dan nominalnya
                   sebelum mencentang. POS tidak menerima notifikasi bank dan tidak otomatis lunas.
                 </p>
@@ -1465,17 +1577,67 @@ export function CashierPage({
                   }}
                   aria-describedby="change-info"
                 />
-                <div className="dialog__actions" aria-label="Nominal tunai cepat">
-                  <Button onClick={() => setCashInput(String(phase.attempt.quote.totalRp))}>Uang pas</Button>
-                  {[10000, 20000, 50000, 100000].map(amount => <Button key={amount} onClick={() => setCashInput(String(amount))}>{amount.toLocaleString("id-ID")}</Button>)}
+                <div className="cashier-quick-grid" aria-label="Nominal tunai cepat">
+                  <Button variant="secondary" onClick={() => setCashInput(String(phase.attempt.quote.totalRp))}>
+                    Uang pas
+                  </Button>
+                  {[10000, 20000, 50000, 100000].map((amount) => (
+                    <Button key={amount} variant="secondary" onClick={() => setCashInput(String(amount))}>
+                      {amount.toLocaleString("id-ID")}
+                    </Button>
+                  ))}
                 </div>
-                <p id="change-info" className="muted">
-                  Kembalian: <MoneyText amountRp={quoteChangeRp} />
+                <p
+                  id="change-info"
+                  style={{ margin: "12px 0 0" }}
+                  className={
+                    cashValue !== null && cashValue < phase.attempt.quote.totalRp
+                      ? "cashier-change-box cashier-change-box--short"
+                      : "cashier-change-box cashier-change-box--ok"
+                  }
+                >
+                  {cashValue !== null && cashValue < phase.attempt.quote.totalRp
+                    ? "Kurang bayar:"
+                    : cashValue === phase.attempt.quote.totalRp
+                      ? "Uang pas · Kembalian:"
+                      : "Kembalian:"}{" "}
+                  <strong>
+                    <MoneyText
+                      amountRp={
+                        cashValue !== null && cashValue < phase.attempt.quote.totalRp
+                          ? phase.attempt.quote.totalRp - cashValue
+                          : quoteChangeRp
+                      }
+                    />
+                  </strong>
                 </p>
               </>
             )}
-            <p className="muted">
-              Upaya: <code>{phase.attempt.attemptKey}</code>. Jangan ulangi pembayaran fisik jika respons lambat.
+
+            <div className="cashier-items-summary">
+              <button
+                type="button"
+                className="cashier-items-summary__toggle"
+                onClick={() => setShowModalItems((prev) => !prev)}
+                aria-expanded={showModalItems}
+              >
+                <span>Rincian barang ({phase.attempt.quote.items.length} item)</span>
+                {showModalItems ? <IconChevronUp size={15} /> : <IconChevronDown size={15} />}
+              </button>
+              {showModalItems && (
+                <ul className="cashier-items-summary__list">
+                  {phase.attempt.quote.items.map((item) => (
+                    <li key={item.productId}>
+                      <span>{item.name} ({item.quantity} × <MoneyText amountRp={item.unitPriceRp} />)</span>
+                      <strong><MoneyText amountRp={item.lineTotalRp} /></strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <p className="muted" style={{ fontSize: "11.5px", marginTop: "10px", marginBottom: 0 }}>
+              Jangan ulangi pembayaran fisik jika respons lambat.
             </p>
             <div className="dialog__actions">
               <Button variant="secondary" onClick={closePayment}>Batal</Button>
@@ -1484,7 +1646,7 @@ export function CashierPage({
                 disabled={!canCommitPayment}
                 onClick={() => void confirmCommit()}
               >
-                {paymentIsQris ? "Konfirmasi Lunas" : "Ya, commit pembayaran"}
+                {paymentIsQris ? "Konfirmasi Lunas" : "Ya, simpan pembayaran"}
               </Button>
             </div>
           </div>
@@ -1554,7 +1716,7 @@ export function CashierPage({
             <h2 id="timeout-title" className="dialog__title">Status pembayaran belum diketahui</h2>
             <p>{MSG_TIMEOUT}</p>
             <p className="muted">
-              Upaya <code>{phase.attempt.attemptKey}</code> ·{" "}
+              Status pembayaran belum diketahui ·{" "}
               {phase.attempt.quote.payment.method === "QRIS_MANUAL"
                 ? "nominal merchant"
                 : "uang diterima"}{" "}
@@ -1563,7 +1725,7 @@ export function CashierPage({
             </p>
             {phase.noReplay && (
               <p className="field-error" role="alert">
-                Attempt ini tidak boleh di-commit ulang. Periksa aplikasi merchant dan status
+                Upaya ini tidak boleh disimpan ulang. Periksa aplikasi merchant dan status
                 tersimpan; bila transfer berhasil tanpa penjualan, catat untuk rekonsiliasi
                 pengelola sebelum membuat transaksi baru.
               </p>
@@ -1590,7 +1752,7 @@ export function CashierPage({
                     timeoutConfirmation as PaymentConfirmation,
                   )}
                 >
-                  Lanjutkan commit upaya ini
+                  Lanjutkan penyimpanan ini
                 </Button>
               )}
               {phase.known === "PREPARED" && !canResumeTimeout && !phase.noReplay && (
@@ -1639,36 +1801,38 @@ export function CashierPage({
 
       {phase.kind === "success" && (
         <div className="dialog-backdrop">
-          <div className="dialog dialog--receipt" role="dialog" aria-modal="true" aria-labelledby="success-title">
-            <h2 id="success-title" className="dialog__title">Transaksi tersimpan</h2>
+          <div className="dialog cashier-modal cashier-modal--wide dialog--receipt" role="dialog" aria-modal="true" aria-labelledby="success-title">
+            <h2 id="success-title" className="dialog__title" style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-primary-dark)" }}>
+              <IconCheckCircle size={20} /> Transaksi tersimpan
+            </h2>
             <div className="dialog__body">
-              <p>
-                Nomor penjualan <strong>{phase.result.saleNo}</strong> · status{" "}
-                <strong>{phase.result.status}</strong>.
-              </p>
+              <div className="cashier-modal__amount-box">
+                <span>
+                  Nomor penjualan <strong>{phase.result.saleNo}</strong> · {phase.result.status}
+                </span>
+                <MoneyText amountRp={phase.result.totalRp} />
+              </div>
               {phase.result.payment.method === "QRIS_MANUAL" ? (
                 <>
-                  <p>
-                    <span className="badge badge--ok">TERVERIFIKASI</span> · Total{" "}
-                    <MoneyText amountRp={phase.result.totalRp} /> · kembalian{" "}
-                    <MoneyText amountRp={phase.result.payment.changeRp} />.
+                  <p style={{ margin: "0 0 8px" }}>
+                    <span className="cashier-chip cashier-chip--success">TERVERIFIKASI</span>{" "}
+                    Pembayaran QRIS manual.
                   </p>
                   {phase.result.qrisVerification?.status === "verified" && (
-                    <p className="muted">
+                    <p className="muted" style={{ fontSize: "12.5px" }}>
                       Diverifikasi kasir #{phase.result.qrisVerification.verifiedBy} pada{" "}
                       {formatShiftTime(phase.result.qrisVerification.verifiedAtMs)} oleh backend. QRIS tidak masuk kas fisik.
                     </p>
                   )}
                 </>
               ) : (
-                <p>
-                  Total <MoneyText amountRp={phase.result.totalRp} /> · uang diterima{" "}
-                  <MoneyText amountRp={phase.result.payment.cashReceivedRp} /> · kembalian{" "}
-                  <MoneyText amountRp={phase.result.payment.changeRp} />.
+                <p style={{ margin: "0 0 10px" }}>
+                  Uang diterima <strong><MoneyText amountRp={phase.result.payment.cashReceivedRp} /></strong> · Kembalian{" "}
+                  <strong><MoneyText amountRp={phase.result.payment.changeRp} /></strong>.
                 </p>
               )}
               {pointsNotice && (
-                <p className="badge badge--ok" role="status">
+                <p className="cashier-chip cashier-chip--success" role="status" style={{ marginBottom: "10px" }}>
                   {pointsNotice}
                 </p>
               )}
@@ -1677,6 +1841,7 @@ export function CashierPage({
                 saleId={phase.result.saleId}
                 onSessionExpired={onSessionExpired}
                 autoLoad
+                collapsiblePreview
               />
             </div>
             <div className="dialog__actions dialog__actions--sticky">

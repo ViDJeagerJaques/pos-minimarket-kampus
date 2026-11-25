@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PosDataSource } from "../api/types";
 import { ApiError } from "../api/errors";
+import { IconChevronLeft, IconChevronRight, IconSearch, IconX } from "../components/AdminIcons";
 import { Button } from "../components/Button";
 import { ReceiptPanel } from "../components/ReceiptPanel";
 
@@ -40,6 +41,7 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
   const [listError, setListError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [slideDir, setSlideDir] = useState<"next" | "prev">("next");
+  const [methodFilter, setMethodFilter] = useState<"ALL" | "CASH" | "QRIS_MANUAL">("ALL");
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -154,115 +156,159 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
     openReceipt(parsed);
   }
 
-  const totalPages = Math.max(1, Math.ceil(recent.length / PAGE_SIZE));
+  const filteredRecent = methodFilter === "ALL"
+    ? recent
+    : recent.filter((sale) => sale.method === methodFilter);
+  const totalPages = Math.max(1, Math.ceil(filteredRecent.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
-  const pageItems = recent.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const pageItems = filteredRecent.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   return (
-    <section className="panel receipt-history" aria-label="Riwayat dan cetak ulang struk">
-      <h2 className="section-title">Riwayat/Struk</h2>
-      <p className="muted">
-        Masukkan nomor struk atau ID transaksi tersimpan. Struk diambil dari sale yang sudah COMMITTED
-        beserta nomor dan harga historisnya; mencetak ulang tidak membuat transaksi baru.
-      </p>
-      <form onSubmit={handleSubmit} className="receipt-history__form">
-        <label htmlFor="receipt-sale-id" className="field-label">
-          Nomor struk atau ID transaksi tersimpan
-        </label>
-        <input
-          id="receipt-sale-id"
-          className="input"
-          type="text"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="Mis. S-000208 atau 208"
-        />
-        <Button type="submit" variant="primary">Muat struk</Button>
-      </form>
+    <section className="receipt-page" aria-label="Riwayat dan cetak ulang struk">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <h2 className="section-title" style={{ margin: 0 }}>Riwayat/Struk</h2>
+      </div>
+      <div className="receipt-toolbar">
+        <form onSubmit={handleSubmit} className="receipt-toolbar__search">
+          <div className="cashier-input-group">
+            <label htmlFor="receipt-sale-id" className="field-label">
+              Nomor struk atau ID transaksi tersimpan
+            </label>
+            <div className="cashier-input-icon-wrap">
+              <span className="cashier-input-icon-wrap__icon" aria-hidden="true">
+                <IconSearch size={16} />
+              </span>
+              <input
+                id="receipt-sale-id"
+                className="input"
+                type="text"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Mis. S-000208 atau 208"
+              />
+            </div>
+          </div>
+          <Button type="submit" variant="primary">Muat struk</Button>
+        </form>
+
+        <div className="cashier-input-group">
+          <label htmlFor="receipt-method-filter" className="field-label">
+            Metode bayar
+          </label>
+          <select
+            id="receipt-method-filter"
+            className="input"
+            value={methodFilter}
+            onChange={(event) => {
+              setMethodFilter(event.target.value as "ALL" | "CASH" | "QRIS_MANUAL");
+              setPage(0);
+            }}
+          >
+            <option value="ALL">Semua metode</option>
+            <option value="CASH">Tunai</option>
+            <option value="QRIS_MANUAL">QRIS manual</option>
+          </select>
+        </div>
+      </div>
+
       {message && <p className="field-error" role="alert">{message}</p>}
 
-      <h3>Transaksi hari ini</h3>
-      {loading && <p role="status">Memuat transaksi...</p>}
-      {listError && <p role="alert">{listError}</p>}
-      {!loading && !listError && recent.length === 0 && <p>Belum ada transaksi hari ini.</p>}
-      {recent.length > 0 && (
-        <>
-          <div
-            key={safePage}
-            className={`table-wrap ${slideDir === "next" ? "receipt-history__slider--next" : "receipt-history__slider--prev"}`}
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th>Nomor penjualan</th>
-                  <th>Waktu</th>
-                  <th>Total</th>
-                  <th>Metode bayar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageItems.map((sale) => (
-                  <tr key={sale.saleId} onClick={() => openReceipt(sale.saleId)}>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openReceipt(sale.saleId);
-                        }}
-                      >
-                        {sale.saleNo}
-                      </button>
-                    </td>
-                    <td>{new Date(sale.committedAtMs).toLocaleString("id-ID")}</td>
-                    <td>
-                      {new Intl.NumberFormat("id-ID", {
-                        style: "currency",
-                        currency: "IDR",
-                        maximumFractionDigits: 0,
-                      }).format(sale.totalRp)}
-                    </td>
-                    <td>{sale.method === "CASH" ? "Tunai" : "QRIS manual"}</td>
+      <div className="receipt-card">
+        <div className="receipt-card__head">
+          <h3 className="receipt-card__title">Transaksi hari ini</h3>
+          <span className="cashier-chip cashier-chip--neutral">
+            {filteredRecent.length} transaksi
+          </span>
+        </div>
+        {loading && <p role="status" style={{ padding: "16px" }}>Memuat transaksi...</p>}
+        {listError && <p role="alert" style={{ padding: "16px" }}>{listError}</p>}
+        {!loading && !listError && filteredRecent.length === 0 && (
+          <p className="muted" style={{ padding: "16px", margin: 0 }}>Belum ada transaksi hari ini.</p>
+        )}
+        {filteredRecent.length > 0 && (
+          <>
+            <div
+              key={safePage}
+              className={`table-wrap ${slideDir === "next" ? "receipt-history__slider--next" : "receipt-history__slider--prev"}`}
+            >
+              <table className="cashier-cart-table">
+                <thead>
+                  <tr>
+                    <th>Nomor penjualan</th>
+                    <th>Waktu</th>
+                    <th className="cashier-cart-table__num">Total</th>
+                    <th>Metode bayar</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {recent.length > PAGE_SIZE && (
-            <div className="receipt-history__pagination">
-              <Button
-                variant="secondary"
-                disabled={safePage === 0}
-                onClick={() => {
-                  setSlideDir("prev");
-                  setPage((current) => Math.max(0, current - 1));
-                }}
-              >
-                Sebelumnya
-              </Button>
-              <span className="muted">
-                Halaman {safePage + 1} dari {totalPages}
-              </span>
-              <Button
-                variant="secondary"
-                disabled={safePage >= totalPages - 1}
-                onClick={() => {
-                  setSlideDir("next");
-                  setPage((current) => Math.min(totalPages - 1, current + 1));
-                }}
-              >
-                Berikutnya
-              </Button>
+                </thead>
+                <tbody>
+                  {pageItems.map((sale) => (
+                    <tr key={sale.saleId} onClick={() => openReceipt(sale.saleId)} style={{ cursor: "pointer" }}>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn--secondary btn--sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openReceipt(sale.saleId);
+                          }}
+                        >
+                          {sale.saleNo}
+                        </button>
+                      </td>
+                      <td>{new Date(sale.committedAtMs).toLocaleString("id-ID")}</td>
+                      <td className="cashier-cart-table__num">
+                        {new Intl.NumberFormat("id-ID", {
+                          style: "currency",
+                          currency: "IDR",
+                          maximumFractionDigits: 0,
+                        }).format(sale.totalRp)}
+                      </td>
+                      <td>
+                        <span className={sale.method === "CASH" ? "cashier-chip cashier-chip--success" : "cashier-chip cashier-chip--neutral"}>
+                          {sale.method === "CASH" ? "Tunai" : "QRIS manual"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </>
-      )}
+            {filteredRecent.length > PAGE_SIZE && (
+              <div className="receipt-history__pagination" style={{ padding: "12px 16px" }}>
+                <Button
+                  variant="secondary"
+                  disabled={safePage === 0}
+                  onClick={() => {
+                    setSlideDir("prev");
+                    setPage((current) => Math.max(0, current - 1));
+                  }}
+                >
+                  <IconChevronLeft size={15} /> Sebelumnya
+                </Button>
+                <span className="muted">
+                  Halaman {safePage + 1} dari {totalPages}
+                </span>
+                <Button
+                  variant="secondary"
+                  disabled={safePage >= totalPages - 1}
+                  onClick={() => {
+                    setSlideDir("next");
+                    setPage((current) => Math.min(totalPages - 1, current + 1));
+                  }}
+                >
+                  Berikutnya <IconChevronRight size={15} />
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {saleId !== null && (
         <div className="dialog-backdrop">
           <div
             ref={dialogRef}
-            className="dialog"
+            className="dialog cashier-modal cashier-modal--wide"
             role="dialog"
             aria-modal="true"
             aria-labelledby="receipt-modal-title"
@@ -277,7 +323,7 @@ export function ReceiptPage({ dataSource, onSessionExpired }: ReceiptPageProps) 
                 aria-label="Tutup struk"
                 onClick={() => setSaleId(null)}
               >
-                X
+                <IconX size={16} />
               </Button>
             </div>
             <ReceiptPanel

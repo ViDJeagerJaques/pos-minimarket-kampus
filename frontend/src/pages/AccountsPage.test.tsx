@@ -34,6 +34,9 @@ function makeTestPassword(prefix = "pw"): string {
 }
 
 async function fillCreateForm(user: ReturnType<typeof userEvent.setup>, password = makeTestPassword("kasir")) {
+  if (!screen.queryByLabelText("Nama pengguna")) {
+    await user.click(screen.getByRole("button", { name: "Tambah akun" }));
+  }
   await user.type(screen.getByLabelText("Nama pengguna"), "kasir.baru");
   await user.type(screen.getByLabelText("Kata sandi awal"), password);
   await user.click(screen.getByRole("button", { name: "Buat akun kasir" }));
@@ -229,6 +232,7 @@ describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
 it("BUG-207: lihat sandi, validasi konfirmasi dan ubah hanya sandi sendiri", async () => {
   const changePassword = vi.fn(async () => {});
   const { user, onSessionExpired } = renderAccounts(makeSource({ changePassword }));
+  await user.click(screen.getByRole("tab", { name: "Keamanan" }));
   const old = makeTestPassword(); const next = makeTestPassword();
   await user.type(screen.getByLabelText("Sandi lama"), old);
   await user.type(screen.getByLabelText("Sandi baru"), next);
@@ -238,6 +242,7 @@ it("BUG-207: lihat sandi, validasi konfirmasi dan ubah hanya sandi sendiri", asy
   expect(changePassword).not.toHaveBeenCalled();
   await user.type(screen.getByLabelText("Konfirmasi sandi baru"), next);
   await user.click(screen.getByRole("button", { name: "Ubah sandi" }));
+  await user.click(screen.getByRole("button", { name: "Ya, ubah sandi" }));
   await waitFor(() => expect(onSessionExpired).toHaveBeenCalledOnce());
   expect(changePassword).toHaveBeenCalledWith({ oldPassword: old, newPassword: next });
   expect((screen.getByLabelText("Sandi baru") as HTMLInputElement).value).toBe("");
@@ -292,4 +297,16 @@ it("BUG-236: dialog reset sandi memindahkan fokus saat dibuka, menjebak Tab, dan
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(resetButton);
+});
+
+it("AUDIT-07 batal dan reset tidak mengubah sandi", async () => {
+ const changePassword = vi.fn(); const { user } = renderAccounts(makeSource({ changePassword }));
+ await user.click(screen.getByRole("tab", { name: "Keamanan" }));
+ const old = makeTestPassword(); const next = makeTestPassword();
+ await user.type(screen.getByLabelText("Sandi lama"), old); await user.type(screen.getByLabelText("Sandi baru"), next); await user.type(screen.getByLabelText("Konfirmasi sandi baru"), next);
+ await user.click(screen.getByRole("button", { name: "Ubah sandi" }));
+ await user.click(screen.getByRole("button", { name: "Kembali" }));
+ expect(changePassword).not.toHaveBeenCalled(); expect((screen.getByLabelText("Sandi baru") as HTMLInputElement).value).toBe(next);
+ await user.click(screen.getByRole("button", { name: "Reset" }));
+ expect((screen.getByLabelText("Sandi lama") as HTMLInputElement).value).toBe(""); expect((screen.getByLabelText("Sandi baru") as HTMLInputElement).value).toBe(""); expect((screen.getByLabelText("Konfirmasi sandi baru") as HTMLInputElement).value).toBe(""); expect(changePassword).not.toHaveBeenCalled();
 });

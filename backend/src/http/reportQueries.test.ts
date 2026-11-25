@@ -12,6 +12,9 @@ import { hashPassword } from "../auth/password.ts";
 import { createSessionStore } from "../auth/session.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { createReportService } from "../reports/service.ts";
+import { createExcelSync } from "../reports/excelSync.ts";
+import path from "node:path";
+import { readFileSync } from "node:fs";
 import { startHttpServer, type RunningServer } from "./app.ts";
 
 const PASSWORD = `rpt-${randomBytes(8).toString("hex")}`;
@@ -65,12 +68,12 @@ function setup() {
   return { database, db };
 }
 
-async function start(db: DatabaseSync): Promise<RunningServer> {
+async function start(db: DatabaseSync, excelConfig?: string): Promise<RunningServer> {
   const sessions = createSessionStore(db, { secret: randomBytes(32), ttlMs: 60 * 60 * 1000 });
   const securityLog = createSecurityLogger({ sink: () => {} });
   const auth = createAuthService(db, { sessions, securityLog });
   const reports = createReportService(db);
-  return startHttpServer({ auth, sessions, securityLog, reports });
+  return startHttpServer({ auth, sessions, securityLog, reports, excelSync: excelConfig ? createExcelSync(reports, excelConfig) : undefined });
 }
 
 async function call(base: string, path: string, token?: string) {
@@ -91,6 +94,35 @@ async function login(base: string, username: string): Promise<string> {
   assert.equal(response.status, 200);
   return body.data.token;
 }
+
+test("Excel sales memakai penjualan tersimpan satu kali dan hanya ADMIN", async () => {
+  const { database, db } = setup();
+  db.prepare("INSERT INTO payments (sale_id, method_code, amount_rp) VALUES (1, 'CASH', 5000)").run();
+  db.prepare("INSERT INTO checkout_attempts (attempt_key, shift_id, cashier_id, request_hash, prepared_at_ms) SELECT 'co-cash', shift_id, cashier_id, zeroblob(32), prepared_at_ms FROM checkout_attempts WHERE attempt_key = 'co-http-rpt'").run();
+  db.prepare("INSERT INTO sales (id, sale_no, attempt_key, committed_at_ms, total_rp) VALUES (2, 'S-CASH', 'co-cash', ?, 2500)").run(MIDNIGHT + 1);
+  db.prepare("INSERT INTO sale_items (sale_id, product_id, sku_snapshot, name_snapshot, quantity, unit_price_rp, line_total_rp) VALUES (2, 1, 'FX-001', 'Air', 1, 2500, 2500)").run();
+  db.prepare("INSERT INTO payments (sale_id, method_code, amount_rp) VALUES (2, 'CASH', 2500)").run();
+  const running = await start(db, path.join(database.dir, "excel-config.json"));
+  try {
+    const admin = await login(running.url, "admin.report");
+    const cashier = await login(running.url, "kasir.report");
+    assert.equal((await call(running.url, "/reports/excel-sales", cashier)).status, 403);
+    assert.equal((await call(running.url, "/sync/excel", cashier)).status, 403);
+    for (const route of ["config", "run"]) {
+      const denied = await fetch(`${running.url}/api/v1/sync/excel/${route}`, { method: "POST", headers: { Authorization: `Bearer ${cashier}`, "Content-Type": "application/json" }, body: JSON.stringify({ file: path.join(database.dir, "output.xlsx") }) });
+      assert.equal(denied.status, 403);
+    }
+    const response = await call(running.url, "/reports/excel-sales", admin);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.json.data, [{ saleNo: "S-HTTP-1", committedAtMs: MIDNIGHT, cashier: "kasir.report", totalRp: 5000, method: "QRIS_MANUAL", items: "Fixture Produk x 2" }, { saleNo: "S-CASH", committedAtMs: MIDNIGHT + 1, cashier: "kasir.report", totalRp: 2500, method: "CASH", items: "Air x 1" }]);
+    const output = path.join(database.dir, "output.xlsx");
+    const post = (route: string, payload: object) => fetch(`${running.url}/api/v1/sync/excel/${route}`, { method: "POST", headers: { Authorization: `Bearer ${admin}`, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    assert.equal((await post("config", { file: output })).status, 200);
+    assert.equal((await post("run", {})).status, 200);
+    const first = readFileSync(output); assert.ok(first.includes(Buffer.from("S-HTTP-1"))); assert.ok(first.includes(Buffer.from("S-CASH")));
+    assert.equal((await post("run", {})).status, 200); assert.ok(readFileSync(output).equals(first));
+  } finally { await running.close(); db.close(); database.cleanup(); }
+});
 
 test("TASK-026 HTTP: GET /reports/daily & /reports/stock hanya ADMIN, filter divalidasi", async () => {
   const { database, db } = setup();

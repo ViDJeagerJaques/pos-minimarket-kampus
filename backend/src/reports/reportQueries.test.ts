@@ -310,3 +310,17 @@ test("BUG-209: laporan menyertakan snapshot barang historis tanpa mengubah total
     for (const sale of report.sales) assert.deepEqual(sale.items.map(item => ({ ...item })), [{ sku: "FX-001", name: "Fixture Produk", quantity: 1, unitPriceRp: 2500, lineTotalRp: 2500 }]);
   } finally { db.close(); database.cleanup(); }
 });
+
+test("AUDIT-01: laporan pembayaran kasir mencakup dua shift pada hari yang sama", () => {
+  const { database, db, cashier } = setup();
+  try {
+    db.exec("BEGIN; PRAGMA defer_foreign_keys = ON");
+    db.prepare("UPDATE shifts SET cashier_id = ? WHERE id = 11").run(cashier.userId);
+    db.prepare("UPDATE checkout_attempts SET cashier_id = ? WHERE attempt_key = 'co-next'").run(cashier.userId);
+    db.exec("COMMIT");
+    db.prepare("UPDATE payments SET method_code = 'QRIS_MANUAL', verified_by = ?, verified_at_ms = ? WHERE sale_id = 4").run(cashier.userId, MIDNIGHT + 3 * HOUR);
+    const report = createReportService(db).getPaymentReport(cashier);
+    assert.deepEqual(report.qrisSales.map(row => row.saleNo).sort(), ["S-000002", "S-000004"]);
+    assert.equal(report.qrisManual.totalRp, 5000);
+  } finally { db.close(); database.cleanup(); }
+});

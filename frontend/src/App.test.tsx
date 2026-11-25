@@ -48,7 +48,7 @@ describe("TASK-007 Kerangka layar lokal (MODE DEMO)", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Nama pengguna atau kata sandi salah");
-    expect(screen.getByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
     expect(callLog.some((entry) => entry.isMutation)).toBe(false);
   });
@@ -82,14 +82,18 @@ describe("TASK-007 Kerangka layar lokal (MODE DEMO)", () => {
     await screen.findByRole("navigation", { name: "Menu utama" });
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
 
-    for (const label of ["Dashboard", "Barang/Stok", "Daftar Barang", "Penerimaan", "Koreksi Stok", "Laporan", "Akun", "Backup"]) {
+    for (const label of ["Dashboard", "Barang/Stok", "Daftar Barang", "Penerimaan", "Koreksi Stok", "Laporan", "Akun", "Cadangan Data"]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
     }
     expect(screen.queryByRole("button", { name: "Kasir" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Daftar Barang" }));
+    await user.click(screen.getByRole("button", { name: "Barang/Stok" }));
     await screen.findByRole("table", { name: "Daftar barang" });
     expect(screen.getByText("Roti Isi Cokelat (DEMO)")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Tambah Barang" }));
+    expect(await screen.findByRole("heading", { name: "Daftar Barang" })).toBeTruthy();
+    expect(screen.getByRole("form", { name: "Buat produk" })).toBeTruthy();
   });
 
   it("barcode tidak dikenal tidak menambahkan barang ke keranjang dan menjaga fokus input", async () => {
@@ -281,7 +285,7 @@ describe("TASK-007 Kerangka layar lokal (MODE DEMO)", () => {
     // Mulai lookup kedua lalu langsung logout sebelum selesai.
     await user.type(barcodeInput, "0000000000024{Enter}");
     await user.click(screen.getByRole("button", { name: "Keluar" }));
-    await screen.findByRole("heading", { name: "POS Minimarket Kampus" });
+    await screen.findByRole("heading", { name: "Masuk ke akun" });
 
     await act(async () => {
       slowLookup.resolve(air);
@@ -332,3 +336,18 @@ describe("TASK-007 Kerangka layar lokal (MODE DEMO)", () => {
     }
   });
 });
+
+ it("login menampilkan dan menyembunyikan sandi tanpa mengirim form", async () => {
+  const source = createMockDataSource({ latencyMs: 0 });
+  const login = vi.spyOn(source, "login");
+  render(<App dataSource={source} />);
+  const user = userEvent.setup();
+  const field = screen.getByLabelText("Kata sandi") as HTMLInputElement;
+  expect(field.type).toBe("password");
+  expect((screen.getByRole("button", { name: "Masuk" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Tampilkan kata sandi" }));
+  expect(field.type).toBe("text");
+  await user.click(screen.getByRole("button", { name: "Sembunyikan kata sandi" }));
+  expect(field.type).toBe("password");
+  expect(login).not.toHaveBeenCalled();
+ });

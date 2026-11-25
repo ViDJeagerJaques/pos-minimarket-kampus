@@ -8,6 +8,17 @@ import type {
   StockMovementEntry,
   SupplierSummary,
 } from "../api/types";
+import {
+  IconCheckCircle,
+  IconHistory,
+  IconPackage,
+  IconPackageCheck,
+  IconPlus,
+  IconRefresh,
+  IconRotateCcw,
+  IconSearch,
+  IconTrash,
+} from "../components/AdminIcons";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
@@ -29,6 +40,7 @@ interface ReceivingPageProps {
 }
 
 type Status = { tone: StatusTone; text: string };
+type ReceivingTab = "new" | "history";
 type DraftItem = { key: string; productId: number; sku: string; name: string; quantity: number };
 type HistoryRow = StockMovementEntry & { productName: string; sku: string };
 
@@ -47,20 +59,21 @@ function parseQuantity(raw: string): number | null {
 }
 
 /**
- * Penerimaan barang ADMIN (TASK-025/027). Draft berupa niat di browser;
+ * Penerimaan barang ADMIN (TASK-025/027). Draft berupa niat di klien;
  * tombol "Batal draft" untuk draft yang belum dikirim tidak memanggil API.
  * Setelah dikirim, receiptKey dan payload snapshot disimpan App: retry memakai
  * payload yang sama persis, sehingga tidak ada penerimaan ganda.
  */
 export function ReceivingPage({
   dataSource,
-  currentUser,
+  currentUser: _currentUser,
   onSessionExpired,
   attempt,
   onSubmitAttempt,
   onRetryAttempt,
   onClearAttempt,
 }: ReceivingPageProps) {
+  const [activeTab, setActiveTab] = useState<ReceivingTab>("new");
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [baseError, setBaseError] = useState<string | null>(null);
 
@@ -115,7 +128,6 @@ export function ReceivingPage({
     };
   }, [dataSource, onSessionExpired]);
 
-  // Pencarian memakai searchActiveProducts (bukan listProducts yang terpotong).
   useEffect(() => {
     let isActive = true;
     const seq = ++searchSeqRef.current;
@@ -178,7 +190,6 @@ export function ReceivingPage({
     };
   }, [dataSource, onSessionExpired, historyKey]);
 
-  // Upaya COMMITTED: segarkan saldo produk dan riwayat, lalu siapkan draft baru.
   const committedKey = attempt?.status === "COMMITTED" ? attempt.result?.receiptKey : null;
   useEffect(() => {
     if (!committedKey) return;
@@ -197,7 +208,6 @@ export function ReceivingPage({
         ? `Penerimaan ${committedKey} sudah tercatat sebelumnya; hasil lama dikembalikan tanpa mutasi tambahan.`
         : `Penerimaan ${committedKey} tersimpan. Saldo produk telah dimuat ulang dari backend.`,
     });
-    // Hanya bereaksi saat kunci hasil berubah, bukan setiap render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [committedKey]);
 
@@ -238,6 +248,14 @@ export function ReceivingPage({
     setStatus(null);
   }
 
+  function updateDraftItemQuantity(key: string, nextQty: number): void {
+    if (attemptPending) return;
+    if (!Number.isSafeInteger(nextQty) || nextQty < 1 || nextQty > MAX_QUANTITY) return;
+    setDraftItems((current) =>
+      current.map((entry) => (entry.key === key ? { ...entry, quantity: nextQty } : entry)),
+    );
+  }
+
   function cancelDraft(): void {
     if (attemptPending) {
       setStatus({
@@ -272,53 +290,97 @@ export function ReceivingPage({
   const isDemo = dataSource.authMode === "DEMO" || dataSource.catalogMode === "DEMO";
   const supplierName = suppliers?.find((item) => item.id === Number(supplierId))?.name ?? `#${supplierId}`;
   const canConfirm = supplierId !== "" && draftItems.length > 0 && !attemptPending;
+  const totalDraftUnits = draftItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <section className="panel" aria-labelledby="receiving-title" aria-busy={attempt?.status === "PENDING"}>
-      <h1 id="receiving-title" className="page-title">
-        Penerimaan Barang <span className="chip chip--warning">ADMIN</span>
-      </h1>
-      <p className="muted">
-        Masuk sebagai <strong>{currentUser.username}</strong>. Draft yang belum dikirim dapat
-        dibatalkan tanpa API. Setelah dikirim, receiptKey dan isi penerimaan dipertahankan sampai
-        hasilnya pasti; retry memakai payload yang sama persis.
-      </p>
+    <section className="admin-page" aria-labelledby="receiving-title" aria-busy={attempt?.status === "PENDING"}>
+      <header className="admin-header">
+        <div className="admin-header__titles">
+          <h1 id="receiving-title" className="admin-header__title">
+            Penerimaan Barang
+          </h1>
+          <p className="admin-header__subtitle">
+            Catat barang masuk dari supplier ke persediaan lokal. Stok hanya bertambah setelah penerimaan dikonfirmasi.
+          </p>
+        </div>
+      </header>
+
       {isDemo && (
         <StatusMessage
           tone="warning"
           text="Mode DEMO: penerimaan tidak disimpan dan tidak mengubah stok. Angka pada riwayat bersifat sintetis."
         />
       )}
-      {baseError && <p className="field-error" role="alert">{baseError}</p>}
-      {searchError && <p className="field-error" role="alert">{searchError}</p>}
+      {baseError && (
+        <p className="field-error" role="alert">
+          {baseError}
+        </p>
+      )}
+      {searchError && (
+        <p className="field-error" role="alert">
+          {searchError}
+        </p>
+      )}
       {status && <StatusMessage tone={status.tone} text={status.text} />}
 
+      {/* Tab Internal Penerimaan */}
+      <div className="admin-tabs" role="tablist" aria-label="Submenu Penerimaan">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "new"}
+          className={activeTab === "new" ? "admin-tab admin-tab--active" : "admin-tab"}
+          onClick={() => setActiveTab("new")}
+        >
+          <IconPackageCheck size={18} />
+          <span>Penerimaan Baru</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "history"}
+          className={activeTab === "history" ? "admin-tab admin-tab--active" : "admin-tab"}
+          onClick={() => setActiveTab("history")}
+        >
+          <IconHistory size={18} />
+          <span>Riwayat Penerimaan ({history.length})</span>
+        </button>
+      </div>
+
       {attemptPending && (
-        <div className="receipt-panel" aria-label="Upaya penerimaan berjalan">
-          <h2 className="section-title">Upaya penerimaan belum selesai</h2>
-          <p>
-            <code>{attempt?.receiptKey}</code> · {attempt?.status === "PENDING"
+        <div className="admin-card" aria-label="Upaya penerimaan berjalan" style={{ borderLeft: "4px solid var(--color-warning)" }}>
+          <h2 className="admin-card__title">Upaya penerimaan belum selesai</h2>
+          <p style={{ margin: "8px 0" }}>
+            <code>{attempt?.receiptKey}</code> ·{" "}
+            {attempt?.status === "PENDING"
               ? "Menyimpan ke backend…"
               : "Hasil belum pasti — periksa ulang sebelum melanjutkan."}
           </p>
-          {attempt?.error && <p className="field-error" role="alert">{attempt.error}</p>}
-          <p className="muted">
-            Isi asli: {attempt?.payload.items.length} item, supplier #{attempt?.payload.supplierId}.
-            Draft baru tidak dibuat sampai upaya ini selesai.
+          {attempt?.error && (
+            <p className="field-error" role="alert">
+              {attempt.error}
+            </p>
+          )}
+          <p className="muted" style={{ margin: "4px 0 12px" }}>
+            Isi asli: {attempt?.payload.items.length} item, supplier #{attempt?.payload.supplierId}. Draft baru tidak dibuat sampai upaya ini selesai.
           </p>
           <Button variant="primary" disabled={attempt?.status === "PENDING"} onClick={onRetryAttempt}>
-            Periksa ulang dengan kunci yang sama
+            <IconRefresh size={18} />
+            <span>Periksa ulang dengan kunci yang sama</span>
           </Button>
         </div>
       )}
 
       {attempt?.status === "REJECTED" && (
-        <div className="receipt-panel" aria-label="Penerimaan ditolak">
-          <h2 className="section-title">Penerimaan ditolak — tidak ada penerimaan tersimpan</h2>
-          {attempt.error && <p className="field-error" role="alert">{attempt.error}</p>}
-          <p className="muted">
-            Tolakan ini bersifat pasti; tidak ada stok yang berubah. Koreksi draft lalu kirim
-            kembali, atau batalkan draft.
+        <div className="admin-card" aria-label="Penerimaan ditolak" style={{ borderLeft: "4px solid var(--color-danger)" }}>
+          <h2 className="admin-card__title">Penerimaan ditolak — tidak ada penerimaan tersimpan</h2>
+          {attempt.error && (
+            <p className="field-error" role="alert">
+              {attempt.error}
+            </p>
+          )}
+          <p className="muted" style={{ margin: "6px 0 12px" }}>
+            Tolakan ini bersifat pasti; tidak ada stok yang berubah. Koreksi draft lalu kirim kembali, atau batalkan draft.
           </p>
           <Button variant="secondary" onClick={onClearAttempt}>
             Tutup dan koreksi draft
@@ -326,144 +388,25 @@ export function ReceivingPage({
         </div>
       )}
 
-      <div className="form-grid receiving-form">
-        <div>
-          <label htmlFor={supplierSelectId} className="field-label">Supplier</label>
-          <select
-            id={supplierSelectId}
-            className="input"
-            value={supplierId}
-            disabled={attemptPending}
-            onChange={(event) => setSupplierId(event.target.value)}
-          >
-            <option value="">Pilih supplier…</option>
-            {(suppliers ?? []).map((item) => (
-              <option key={item.id} value={item.id}>{item.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor={supplierRefId} className="field-label">Referensi surat jalan (opsional)</label>
-          <input
-            id={supplierRefId}
-            className="input"
-            type="text"
-            maxLength={120}
-            value={supplierRef}
-            disabled={attemptPending}
-            onChange={(event) => setSupplierRef(event.target.value)}
-            placeholder="Mis. SJ-001"
-          />
-        </div>
-        <div>
-          <label htmlFor={productSearchId} className="field-label">Cari produk aktif</label>
-          <input
-            id={productSearchId}
-            className="input"
-            type="text"
-            value={productQuery}
-            disabled={attemptPending}
-            onChange={(event) => {
-              setProductQuery(event.target.value);
-              setProductId("");
-            }}
-            placeholder="Nama atau SKU"
-          />
-        </div>
-        <div>
-          <label htmlFor={productSelectId} className="field-label">Produk</label>
-          <select
-            id={productSelectId}
-            className="input"
-            value={productId}
-            disabled={attemptPending}
-            onChange={(event) => setProductId(event.target.value)}
-          >
-            <option value="">Pilih produk…</option>
-            {(searchResults ?? []).map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.sku} — {item.name} (stok {item.stock})
-              </option>
-            ))}
-          </select>
-          {searchResults !== null && searchResults.length >= SEARCH_LIMIT && (
-            <p className="muted" role="note">
-              Hasil dibatasi {SEARCH_LIMIT} produk. Persempit pencarian bila produk yang dicari tidak muncul.
-            </p>
-          )}
-        </div>
-        <div>
-          <label htmlFor={quantityId} className="field-label">Jumlah diterima</label>
-          <input
-            id={quantityId}
-            className="input"
-            type="text"
-            inputMode="numeric"
-            value={quantityInput}
-            disabled={attemptPending}
-            onChange={(event) => setQuantityInput(event.target.value)}
-          />
-        </div>
-      </div>
-      <div className="receiving-actions">
-        <Button variant="secondary" disabled={attemptPending} onClick={addItem}>Tambah ke draft</Button>
-        <Button variant="secondary" onClick={cancelDraft}>Batal draft</Button>
-        <Button variant="primary" disabled={!canConfirm} onClick={() => setShowConfirm(true)}>
-          Konfirmasi penerimaan
-        </Button>
-        {attempt?.status === "COMMITTED" && (
-          <Button variant="secondary" onClick={startNewDraft}>Draft baru</Button>
-        )}
-      </div>
-      <p className="muted">
-        Identitas upaya draft: <code>{receiptKey}</code>. Kunci ini dipakai sebagai identitas saat
-        konfirmasi dan dipertahankan bila hasil belum pasti.
-      </p>
-
-      <h2 className="section-title">Draft penerimaan (belum mengubah stok)</h2>
-      {draftItems.length === 0 ? (
-        <p className="muted">Belum ada item. Cari produk, lalu tambahkan ke draft.</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="table" aria-label="Draft penerimaan">
-            <thead>
-              <tr>
-                <th scope="col">Produk</th>
-                <th scope="col" className="num">Jumlah</th>
-                <th scope="col">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {draftItems.map((item) => (
-                <tr key={item.key}>
-                  <td>{item.sku} — {item.name}</td>
-                  <td className="num">{item.quantity}</td>
-                  <td>
-                    <Button
-                      variant="secondary"
-                      disabled={attemptPending}
-                      onClick={() => setDraftItems((current) => current.filter((entry) => entry.key !== item.key))}
-                    >
-                      Hapus
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       {attempt?.status === "COMMITTED" && attempt.result && (
-        <div className="receipt-panel" aria-label="Hasil penerimaan tersimpan">
-          <h2 className="section-title">Hasil penerimaan tersimpan</h2>
-          <p>
+        <div className="admin-card" aria-label="Hasil penerimaan tersimpan" style={{ borderLeft: "4px solid var(--color-success)" }}>
+          <div className="admin-card__header">
+            <h2 className="admin-card__title">Hasil penerimaan tersimpan</h2>
+            <Button variant="secondary" onClick={startNewDraft}>
+              Draft baru
+            </Button>
+          </div>
+          <p style={{ margin: "4px 0" }}>
             <code>{attempt.result.receiptKey}</code> · #{attempt.result.receiptId} · supplier #{attempt.result.supplierId} ·{" "}
-            {attempt.result.totalQuantity} unit · {formatTime(attempt.result.committedAtMs)}
+            <strong>{attempt.result.totalQuantity} unit</strong> · {formatTime(attempt.result.committedAtMs)}
           </p>
-          <p className="muted">Hash niat: <code>{attempt.result.requestHash}</code></p>
+          <p className="muted" style={{ margin: "4px 0", fontSize: "12px" }}>
+            Hash niat: <code>{attempt.result.requestHash}</code>
+          </p>
           {attempt.result.duplicate && (
-            <p className="badge badge--warning" role="note">Retry identik — dokumen lama dikembalikan</p>
+            <p className="badge badge--warning" role="note">
+              Retry identik — dokumen lama dikembalikan
+            </p>
           )}
           <ul className="catalog-list">
             {attempt.result.items.map((item) => (
@@ -475,56 +418,343 @@ export function ReceivingPage({
         </div>
       )}
 
-      <h2 className="section-title">Riwayat penerimaan tersimpan</h2>
-      <p className="muted">
-        Diambil dari mutasi RECEIPT pada laporan stok. Backend belum memiliki endpoint daftar
-        penerimaan terpisah, sehingga hanya mutasi yang benar-benar tersimpan yang ditampilkan.
-      </p>
-      <div className="report-toolbar">
-        <Button variant="secondary" disabled={historyLoading} onClick={() => setHistoryKey((value) => value + 1)}>
-          {historyLoading ? "Memuat…" : "Muat ulang"}
-        </Button>
-      </div>
-      {historyError && <p className="field-error" role="alert">{historyError}</p>}
-      {historyTruncated && (
-        <p className="muted" role="note">
-          Riwayat menampilkan sebagian mutasi terbaru; total saldo dihitung backend dari seluruh mutasi.
-        </p>
+      {activeTab === "new" && (
+        <div className="admin-split-40-60">
+          {/* Kolom Kiri (40%): Input Supplier & Barang */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div className="admin-card">
+              <div className="admin-card__header">
+                <div>
+                  <h2 className="admin-card__title">1. Informasi Pemasok</h2>
+                  <p className="admin-card__desc">Pilih pemasok sumber barang masuk.</p>
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div>
+                  <label htmlFor={supplierSelectId} className="field-label">
+                    Supplier
+                  </label>
+                  <select
+                    id={supplierSelectId}
+                    className="input"
+                    value={supplierId}
+                    disabled={attemptPending}
+                    onChange={(event) => setSupplierId(event.target.value)}
+                  >
+                    <option value="">Pilih supplier…</option>
+                    {(suppliers ?? []).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor={supplierRefId} className="field-label">
+                    Referensi surat jalan (opsional)
+                  </label>
+                  <input
+                    id={supplierRefId}
+                    className="input"
+                    type="text"
+                    maxLength={120}
+                    value={supplierRef}
+                    disabled={attemptPending}
+                    onChange={(event) => setSupplierRef(event.target.value)}
+                    placeholder="Mis. SJ-001"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-card">
+              <div className="admin-card__header">
+                <div>
+                  <h2 className="admin-card__title">2. Tambah Barang ke Draft</h2>
+                  <p className="admin-card__desc">Cari produk aktif, isi jumlah unit diterima, lalu tambahkan.</p>
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <div>
+                  <label htmlFor={productSearchId} className="field-label">
+                    Cari produk aktif
+                  </label>
+                  <div className="input-with-icon">
+                    <span className="input-with-icon__prefix">
+                      <IconSearch size={16} />
+                    </span>
+                    <input
+                      id={productSearchId}
+                      className="input input--pl"
+                      type="text"
+                      value={productQuery}
+                      disabled={attemptPending}
+                      onChange={(event) => {
+                        setProductQuery(event.target.value);
+                        setProductId("");
+                      }}
+                      placeholder="Nama atau SKU"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor={productSelectId} className="field-label">
+                    Produk
+                  </label>
+                  <select
+                    id={productSelectId}
+                    className="input"
+                    value={productId}
+                    disabled={attemptPending}
+                    onChange={(event) => setProductId(event.target.value)}
+                  >
+                    <option value="">Pilih produk…</option>
+                    {(searchResults ?? []).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.sku} — {item.name} (stok {item.stock})
+                      </option>
+                    ))}
+                  </select>
+                  {searchResults !== null && searchResults.length >= SEARCH_LIMIT && (
+                    <p className="field-hint" role="note">
+                      Hasil dibatasi {SEARCH_LIMIT} produk. Persempit pencarian bila produk yang dicari tidak muncul.
+                    </p>
+                  )}
+                </div>
+
+                <div className="search__row" style={{ alignItems: "flex-end" }}>
+                  <div style={{ flex: 1 }}>
+                    <label htmlFor={quantityId} className="field-label">
+                      Jumlah diterima
+                    </label>
+                    <input
+                      id={quantityId}
+                      className="input"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Unit bulat positif"
+                      value={quantityInput}
+                      disabled={attemptPending}
+                      onChange={(event) => setQuantityInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          addItem();
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button variant="secondary" disabled={attemptPending} onClick={addItem}>
+                    <IconPlus size={18} />
+                    <span>Tambah ke draft</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Kolom Kanan (60%): Draft Penerimaan */}
+          <div className="admin-card">
+            <div className="admin-card__header">
+              <div>
+                <h2 className="admin-card__title">Draft Penerimaan</h2>
+                <p className="admin-card__desc">Periksa daftar barang dan kuantitas sebelum menyimpan ke stok.</p>
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <span className="badge">{draftItems.length} jenis barang</span>
+                <span className="badge badge--ok">{totalDraftUnits} total unit</span>
+              </div>
+            </div>
+
+            {draftItems.length === 0 ? (
+              <div className="admin-empty">
+                <span className="admin-empty__icon">
+                  <IconPackage size={26} />
+                </span>
+                <p className="admin-empty__title">Draft penerimaan masih kosong</p>
+                <p className="admin-empty__desc">
+                  Pilih supplier di sebelah kiri, cari barang aktif, masukkan jumlah unit, lalu klik Tambah ke draft.
+                </p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="table" aria-label="Draft penerimaan">
+                  <thead>
+                    <tr>
+                      <th scope="col">Produk</th>
+                      <th scope="col" className="num">
+                        Jumlah
+                      </th>
+                      <th scope="col">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draftItems.map((item) => (
+                      <tr key={item.key}>
+                        <td>
+                          <div className="cell-primary">{item.name}</div>
+                          <div className="cell-sub">
+                            <code>{item.sku}</code>
+                          </div>
+                        </td>
+                        <td className="num">
+                          <div className="qty" style={{ justifyContent: "flex-end" }}>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="btn--icon"
+                              style={{ minHeight: "30px", minWidth: "30px", padding: "0 6px" }}
+                              aria-label={`Kurangi jumlah ${item.sku}`}
+                              disabled={attemptPending || item.quantity <= 1}
+                              onClick={() => updateDraftItemQuantity(item.key, item.quantity - 1)}
+                            >
+                              -
+                            </Button>
+                            <span className="qty__value">{item.quantity}</span>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="btn--icon"
+                              style={{ minHeight: "30px", minWidth: "30px", padding: "0 6px" }}
+                              aria-label={`Tambah jumlah ${item.sku}`}
+                              disabled={attemptPending || item.quantity >= MAX_QUANTITY}
+                              onClick={() => updateDraftItemQuantity(item.key, item.quantity + 1)}
+                            >
+                              +
+                            </Button>
+                          </div>
+                        </td>
+                        <td>
+                          <Button
+                            variant="secondary"
+                            className="btn--outline-danger"
+                            style={{ minHeight: "32px", padding: "4px 10px", fontSize: "13px" }}
+                            disabled={attemptPending}
+                            onClick={() =>
+                              setDraftItems((current) => current.filter((entry) => entry.key !== item.key))
+                            }
+                          >
+                            <IconTrash size={14} />
+                            <span>Hapus</span>
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: "16px",
+                paddingTop: "12px",
+                borderTop: "1px solid var(--color-border)",
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <span className="muted" style={{ fontSize: "12px" }}>
+                Kunci upaya: <code>{receiptKey}</code>
+              </span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                <Button variant="secondary" onClick={cancelDraft}>
+                  <IconRotateCcw size={16} />
+                  <span>Batal draft</span>
+                </Button>
+                <Button variant="primary" disabled={!canConfirm} onClick={() => setShowConfirm(true)}>
+                  <IconCheckCircle size={18} />
+                  <span>Konfirmasi penerimaan</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
-      {!historyError && history.length === 0 && !historyLoading && !historyTruncated && (
-        <p className="muted">Belum ada mutasi penerimaan yang tersimpan.</p>
-      )}
-      {!historyError && history.length > 0 && (
-        <div className="table-wrap">
-          <table className="table" aria-label="Riwayat penerimaan tersimpan">
-            <thead>
-              <tr>
-                <th scope="col">Waktu</th>
-                <th scope="col">Produk</th>
-                <th scope="col">Receipt key</th>
-                <th scope="col" className="num">Jumlah</th>
-                <th scope="col">Petugas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((row) => (
-                <tr key={row.id}>
-                  <td>{formatTime(row.createdAtMs)}</td>
-                  <td>{row.sku} — {row.productName}</td>
-                  <td><code>{row.sourceRef ?? "—"}</code></td>
-                  <td className="num">{row.sourceQuantity ?? row.delta}</td>
-                  <td>#{row.actorId}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      {activeTab === "history" && (
+        <div className="admin-card">
+          <div className="admin-card__header">
+            <div>
+              <h2 className="admin-card__title">Riwayat Penerimaan Tersimpan</h2>
+              <p className="admin-card__desc">
+                Diambil dari mutasi RECEIPT per barang pada laporan stok. Hanya penerimaan yang telah commit yang ditampilkan.
+              </p>
+            </div>
+            <Button variant="secondary" disabled={historyLoading} onClick={() => setHistoryKey((value) => value + 1)}>
+              <IconRefresh size={16} />
+              <span>{historyLoading ? "Memuat…" : "Muat ulang"}</span>
+            </Button>
+          </div>
+
+          {historyError && (
+            <p className="field-error" role="alert">
+              {historyError}
+            </p>
+          )}
+          {historyTruncated && (
+            <p className="muted" role="note">
+              Riwayat menampilkan sebagian mutasi terbaru; total saldo dihitung backend dari seluruh mutasi.
+            </p>
+          )}
+          {!historyError && history.length === 0 && !historyLoading && !historyTruncated && (
+            <div className="admin-empty">
+              <span className="admin-empty__icon">
+                <IconHistory size={24} />
+              </span>
+              <p className="admin-empty__title">Belum ada mutasi penerimaan yang tersimpan.</p>
+              <p className="admin-empty__desc">Penerimaan baru yang telah dikonfirmasi akan tercatat di sini.</p>
+            </div>
+          )}
+          {!historyError && history.length > 0 && (
+            <div className="table-wrap">
+              <table className="table" aria-label="Riwayat penerimaan tersimpan">
+                <thead>
+                  <tr>
+                    <th scope="col">Waktu</th>
+                    <th scope="col">Produk</th>
+                    <th scope="col">Referensi / Receipt Key</th>
+                    <th scope="col" className="num">
+                      Kuantitas
+                    </th>
+                    <th scope="col">Petugas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((row) => (
+                    <tr key={row.id}>
+                      <td>{formatTime(row.createdAtMs)}</td>
+                      <td>
+                        <div className="cell-primary">{row.productName}</div>
+                        <div className="cell-sub">
+                          <code>{row.sku}</code>
+                        </div>
+                      </td>
+                      <td>
+                        <code>{row.sourceRef ?? "—"}</code>
+                      </td>
+                      <td className="num">
+                        <strong>+{row.sourceQuantity ?? row.delta}</strong>
+                      </td>
+                      <td>Petugas #{row.actorId}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {showConfirm && (
         <ConfirmDialog
           title="Simpan penerimaan?"
-          message={`${draftItems.length} item dari ${supplierName} akan menambah stok. Draft dibatalkan setelah konfirmasi; receiptKey ${receiptKey} dipakai sebagai identitas upaya.`}
+          message={`Supplier: ${supplierName} · ${draftItems.length} jenis barang · Total ${totalDraftUnits} unit akan ditambahkan ke stok. Identitas upaya: ${receiptKey}.`}
           confirmLabel="Ya, simpan penerimaan"
           cancelLabel="Kembali ke draft"
           onConfirm={confirmReceipt}

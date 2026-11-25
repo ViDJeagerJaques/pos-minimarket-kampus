@@ -44,6 +44,33 @@ function sourceWith(report: PaymentReport): PosDataSource {
 }
 
 describe("TASK-037 laporan QRIS terpisah dari kas", () => {
+  it("menjelaskan konflik struk saat antrean Sheets gagal", async () => {
+    const source: PosDataSource = { ...sourceWith(REPORT), getSheetsSyncStatus: vi.fn(async () => ({ enabled: true, pendingCount: 4 })), syncSheetsNow: vi.fn(async () => ({ enabled: true, sentCount: 0, pendingCount: 4, failure: "SALE_CONFLICT" as const })) };
+    const { user } = renderPage(source);
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    const button = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    await user.click(button);
+    expect(await screen.findByText(/Nomor struk sudah ada dengan data yang berbeda/)).toBeTruthy();
+  });
+  it("Excel lokal memilih tujuan lalu menyinkronkan dan membuka file", async () => {
+    const file = "C:\\sandbox\\laporan.xlsx";
+    const chooseExcelFile = vi.fn(async () => file);
+    vi.stubGlobal("POS_SPIKE", { chooseExcelFile });
+    const configureExcelSync = vi.fn(async () => ({ file, lastSync: null }));
+    const runExcelSync = vi.fn(async () => ({ file, lastSync: 1700000000000 }));
+    const openExcelSync = vi.fn(async () => true);
+    const source = { ...sourceWith(REPORT), getExcelSync: vi.fn(async () => ({ file: null, lastSync: null })), configureExcelSync, runExcelSync, openExcelSync };
+    const { user } = renderPage(source);
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    await user.click(screen.getByRole("button", { name: "Pilih file" }));
+    expect(configureExcelSync).toHaveBeenCalledWith(file);
+    await user.click(screen.getByRole("button", { name: "Sinkronkan" }));
+    expect(await screen.findByText("Sinkronisasi berhasil.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Buka File Excel" }));
+    expect(openExcelSync).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
   it("menampilkan total kas dan QRIS terpisah beserta baris verifikasi", async () => {
     const source = sourceWith(REPORT);
     renderPage(source);
@@ -136,4 +163,79 @@ describe("TASK-037 laporan QRIS terpisah dari kas", () => {
     clickSpy.mockRestore();
     vi.unstubAllGlobals();
   });
+
+  it("BUG-257 (dipindah ke Laporan §4.6 A): tombol Sinkronkan Spreadsheet memicu flush saat aktif, nonaktif saat belum terkonfigurasi, dan menandai Excel Lokal/Konfigurasi belum tersedia", async () => {
+    const syncSheetsNow = vi.fn(async () => ({ enabled: true, sentCount: 2, pendingCount: 0 }));
+    const enabledSource: PosDataSource = {
+      ...sourceWith(REPORT),
+      getSheetsSyncStatus: vi.fn(async () => ({ enabled: true, pendingCount: 2 })),
+      syncSheetsNow,
+    };
+    const user = userEvent.setup();
+    const first = render(<ReportsPage dataSource={enabledSource} currentUser={ADMIN} onSessionExpired={vi.fn()} />);
+
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    expect((screen.getByRole("button", { name: "Pilih file" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Konfigurasi" }) as HTMLButtonElement).disabled).toBe(true);
+
+    const syncButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+    await waitFor(() => expect((syncButton as HTMLButtonElement).disabled).toBe(false));
+    await user.click(syncButton);
+    expect(syncSheetsNow).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/2 penjualan terkirim/)).toBeTruthy();
+    first.unmount();
+
+    const disabledSource: PosDataSource = {
+      ...sourceWith(REPORT),
+      getSheetsSyncStatus: vi.fn(async () => ({ enabled: false, pendingCount: 0 })),
+    };
+    render(<ReportsPage dataSource={disabledSource} currentUser={ADMIN} onSessionExpired={vi.fn()} />);
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    const disabledButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+    await waitFor(() => expect((disabledButton as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeTruthy();
+  });
+
+  it("BUG-263 (dipindah ke Laporan §4.6 A): gagal muat status sinkronisasi menampilkan error dan tombol Coba lagi, bukan pesan belum dikonfigurasi", async () => {
+    const getSheetsSyncStatus = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR", "Server sinkronisasi sementara sibuk."))
+      .mockResolvedValueOnce({ enabled: true, pendingCount: 1 });
+    const source: PosDataSource = {
+      ...sourceWith(REPORT),
+      getSheetsSyncStatus,
+    };
+    const user = userEvent.setup();
+    render(<ReportsPage dataSource={source} currentUser={ADMIN} onSessionExpired={vi.fn()} />);
+
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    expect(await screen.findByText("Server sinkronisasi sementara sibuk.")).toBeTruthy();
+    expect(screen.queryByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeNull();
+    const syncButton = screen.getByRole("button", { name: "Sinkronkan Spreadsheet" }) as HTMLButtonElement;
+    expect(syncButton.disabled).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+    await waitFor(() => expect(syncButton.disabled).toBe(false));
+    expect(screen.queryByText("Server sinkronisasi sementara sibuk.")).toBeNull();
+  });
+});
+
+it("Sheets DEMO dialog menguji koneksi dan menyimpan tanpa menampilkan secret sesudahnya", async () => {
+ const secret = Array.from(crypto.getRandomValues(new Uint8Array(24)), x => x.toString(16).padStart(2, "0")).join("");
+ const endpoint = "https://script.google.com/macros/s/synthetic/exec";
+ const getSheetsConfig = vi.fn(async () => ({ configured: false, restartRequired: false }));
+ const pingSheetsConfig = vi.fn(async () => ({ connected: true }));
+ const saveSheetsConfig = vi.fn(async () => ({ saved: true, restartRequired: true }));
+ const { user } = renderPage({ ...sourceWith(REPORT), getSheetsConfig, pingSheetsConfig, saveSheetsConfig });
+ await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+ await user.click(screen.getByRole("button", { name: "Konfigurasi" }));
+ await user.type(screen.getByLabelText("URL web app Apps Script"), endpoint);
+ await user.type(screen.getByLabelText("Secret"), secret);
+ await user.click(screen.getByRole("button", { name: "Uji Koneksi" }));
+ expect(await screen.findByText(/receiver merespons ping/)).toBeTruthy();
+ await user.click(screen.getByRole("checkbox", { name: /transaksi baru/ }));
+ await user.click(screen.getByRole("button", { name: "Simpan Konfigurasi" }));
+ expect(await screen.findByText(/Konfigurasi tersimpan. Restart aplikasi/)).toBeTruthy();
+ expect(saveSheetsConfig).toHaveBeenCalledWith({ webhookUrl: endpoint, secret, futureSalesOnly: true });
+ expect((screen.getByLabelText("Secret") as HTMLInputElement).value).toBe("");
 });

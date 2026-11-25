@@ -279,3 +279,11 @@ it("BUG-244: gagal muat shift saat pemulihan menampilkan tombol coba lagi dan ka
   await u.click(screen.getByRole("button", { name: "Ya, tutup shift" }));
   expect(await screen.findByRole("heading", { name: "Penutupan tersimpan" })).toBeTruthy();
 });
+
+it("AUDIT-01 laporan dua shift diberi batas cakupan yang jelas", async () => {
+ const api = source({ getPaymentReport: vi.fn(async () => ({ cash: { totalRp: 0, count: 0 }, qrisManual: { totalRp: 3000, count: 2, verifiedCount: 2 }, totalRp: 3000, qrisSales: [1,2].map(i => ({ saleId: i, saleNo: `DUA-SHIFT-${i}`, committedAtMs: 1000, totalRp: i * 1000, cashierUsername: "kasir", verifiedBy: 2, verifiedAtMs: 1000, evidenceRef: null, status: "verified" as const })) })) });
+ show(api);
+ expect(await screen.findByText(/bukan khusus shift aktif/)).toBeTruthy();
+ expect(await screen.findByText("DUA-SHIFT-1")).toBeTruthy(); expect(screen.getByText("DUA-SHIFT-2")).toBeTruthy();
+ expect(screen.getByRole("row", { name: /^Penjualan QRIS/ }).textContent).toContain("Rp300.000");
+});

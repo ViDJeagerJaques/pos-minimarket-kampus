@@ -20,6 +20,7 @@ describe("BUG-137/138 layar admin", () => {
     await user.type(screen.getByLabelText("Target stok"), "3");
     await user.type(screen.getByLabelText("Alasan"), "Selisih");
     await user.click(screen.getByRole("button", { name: "Simpan koreksi" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan koreksi" }));
     expect(source.adjustStock).toHaveBeenCalledTimes(1);
     expect(source.adjustStock).toHaveBeenCalledWith(expect.objectContaining({ productId: 1, expectedOnHand: 5, targetOnHand: 3, reason: "Selisih" }));
     expect((screen.getByRole("button", { name: "Simpan koreksi" }) as HTMLButtonElement).disabled).toBe(true);
@@ -37,6 +38,7 @@ describe("BUG-137/138 layar admin", () => {
     await user.type(screen.getByLabelText("Target stok"), "3");
     await user.type(screen.getByLabelText("Alasan"), "Selisih");
     await user.click(screen.getByRole("button", { name: "Simpan koreksi" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan koreksi" }));
     await screen.findByText(/Hasil belum pasti/);
     const original = vi.mocked(source.adjustStock).mock.calls[0]![0];
     view.unmount();
@@ -72,8 +74,10 @@ describe("BUG-137/138 layar admin", () => {
     await user.type(screen.getByLabelText("Target stok"), "3");
     await user.type(screen.getByLabelText("Alasan"), "Selisih");
     await user.click(screen.getByRole("button", { name: "Simpan koreksi" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan koreksi" }));
     expect(await screen.findByText("Stok sekarang: 7")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Simpan koreksi" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan koreksi" }));
     await waitFor(() => expect(source.adjustStock).toHaveBeenCalledTimes(2));
     expect(vi.mocked(source.adjustStock).mock.calls[1]![0].expectedOnHand).toBe(7);
   });
@@ -97,4 +101,28 @@ describe("BUG-137/138 layar admin", () => {
     await userEvent.click(screen.getByRole("button", { name: "Buat backup" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Cadangan gagal dibuat"));
   });
+});
+
+it.each([true, false])("AUDIT-03 status verifikasi backup valid=%s", async (valid) => {
+ const source = createMockDataSource({ latencyMs: 0 });
+ source.createBackup = vi.fn().mockResolvedValue({ name: "uji.sqlite", valid, createdAtMs: 1 });
+ render(<BackupPage dataSource={source} onSessionExpired={vi.fn()} />);
+ await userEvent.click(screen.getByRole("button", { name: "Buat backup" }));
+ expect(await screen.findByText(valid ? /berhasil diverifikasi/ : /verifikasi cadangan uji.sqlite gagal/)).toBeTruthy();
+});
+
+it("AUDIT-04 batal mempertahankan draft dan tidak mengirim koreksi", async () => {
+ const source = createMockDataSource({ latencyMs: 0 });
+ source.getStockReport = vi.fn(async () => ({ generatedAtMs: 1, lowStockThreshold: 1, products: [{ productId: 1, sku: "D-1", name: "Produk DEMO", onHand: 5, opening: 5, receipt: 0, sale: 0, adjustment: 0, matched: true, low: false, zero: false, movements: [], movementsTruncated: false }] }));
+ source.adjustStock = vi.fn();
+ const user = userEvent.setup();
+ render(<StockAdjustmentPage dataSource={source} currentUser={{ userId: 1, username: "admin", displayName: "Admin", role: "ADMIN" }} onSessionExpired={vi.fn()} />);
+ await user.selectOptions(await screen.findByLabelText("Produk"), "1");
+ await user.type(screen.getByLabelText("Target stok"), "3"); await user.type(screen.getByLabelText("Alasan"), "Selisih");
+ await user.click(screen.getByRole("button", { name: "Simpan koreksi" }));
+ const dialog = screen.getByRole("dialog");
+ expect(dialog.textContent).toContain("Produk DEMO"); expect(dialog.textContent).toContain("Selisih: -2");
+ await user.click(screen.getByRole("button", { name: "Batal" }));
+ expect(source.adjustStock).not.toHaveBeenCalled(); expect(localStorage.length).toBe(0);
+ expect((screen.getByLabelText("Target stok") as HTMLInputElement).value).toBe("3");
 });

@@ -12,6 +12,7 @@ import {
   FIXED_NOW,
   migrateFresh,
 } from "../../db/test/helpers.ts";
+import { createDemoConfigManager } from "../sync/sheetsDemoConfig.ts";
 import { createAuthService, type AuthService } from "../auth/service.ts";
 import { createSessionStore, type SessionStore } from "../auth/session.ts";
 import { hashPassword } from "../auth/password.ts";
@@ -47,6 +48,7 @@ function startServerFor(
   db: DatabaseSync,
   secret: Buffer = DEFAULT_SECRET,
   options: {
+    sheetsConfig?: ReturnType<typeof createDemoConfigManager>;
     maxBodyBytes?: number;
     port?: number;
     loginRateLimiter?: LoginRateLimiter;
@@ -71,6 +73,7 @@ function startServerFor(
     sessions,
     securityLog,
     catalog,
+    sheetsConfig: options.sheetsConfig,
     loginRateLimiter: options.loginRateLimiter,
     loginIpRateLimiter: options.loginIpRateLimiter,
     now: options.now,
@@ -1017,4 +1020,27 @@ test("BUG-207 HTTP: sesi wajib dan target perubahan sandi selalu pemilik token",
     assert.ok(handle.auth.login({ username: "kasir.http", password: CASHIER_PASSWORD }));
     assert.equal(handle.securityLines.join("").includes(next), false);
   } finally { await handle.running.close(); db.close(); database.cleanup(); }
+});
+
+test("DEMO Sheets konfigurasi hanya ADMIN, respons tanpa secret dan ping tanpa mutasi penjualan", async () => {
+ const { database, db } = createDatabase(); const secret = makeRuntimePassword();
+ const configPath = path.join(database.dir, "sheets-config.json");
+ const mock: typeof fetch = async () => new Response(JSON.stringify({ ok: true, operation: "ping" }), { status: 200 });
+ const config = createDemoConfigManager(db, database.dbPath, configPath, null, mock);
+ const handle = await startServerFor(db, DEFAULT_SECRET, { sheetsConfig: config });
+ try {
+  const admin = handle.auth.login({ username: "admin.http", password: ADMIN_PASSWORD }).token;
+  const cashier = handle.auth.login({ username: "kasir.http", password: CASHIER_PASSWORD }).token;
+  const body = JSON.stringify({ webhookUrl: "https://script.google.com/macros/s/test/exec", secret, futureSalesOnly: true });
+  assert.equal((await call(handle.running.url, "/sync/sheets/config", { token: cashier, payload: body })).status, 403);
+  assert.equal((await call(handle.running.url, "/sync/sheets/ping", { token: cashier, payload: body })).status, 403);
+  assert.equal((await call(handle.running.url, "/sync/sheets/config", { token: cashier })).status, 403);
+  const ping = await call(handle.running.url, "/sync/sheets/ping", { token: admin, payload: body });
+  assert.equal(ping.status, 200); assert.equal((ping.json as { data: { connected: boolean } }).data.connected, true);
+  const saved = await call(handle.running.url, "/sync/sheets/config", { token: admin, payload: body });
+  assert.equal(saved.status, 200); assert.equal(saved.text.includes(secret), false); assert.equal(saved.text.includes("script.google.com"), false);
+  const status = await call(handle.running.url, "/sync/sheets/config", { token: admin });
+  assert.equal(status.status, 200); assert.equal(status.text.includes(secret), false); assert.equal(status.text.includes("script.google.com"), false);
+  assert.equal(countRows(db, "sales"), 0); assert.equal(handle.securityLines.join("").includes(secret), false);
+ } finally { await handle.running.close(); db.close(); database.cleanup(); }
 });

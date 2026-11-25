@@ -39,7 +39,7 @@ const PAGE_LABEL: Record<PageId, string> = {
   reports: "Laporan",
   accounts: "Akun",
   password: "Ganti Sandi",
-  backup: "Backup",
+  backup: "Cadangan Data",
 };
 
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
@@ -89,6 +89,27 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
   const [needsSetup, setNeedsSetup] = useState(false);
   const [bootstrapState, setBootstrapState] = useState<"loading" | "ready" | "error">(shouldCheckBootstrap ? "loading" : "ready");
   const [bootstrapRetry, setBootstrapRetry] = useState(0);
+  const [cashierShiftActive, setCashierShiftActive] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!user || user.role !== "CASHIER" || dataSource.authMode === "DEMO" || typeof dataSource.getCurrentShift !== "function") {
+      setCashierShiftActive(null);
+      return;
+    }
+    let active = true;
+    dataSource
+      .getCurrentShift()
+      .then((res) => {
+        if (!active) return;
+        setCashierShiftActive(res !== null);
+      })
+      .catch(() => {
+        if (active) setCashierShiftActive(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [dataSource, user]);
 
   useEffect(() => {
     if (
@@ -287,7 +308,14 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
 
   function renderPage() {
     if (activePage === "dashboard") {
-      return <DashboardPage dataSource={dataSource} currentUser={currentUser} onSessionExpired={handleSessionExpired} />;
+      return (
+        <DashboardPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={handleSessionExpired}
+          onNavigate={navigateTo}
+        />
+      );
     }
     if (activePage === "cashier") {
       return (
@@ -301,11 +329,20 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           sessionEpoch={sessionEpochRef.current}
           cashierId={currentUser.userId}
           onSessionExpired={handleSessionExpired}
+          onShiftActiveChange={setCashierShiftActive}
         />
       );
     }
     if (activePage === "shift") {
-      return <ShiftDemoPage dataSource={dataSource} currentUser={currentUser} onSessionExpired={handleSessionExpired} onPendingChange={(pending) => { if (sessionEpochRef.current === sessionEpoch) setClosePending(pending); }} />;
+      return (
+        <ShiftDemoPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={handleSessionExpired}
+          onPendingChange={(pending) => { if (sessionEpochRef.current === sessionEpoch) setClosePending(pending); }}
+          onShiftActiveChange={setCashierShiftActive}
+        />
+      );
     }
     if (activePage === "products") {
       return (
@@ -313,7 +350,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}
-          view="manage"
+          view="list"
+          onNavigateToCreate={() => navigateTo("product-list")}
         />
       );
     }
@@ -323,7 +361,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}
-          view="list"
+          view="manage"
         />
       );
     }
@@ -383,6 +421,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
       activePage={activePage}
       onNavigate={(next) => { if (!closePending || next === "shift") navigateTo(next); }}
       onLogout={handleLogout}
+      shiftActive={cashierShiftActive}
     >
       {notice && <StatusMessage tone="warning" text={notice} />}
       {renderPage()}

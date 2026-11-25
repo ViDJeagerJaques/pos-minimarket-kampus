@@ -37,7 +37,7 @@ describe("TASK-013 sesi UI: refresh, ganti role, akun nonaktif", () => {
     // Instans baru = proses renderer baru setelah refresh; tidak ada token di storage.
     render(<App dataSource={makeSource()} onAfterLogout={vi.fn()} />);
 
-    expect(screen.getByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
@@ -54,7 +54,7 @@ describe("TASK-013 sesi UI: refresh, ganti role, akun nonaktif", () => {
     expect(screen.queryByRole("button", { name: "Kasir" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Keluar" }));
-    await screen.findByRole("heading", { name: "POS Minimarket Kampus" });
+    await screen.findByRole("heading", { name: "Masuk ke akun" });
 
     await loginAs(user, "kasir.demo", "sandi-demo");
     expect(await screen.findByRole("navigation", { name: "Menu utama" })).toBeTruthy();

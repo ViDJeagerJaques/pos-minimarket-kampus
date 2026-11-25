@@ -5,6 +5,8 @@ import { createHttpDataSource } from "./api/httpDataSource";
 import { createMockDataSource } from "./api/mockDataSource";
 import "./styles/tokens.css";
 import "./styles/app.css";
+import "./styles/admin.css";
+import "./styles/cashier.css";
 
 /**
  * Jembatan opsional yang disediakan kandidat Electron (TASK-031). Di browser
@@ -17,6 +19,8 @@ declare global {
       openExternal: (target: string) => Promise<boolean>;
       retryStartup: () => Promise<boolean>;
       exitApp: () => Promise<boolean>;
+      chooseExcelFile: () => Promise<string | null>;
+      openExcelFile: (token: string) => Promise<boolean>;
     };
   }
 }

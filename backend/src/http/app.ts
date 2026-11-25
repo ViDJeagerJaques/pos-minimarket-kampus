@@ -28,8 +28,10 @@ import { CheckoutError } from "../checkout/errors.ts";
 import type { CheckoutService } from "../checkout/service.ts";
 import { PrintError } from "../print/errors.ts";
 import type { PrintService } from "../print/service.ts";
+import type { createDemoConfigManager } from "../sync/sheetsDemoConfig.ts";
 import type { SheetsSyncService } from "../sync/sheetsSync.ts";
 import type { ReportService } from "../reports/service.ts";
+import type { createExcelSync } from "../reports/excelSync.ts";
 import { InventoryError } from "../inventory/errors.ts";
 import type { AdjustmentService } from "../inventory/adjustments.ts";
 import { ReceivingError } from "../receiving/errors.ts";
@@ -58,6 +60,7 @@ export type HttpAppOptions = {
   checkout?: CheckoutService;
   /** Laporan pembayaran: ADMIN semua, CASHIER transaksi sendiri. */
   reports?: ReportService;
+  excelSync?: ReturnType<typeof createExcelSync>;
   /** Service struk/cetak ulang TASK-021; POST hanya CASHIER pemilik sale. */
   print?: PrintService;
   /** Service penerimaan barang TASK-025; ADMIN saja. */
@@ -66,6 +69,7 @@ export type HttpAppOptions = {
   adjustments?: AdjustmentService;
   /** Sinkronisasi penjualan ke Google Sheets (Ide #10); opsional & tidak menghambat checkout. */
   sheetsSync?: SheetsSyncService;
+  sheetsConfig?: ReturnType<typeof createDemoConfigManager>;
   /** Direktori build frontend (mis. resources/frontend/dist) untuk sajikan same-origin. */
   staticDir?: string;
   loginRateLimiter?: LoginRateLimiter;
@@ -574,6 +578,7 @@ function createReceivingRoutes(receiving: ReceivingService): Route[] {
 /** Route laporan QRIS terpisah dari kas; ADMIN saja (DEC-014). */
 function createReportRoutes(reports: ReportService): Route[] {
   return [
+    { method: "GET", pattern: /^\/reports\/excel-sales$/, roles: ["ADMIN"], handler: ctx => ({ data: reports.getExcelSales(ctx.actor as SessionUser) }) },
     {
       method: "GET",
       pattern: /^\/reports\/payments$/,
@@ -807,6 +812,22 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   }
   if (options.checkout) {
     routes.push(...createCheckoutRoutes(options.checkout, options.sheetsSync));
+  }
+  if (options.excelSync) {
+    const excel = options.excelSync;
+    routes.push(
+      { method: "GET", pattern: /^\/sync\/excel$/, roles: ["ADMIN"], handler: () => ({ data: excel.status() }) },
+      { method: "POST", pattern: /^\/sync\/excel\/config$/, roles: ["ADMIN"], handler: ctx => ({ data: excel.configure(asObject(ctx.body)) }) },
+      { method: "POST", pattern: /^\/sync\/excel\/run$/, roles: ["ADMIN"], handler: ctx => ({ data: excel.sync(ctx.actor as SessionUser) }) },
+    );
+  }
+  if (options.sheetsConfig) {
+    const configManager = options.sheetsConfig;
+    routes.push(
+      { method: "GET", pattern: /^\/sync\/sheets\/config$/, roles: ["ADMIN"], handler: () => ({ data: configManager.status() }) },
+      { method: "POST", pattern: /^\/sync\/sheets\/config$/, roles: ["ADMIN"], handler: ctx => ({ data: configManager.save(asObject(ctx.body)) }) },
+      { method: "POST", pattern: /^\/sync\/sheets\/ping$/, roles: ["ADMIN"], handler: async ctx => ({ data: await configManager.ping(asObject(ctx.body)) }) },
+    );
   }
   routes.push(
     {

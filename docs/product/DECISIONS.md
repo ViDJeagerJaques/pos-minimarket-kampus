@@ -410,3 +410,8 @@ Tanggal pada entri merujuk ke bukti waktu diskusi terkait. Tanggal revisi sumber
 - **Final sebagai keputusan tim:** satu PC, dua role, offline-first, SQLite lokal, desktop Windows sebagai target, tidak ada duplikasi transaksi/stok, satu repo, **QRIS manual**; keputusan eksplisit lain mengikuti status register.
 - **Belum final sebagai kebijakan minimarket:** identitas penerima QRIS, metode bayar wajib lain, kebutuhan member/retur/kredit, prosedur setoran/selisih, stok dan migrasi, perangkat, tanggal cutover. Semua harus tercatat sebagai validasi `VAL-*`.
 - Jika `PROPOSED` atau `PENDING` dibutuhkan agar operasional berjalan, jangan menaikkan status hanya karena ada kode atau dokumen; minta bukti keputusan pengelola dan review dampaknya terhadap jadwal.
+
+### Catatan implementasi sandbox dan redesign (25 November 2026)
+
+- **DEC-003 / DEC-004 / DEC-005 / DEC-011:** implementasi eksperimen memakai profil sandbox terpisah dan kandidat Electron. Isolasi dan distribusi sandbox tetap **PROPOSED**, memerlukan review teknis; implementasi bukan persetujuan arsitektur baru.
+- **DEC-009 / DEC-021:** koordinator menerima tampilan visual Admin, Kasir, dan Login pada sandbox. Persetujuan visual tidak mengesahkan SOP, kesiapan pilot, atau go-live. DEC-021 tetap **PROPOSED**, bergantung pada bukti pengujian perangkat dan validasi pengelola.

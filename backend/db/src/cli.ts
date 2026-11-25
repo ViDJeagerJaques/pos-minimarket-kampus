@@ -4,6 +4,7 @@ import { createBackup, restoreBackupToTestCopy, verifyBackup } from "../../src/b
 import { runMigrations } from "./migrate.ts";
 import { defaultDataDir, resolveDatabasePath } from "./paths.ts";
 import { seedDemo } from "./seed.ts";
+import { applySandboxEnvironment, enforceSandboxPath } from "../../src/sandbox/env.ts";
 
 type Options = {
   command: string;
@@ -96,7 +97,11 @@ function usage(): string {
 }
 
 function main(argv: string[]): number {
+  applySandboxEnvironment();
   const options = parseArgs(argv);
+  enforceSandboxPath(options.dbPath, "database");
+  if (options.directory) enforceSandboxPath(options.directory, "root backup/restore");
+  if (options.backupPath) enforceSandboxPath(options.backupPath, "file cadangan");
   switch (options.command) {
     case "path": {
       printJson({ dbPath: options.dbPath, dataDir: defaultDataDir() });
