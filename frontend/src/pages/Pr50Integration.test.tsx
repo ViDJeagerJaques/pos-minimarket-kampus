@@ -163,7 +163,7 @@ describe("PR 50 UI integration", () => {
     expect(await screen.findByText(/Pemeriksaan metode: pastikan pelanggan membayar tunai langsung/)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Uang pas" }));
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     await waitFor(() => expect(getSaleReceipt).toHaveBeenCalledWith(501));
     expect(await screen.findByText(/Poin pelanggan MHS001: \+1 poin/)).toBeTruthy();
@@ -172,6 +172,8 @@ describe("PR 50 UI integration", () => {
     expect(successDialog.querySelector(".dialog__body")).toBeTruthy();
     expect(successDialog.querySelector(".dialog__actions--sticky")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Transaksi baru" })).toBeTruthy();
+    expect(screen.queryByTestId("receipt-text")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Lihat pratinjau struk" }));
     expect(await screen.findByTestId("receipt-text")).toBeTruthy();
   });
 
@@ -615,7 +617,7 @@ describe("PR 50 UI integration", () => {
     await user.selectOptions(screen.getByLabelText(/Promo lokal/), "BUY_2_GET_1");
     await user.click(screen.getByRole("button", { name: "Lanjut pembayaran" }));
     await user.click(await screen.findByRole("button", { name: "Uang pas" }));
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
     await user.click(await screen.findByRole("button", { name: "Layar pelanggan" }));
     expect(screen.getByRole("region", { name: "Layar pelanggan" }).textContent).toContain("Rp15.000");
     unmount();
@@ -877,7 +879,7 @@ describe("PR 50 UI integration", () => {
 
     await user.click(screen.getByRole("button", { name: "Lanjut pembayaran" }));
     await user.click(await screen.findByRole("button", { name: "Uang pas" }));
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
     const reopenedModalInput = (await screen.findByLabelText(/Modal awal/)) as HTMLInputElement;
     expect(reopenedModalInput.value).toBe("");
   });
@@ -910,6 +912,7 @@ describe("PR 50 UI integration", () => {
     await user.type(screen.getByLabelText("Sandi baru"), "SandiBaru12345");
     await user.type(screen.getByLabelText("Konfirmasi sandi baru"), "SandiBaru12345");
     await user.click(screen.getByRole("button", { name: "Ubah sandi" }));
+    await user.click(screen.getByRole("button", { name: "Ya, ubah sandi" }));
 
     await waitFor(() =>
       expect(changePassword).toHaveBeenCalledWith({

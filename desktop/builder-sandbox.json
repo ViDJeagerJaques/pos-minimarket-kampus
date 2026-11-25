@@ -1,4 +1,5 @@
 {
+  "extraMetadata": { "sandboxBuild": true },
   "appId": "id.kampus.pos.sandbox",
   "productName": "POS Minimarket Kampus SANDBOX",
   "directories": {

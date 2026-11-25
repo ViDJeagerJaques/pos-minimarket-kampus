@@ -13,6 +13,7 @@ interface ReceiptPanelProps {
   onSessionExpired?: () => void;
   /** Halaman riwayat memuat struk segera setelah saleId dipilih. */
   autoLoad?: boolean;
+  collapsiblePreview?: boolean;
 }
 
 /**
@@ -20,13 +21,14 @@ interface ReceiptPanelProps {
  * Kegagalan cetak hanya mengubah status panel; tidak pernah membuat sale baru.
  * Teks struk dapat disalin/dicatat manual bila printer belum tersedia.
  */
-export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = false }: ReceiptPanelProps) {
+export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = false, collapsiblePreview = false }: ReceiptPanelProps) {
   const [view, setView] = useState<ReceiptView | null>(null);
   const [printResult, setPrintResult] = useState<PrintResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copyNote, setCopyNote] = useState<string | null>(null);
   const [showTaxInvoice, setShowTaxInvoice] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const text = view?.text ?? printResult?.text ?? "";
 
@@ -110,14 +112,15 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
         Struk virtual DEMO dari transaksi tersimpan. Printer fisik belum diuji; ini
         bukan bukti pembayaran.
       </p>
-      {view && (
+      {collapsiblePreview && <Button variant="secondary" aria-expanded={previewOpen} onClick={() => setPreviewOpen(!previewOpen)}>{previewOpen ? "Tutup pratinjau struk" : "Lihat pratinjau struk"}</Button>}
+      {(!collapsiblePreview || previewOpen) && view && (
         <p className="receipt-panel__summary" style={{ margin: "0 0 10px" }}>
           <span className="cashier-chip cashier-chip--success">Asli</span> · <strong>{view.receipt.saleNo}</strong> ·{" "}
           <MoneyText amountRp={view.receipt.totalRp} /> ·{" "}
           {view.receipt.payment.method === "CASH" ? "Tunai" : "QRIS manual"}
         </p>
       )}
-      {view && (
+      {(!collapsiblePreview || previewOpen) && view && (
         <div className="table-wrap" style={{ marginBottom: "10px" }}>
           <table className="cashier-cart-table" aria-label="Rincian barang struk">
             <thead>
@@ -143,7 +146,7 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
           </table>
         </div>
       )}
-      {text.length > 0 && (
+      {(!collapsiblePreview || previewOpen) && text.length > 0 && (
         <div className="receipt-paper">
           <pre className="receipt-panel__text" data-testid="receipt-text">
             {text}

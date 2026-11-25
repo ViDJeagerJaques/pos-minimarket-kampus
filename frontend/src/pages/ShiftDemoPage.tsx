@@ -455,6 +455,7 @@ export function ShiftDemoPage({
             <IconChevronDown size={16} />
           </summary>
           <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            <p className="muted" role="note">Rincian ini mencakup seluruh transaksi milik akun Anda, bukan khusus shift aktif. Gunakan pratinjau shift untuk rekonsiliasi.</p>
             {dataSource.authMode === "DEMO" && <p className="muted" style={{ margin: 0 }}>DEMO — data sintetis.</p>}
             {paymentError && <p className="field-error" role="alert" style={{ margin: 0 }}>{paymentError}</p>}
             {paymentReport && (

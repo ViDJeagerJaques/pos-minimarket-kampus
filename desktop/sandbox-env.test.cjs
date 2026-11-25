@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const {
+  requireSandboxLaunch,
   applySandboxEnvironment,
   backendEnvironment,
   existingAppDataDirs,
@@ -64,4 +65,11 @@ test("child backend tidak mewarisi konfigurasi Sheets dari induk", () => {
   assert.equal(child.POS_DB_PROFILE, "development");
   assert.equal(child.POS_SHEETS_SYNC_CONFIG.includes("PosMinimarketKampus-DEMO"), false);
   assert.equal("POS_BOOTSTRAP_PASSWORD" in child, false);
+});
+
+test("launcher salah ditolak dan paket sandbox wajib memakai isolasi", () => {
+  assert.throws(() => requireSandboxLaunch({ packaged: false, sandboxPackage: false, env: env() }), /Launcher sandbox/);
+  assert.throws(() => requireSandboxLaunch({ packaged: true, sandboxPackage: true, env: env() }), /Launcher sandbox/);
+  assert.doesNotThrow(() => requireSandboxLaunch({ packaged: false, sandboxPackage: false, env: env({ POS_SANDBOX: "1" }) }));
+  assert.doesNotThrow(() => requireSandboxLaunch({ packaged: true, sandboxPackage: false, env: env() }));
 });

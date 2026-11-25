@@ -93,6 +93,12 @@ function enforceSandboxPath(candidate, label, env = process.env) {
   }
 }
 
+function requireSandboxLaunch({ packaged, sandboxPackage, env }) {
+  if ((!packaged || sandboxPackage) && !isSandboxEnabled(env)) {
+    throw new Error("Launcher sandbox wajib: jalankan npm run start:sandbox atau paket SANDBOX.");
+  }
+}
+
 function applySandboxEnvironment(env = process.env) {
   if (!isSandboxEnabled(env)) return { enabled: false };
 
@@ -151,6 +157,7 @@ function backendEnvironment(env, info) {
 
 module.exports = {
   SANDBOX_DATA_DIR_NAME,
+  requireSandboxLaunch,
   applySandboxEnvironment,
   backendEnvironment,
   enforceSandboxPath,

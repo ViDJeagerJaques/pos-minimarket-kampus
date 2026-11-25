@@ -770,7 +770,7 @@ export function CashierPage({
     setStatus({
       tone: "danger",
       text: blockReplay
-        ? "Shift sudah ditutup. Transfer QRIS tercatat; periksa aplikasi merchant dan status upaya. Jangan ulang commit attempt ini tanpa rekonsiliasi."
+        ? "Shift sudah ditutup. Transfer QRIS tercatat; periksa aplikasi merchant dan status upaya. Jangan ulangi penyimpanan ini tanpa rekonsiliasi."
         : "Transfer QRIS tercatat. Periksa aplikasi merchant dan status upaya; jangan bayar ulang tanpa rekonsiliasi.",
     });
   }
@@ -1030,8 +1030,8 @@ export function CashierPage({
         tone: result.status === "PREPARED" ? "warning" : "danger",
         text:
           result.status === "PREPARED"
-            ? "Upaya masih PREPARED dan belum menghasilkan penjualan. Periksa bukti pembayaran fisik sebelum melanjutkan commit upaya ini."
-            : "Upaya ini sudah ABANDONED dan tidak dapat di-commit. Buat draft baru.",
+            ? "Upaya masih PREPARED dan belum menghasilkan penjualan. Periksa bukti pembayaran fisik sebelum melanjutkan penyimpanan ini."
+            : "Upaya ini sudah ABANDONED dan tidak dapat disimpan. Buat draft baru.",
       });
     } catch (error) {
       handleActionError(error, "Status upaya belum dapat dipastikan. Jangan bayar ulang.");
@@ -1637,7 +1637,7 @@ export function CashierPage({
             </div>
 
             <p className="muted" style={{ fontSize: "11.5px", marginTop: "10px", marginBottom: 0 }}>
-              Upaya: <code>{phase.attempt.attemptKey}</code>. Jangan ulangi pembayaran fisik jika respons lambat.
+              Jangan ulangi pembayaran fisik jika respons lambat.
             </p>
             <div className="dialog__actions">
               <Button variant="secondary" onClick={closePayment}>Batal</Button>
@@ -1646,7 +1646,7 @@ export function CashierPage({
                 disabled={!canCommitPayment}
                 onClick={() => void confirmCommit()}
               >
-                {paymentIsQris ? "Konfirmasi Lunas" : "Ya, commit pembayaran"}
+                {paymentIsQris ? "Konfirmasi Lunas" : "Ya, simpan pembayaran"}
               </Button>
             </div>
           </div>
@@ -1716,7 +1716,7 @@ export function CashierPage({
             <h2 id="timeout-title" className="dialog__title">Status pembayaran belum diketahui</h2>
             <p>{MSG_TIMEOUT}</p>
             <p className="muted">
-              Upaya <code>{phase.attempt.attemptKey}</code> ·{" "}
+              Status pembayaran belum diketahui ·{" "}
               {phase.attempt.quote.payment.method === "QRIS_MANUAL"
                 ? "nominal merchant"
                 : "uang diterima"}{" "}
@@ -1725,7 +1725,7 @@ export function CashierPage({
             </p>
             {phase.noReplay && (
               <p className="field-error" role="alert">
-                Attempt ini tidak boleh di-commit ulang. Periksa aplikasi merchant dan status
+                Upaya ini tidak boleh disimpan ulang. Periksa aplikasi merchant dan status
                 tersimpan; bila transfer berhasil tanpa penjualan, catat untuk rekonsiliasi
                 pengelola sebelum membuat transaksi baru.
               </p>
@@ -1752,7 +1752,7 @@ export function CashierPage({
                     timeoutConfirmation as PaymentConfirmation,
                   )}
                 >
-                  Lanjutkan commit upaya ini
+                  Lanjutkan penyimpanan ini
                 </Button>
               )}
               {phase.known === "PREPARED" && !canResumeTimeout && !phase.noReplay && (
@@ -1816,7 +1816,7 @@ export function CashierPage({
                 <>
                   <p style={{ margin: "0 0 8px" }}>
                     <span className="cashier-chip cashier-chip--success">TERVERIFIKASI</span>{" "}
-                    Kembalian <MoneyText amountRp={phase.result.payment.changeRp} />.
+                    Pembayaran QRIS manual.
                   </p>
                   {phase.result.qrisVerification?.status === "verified" && (
                     <p className="muted" style={{ fontSize: "12.5px" }}>
@@ -1841,6 +1841,7 @@ export function CashierPage({
                 saleId={phase.result.saleId}
                 onSessionExpired={onSessionExpired}
                 autoLoad
+                collapsiblePreview
               />
             </div>
             <div className="dialog__actions dialog__actions--sticky">

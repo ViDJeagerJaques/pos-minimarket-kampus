@@ -109,3 +109,7 @@ Tidak menyentuh UI/UX, aturan bisnis, skema/migrasi, kontrak API, dan tidak
 menambahkan Local Excel Sync. Perubahan yang perlu ikut saat redesign
 digabungkan hanyalah penambahan `sandbox-env.cjs` ke `build.files`; seluruh
 konfigurasi sandbox lain berada di file khusus sandbox.
+
+## 7. Catatan audit pasca-redesign
+
+Persetujuan koordinator mencakup tampilan visual redesign; bukan persetujuan arsitektur, pengujian perangkat, pilot, atau go-live. Isolasi sandbox tetap PROPOSED dan memerlukan review lintas pemilik. Launcher development kini mensyaratkan flag sandbox, dan paket sandbox menggunakan penanda build untuk mengaktifkan isolasi tanpa nama branch Git. Hasil pengujian harus dicatat terpisah dari persetujuan. Perubahan hash yang pernah dilaporkan tidak membuktikan kehilangan data atau penyebabnya.

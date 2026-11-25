@@ -173,9 +173,11 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     expect(screen.getByText(/Kembalian:/).textContent).toContain("Rp5.000");
     expect(screen.queryByRole("dialog", { name: "Transaksi tersimpan" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
     const success = await screen.findByRole("dialog", { name: "Transaksi tersimpan" });
     expect(success.textContent).toContain("E2E-001");
+    expect(success.textContent).toContain("Kembalian");
+    expect(success.textContent).toContain("Rp5.000");
     expect(source.commitCheckout).toHaveBeenCalledWith({
       attemptKey: "co_test_1",
       requestHash: "a".repeat(64),
@@ -236,7 +238,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const { source, user } = renderPage({ prepare, commit });
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     const changed = await screen.findByRole("dialog", { name: "Harga berubah — setujui ulang" });
     expect(changed.textContent).toContain("Rp6.000");
@@ -246,7 +248,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     await user.click(screen.getByRole("button", { name: "Setuju harga baru" }));
     expect(screen.getByRole("dialog", { name: "Konfirmasi pembayaran tunai" })).toBeTruthy();
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     const success = await screen.findByRole("dialog", { name: "Transaksi tersimpan" });
     expect(success.textContent).toContain("Rp6.000");
@@ -263,7 +265,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const { user } = renderPage({ commit });
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     await waitFor(() => {
       expect(screen.getByRole("status").textContent).toContain("Stok tidak cukup untuk SKU-001.");
@@ -281,7 +283,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const { source, user, callLog } = renderPage({ commit });
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     const timeout = await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
     expect(timeout.textContent).toContain("Jangan bayar ulang");
@@ -303,7 +305,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const view = render(<Harness source={source} />);
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
     await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
     view.unmount();
     render(<Harness source={source} initialLines={[]} />);
@@ -329,7 +331,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     render(<NavigationHarness />);
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
     await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
     await user.click(screen.getByRole("button", { name: "Pindah" }));
     await user.click(screen.getByRole("button", { name: "Kembali" }));
@@ -347,7 +349,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
       const { user } = renderPage({ commit });
       await openPayment(user);
       await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-      await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+      await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
       expect(await screen.findByText(/Rekaman pemulihan tidak dapat dihapus/)).toBeTruthy();
       expect(screen.queryByRole("dialog", { name: "Menyimpan transaksi…" })).toBeNull();
       expect(localStorage.length).toBe(1);
@@ -368,16 +370,18 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
       await waitFor(() => expect((pay as HTMLButtonElement).disabled).toBe(false));
       await user.click(pay);
       await user.type(await ui.findByLabelText("Uang diterima (Rp)"), "10000");
-      await user.click(ui.getByRole("button", { name: "Ya, commit pembayaran" }));
+      await user.click(ui.getByRole("button", { name: "Ya, simpan pembayaran" }));
       await ui.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
     }
     expect(localStorage.length).toBe(2);
     one.unmount(); two.unmount();
     const recovered = render(<Harness source={first} initialLines={[]} />);
-    expect(recovered.container.textContent).toContain("co_test_1");
+    expect(recovered.container.textContent).not.toContain("co_test_1");
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_test_1")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
     await user.click(await screen.findByRole("button", { name: "Transaksi baru" }));
-    expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2");
+    expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).not.toContain("co_test_2");
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_test_2")).not.toBeNull();
     expect(localStorage.length).toBe(1);
     expect(commit).toHaveBeenCalledTimes(2);
   });
@@ -411,7 +415,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const other = { ...LINE, productId: 2, name: "Produk lain" };
     const { user } = renderPage({ prepare, commit, status }, [other]);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
     await screen.findByRole("dialog", { name: "Harga berubah — setujui ulang" });
     expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ items: [{ productId: 1, quantity: 1 }] }));
     expect(localStorage.getItem("pos.checkout.recovery.2.co_test_1")).not.toBeNull();
@@ -426,7 +430,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const { user } = renderPage({ prepare, commit, status }, []);
     await screen.findByText(/#7/);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
     await waitFor(() => expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ items: [{ productId: 1, quantity: 1 }] })));
     expect(localStorage.getItem(key)).not.toBeNull();
     expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeTruthy();
@@ -442,8 +446,8 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const commit = vi.fn(async () => { throw new ApiError(409, code, "Ditolak"); });
     const { user } = renderPage({ status, commit });
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2"));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
+    await waitFor(() => expect(localStorage.getItem("pos.checkout.recovery.2.co_test_2")).not.toBeNull());
     expect((screen.getByRole("button", { name: "Lanjut pembayaran" }) as HTMLButtonElement).disabled).toBe(true);
     expect(localStorage.getItem("pos.checkout.recovery.2.co_test_1")).toBeNull();
   });
@@ -455,7 +459,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const commit = vi.fn(async () => { throw new ApiError(409, code, "Ditolak"); });
     const { user } = renderPage({ status, commit }, []);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
     await waitFor(() => expect(screen.getByText("Produk Uji")).toBeTruthy());
     expect(screen.getByText("1 barang")).toBeTruthy();
     expect(localStorage.getItem(key)).toBeNull();
@@ -467,7 +471,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const commit = vi.fn(async () => { throw new ApiError(409, "INSUFFICIENT_STOCK", "Ditolak"); });
     const { user } = renderPage({ status, commit }, []);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
     expect(await screen.findByText("Produk Uji")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Tambah satu Produk Uji" }));
     expect(screen.getByLabelText("Jumlah Produk Uji").textContent).toBe("1");
@@ -480,7 +484,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const other = { ...LINE, productId: 2, name: "Barang lain" };
     const { user } = renderPage({ status, commit }, [other]);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Menyimpan transaksi…" })).toBeNull());
     expect(screen.getByText("Barang lain")).toBeTruthy();
     expect(screen.queryByText("Produk Uji")).toBeNull();
@@ -495,7 +499,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
       const commit = vi.fn(async () => { throw new ApiError(409, "INSUFFICIENT_STOCK", "Ditolak"); });
       const { user } = renderPage({ status, commit }, []);
       await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-      await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+      await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
       expect(await screen.findByText(/Rekaman pemulihan tidak dapat dihapus/)).toBeTruthy();
       expect(screen.getByText("0 barang")).toBeTruthy();
       expect(localStorage.getItem(key)).not.toBeNull();
@@ -517,7 +521,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     await screen.findByText("Produk Uji");
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
     await user.click(screen.getByRole("button", { name: "Riwayat/Struk" }));
     await user.click(screen.getByRole("button", { name: "Kasir" }));
     await user.click(await screen.findByRole("button", { name: "Cek status upaya" }));
@@ -540,11 +544,13 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const { user } = renderPage({ prepare, commit, status });
     await screen.findByText(/#7/);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
     await user.click(await screen.findByRole("button", { name: "Tolak dan kembali" }));
     expect(localStorage.getItem(key)).toBeNull();
-    if (other) expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("co_test_2");
-    else expect(screen.queryByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeNull();
+    if (other) {
+      expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).not.toContain("co_test_2");
+      expect(localStorage.getItem("pos.checkout.recovery.2.co_test_2")).not.toBeNull();
+    } else expect(screen.queryByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeNull();
   });
 
   it("status tidak diketahui tetap terkunci dan meminta pemeriksaan", async () => {
@@ -553,10 +559,10 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const { user } = renderPage({ commit, status });
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
     await user.click(await screen.findByRole("button", { name: "Cek status upaya" }));
     expect(screen.getByRole("dialog", { name: "Status pembayaran belum diketahui" }).textContent).toContain("Jangan bayar ulang");
-    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lanjutkan penyimpanan ini" })).toBeNull();
     expect(commit).toHaveBeenCalledTimes(1);
   });
 
@@ -670,7 +676,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
     // Total quote Rp5.000 → kembalian Rp5.000, bukan Rp0 dari total draft Rp10.000.
     expect(screen.getByText(/Kembalian:/).textContent).toContain("Rp5.000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     expect(await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).toBeTruthy();
     expect(screen.getByText("1 barang")).toBeTruthy();
@@ -696,7 +702,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
 
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     const timeout = await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" });
     expect(timeout.textContent).toContain("Jangan bayar ulang");
@@ -709,10 +715,10 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const pending = createDeferred<CheckoutStatusResult>();
     vi.mocked(source.getCheckoutStatus).mockImplementationOnce(() => pending.promise);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lanjutkan penyimpanan ini" })).toBeNull();
 
     pending.resolve({ ...PREPARED, status: "PREPARED", quote: PREPARED.quote });
-    const continueButton = await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" });
+    const continueButton = await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" });
     await user.click(continueButton);
 
     expect(await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).toBeTruthy();
@@ -764,7 +770,7 @@ describe("TASK-017 kasir: shift, prepare/commit, retry dan timeout", () => {
     const user = userEvent.setup();
     await openPayment(user);
     await user.type(screen.getByLabelText("Uang diterima (Rp)"), "10000");
-    await user.click(screen.getByRole("button", { name: "Ya, commit pembayaran" }));
+    await user.click(screen.getByRole("button", { name: "Ya, simpan pembayaran" }));
 
     // Simulasikan logout/pindah sesi sebelum backend menjawab.
     view.rerender(<EpochHarness epoch={2} />);

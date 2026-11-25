@@ -9,6 +9,7 @@ import {
   IconSearch,
   IconSliders,
 } from "../components/AdminIcons";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "../components/Button";
 import { StatusMessage } from "../components/StatusMessage";
 
@@ -47,6 +48,7 @@ export function StockAdjustmentPage({ dataSource, currentUser, onSessionExpired 
   const [pending, setPending] = useState<AdjustmentInput | null>(recovery.pending);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const lock = useRef(false);
 
   const product = products.find((item) => item.productId === Number(selected));
@@ -423,7 +425,7 @@ export function StockAdjustmentPage({ dataSource, currentUser, onSessionExpired 
                 isNoOp ||
                 !reason.trim()
               }
-              onClick={start}
+              onClick={() => setConfirming(true)}
             >
               <IconCheckCircle size={18} />
               <span>Simpan koreksi</span>
@@ -431,6 +433,7 @@ export function StockAdjustmentPage({ dataSource, currentUser, onSessionExpired 
           </div>
         </div>
       </div>
+      {confirming && product && parsedTarget !== null && delta !== null && <ConfirmDialog title="Konfirmasi koreksi stok" message={`Barang: ${product.name}. Stok saat ini: ${product.onHand}. Stok setelah koreksi: ${parsedTarget}. Selisih: ${delta > 0 ? "+" : ""}${delta}. Alasan: ${reason.trim()}.`} confirmLabel="Ya, simpan koreksi" cancelLabel="Batal" onCancel={() => setConfirming(false)} onConfirm={() => { setConfirming(false); start(); }} />}
     </section>
   );
 }

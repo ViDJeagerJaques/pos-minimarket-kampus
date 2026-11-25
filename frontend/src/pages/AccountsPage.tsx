@@ -92,6 +92,7 @@ export function AccountsPage({
   const [newPassword, setNewPassword] = useState("");
   const [confirmationPassword, setConfirmationPassword] = useState("");
   const [changing, setChanging] = useState(false);
+  const [confirmPasswordChange, setConfirmPasswordChange] = useState(false);
   const passwordLock = useRef(false);
 
   const [resetTarget, setResetTarget] = useState<AccountSummary | null>(null);
@@ -199,8 +200,7 @@ export function AccountsPage({
     }
   }
 
-  async function changePassword(event: FormEvent) {
-    event.preventDefault();
+  async function changePassword() {
     if (passwordLock.current) return;
     if (
       !oldPassword ||
@@ -752,7 +752,7 @@ export function AccountsPage({
           className={canManageAccounts ? "admin-card" : "account-form"}
           style={canManageAccounts ? { maxWidth: "620px" } : undefined}
           aria-label="Ubah sandi sendiri"
-          onSubmit={changePassword}
+          onSubmit={(event) => { event.preventDefault(); setConfirmPasswordChange(true); }}
         >
           <div className="admin-card__header">
             <div>
@@ -801,6 +801,7 @@ export function AccountsPage({
             </span>
 
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Button type="button" disabled={changing} onClick={() => { setOldPassword(""); setNewPassword(""); setConfirmationPassword(""); setVisible({}); setStatus(null); }}>Reset</Button>
               <Button type="submit" variant="primary" disabled={changing}>
                 <IconKey size={18} />
                 <span>{changing ? "Menyimpan…" : "Ubah sandi"}</span>
@@ -810,6 +811,7 @@ export function AccountsPage({
         </form>
       )}
 
+      {confirmPasswordChange && <ConfirmDialog title="Konfirmasi perubahan sandi" message="Ubah sandi akun ini dan akhiri semua sesi aktif?" confirmLabel="Ya, ubah sandi" onCancel={() => setConfirmPasswordChange(false)} onConfirm={() => { setConfirmPasswordChange(false); void changePassword(); }} />}
       {confirmation?.kind === "create" && (
         <ConfirmDialog
           title="Buat akun kasir?"

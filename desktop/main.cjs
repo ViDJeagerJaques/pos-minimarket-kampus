@@ -21,6 +21,9 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const sandboxEnv = require("./sandbox-env.cjs");
 
+const sandboxPackage = require("./package.json").sandboxBuild === true;
+if (sandboxPackage) process.env.POS_SANDBOX = "1";
+sandboxEnv.requireSandboxLaunch({ packaged: app.isPackaged, sandboxPackage, env: process.env });
 const SANDBOX = sandboxEnv.isSandboxEnabled(process.env);
 const SANDBOX_INFO = SANDBOX ? sandboxEnv.applySandboxEnvironment(process.env) : null;
 

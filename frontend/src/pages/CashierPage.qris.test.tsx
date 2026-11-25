@@ -160,6 +160,8 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
       },
     });
     const success = await screen.findByRole("dialog", { name: "Transaksi tersimpan" });
+    expect(success.textContent).not.toContain("Kembalian");
+    expect(success.textContent).not.toContain("co_qris_1");
     expect(success.textContent).toContain("TERVERIFIKASI");
     expect(success.textContent).toContain("QRIS tidak masuk kas fisik");
   });
@@ -205,12 +207,14 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     expect(await screen.findByText(/Status: GAGAL/)).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Transaksi tersimpan" })).toBeNull();
     expect(prepareCalls).toBe(2);
-    expect(screen.getByText(/co_qris_2/)).toBeTruthy();
+    expect(screen.queryByText(/co_qris_2/)).toBeNull();
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_qris_2")).not.toBeNull();
 
     view.unmount();
     render(<Harness source={source} />);
     expect(await screen.findByRole("dialog", { name: "Konfirmasi QRIS manual" })).toBeTruthy();
-    expect(screen.getByText(/co_qris_2/)).toBeTruthy();
+    expect(screen.queryByText(/co_qris_2/)).toBeNull();
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_qris_2")).not.toBeNull();
     expect(screen.getByRole("checkbox", { name: /Transfer lama tidak dipakai/ })).toBeTruthy();
     expect(localStorage.getItem("pos.checkout.recovery.2.co_qris_1")).not.toBeNull();
 
@@ -284,7 +288,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     const user = userEvent.setup();
     const view = render(<Harness source={source} />);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
-    await user.click(await screen.findByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(await screen.findByRole("button", { name: "Lanjutkan penyimpanan ini" }));
     expect(await screen.findByRole("button", { name: "Coba upaya pengganti" })).toBeTruthy();
     view.unmount();
     render(<Harness source={source} />);
@@ -294,7 +298,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     await user.click(retry);
     expect(prepare).toHaveBeenCalledTimes(1);
     await act(async () => resolveStatus(PREPARED_QRIS));
-    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lanjutkan penyimpanan ini" })).toBeNull();
     await user.click(retry);
     const lookup = screen.getByRole("button", { name: "Cek status upaya" }) as HTMLButtonElement;
     const exit = screen.getByRole("button", { name: /Selesai rekonsiliasi/ }) as HTMLButtonElement;
@@ -306,7 +310,8 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     expect(localStorage.getItem("pos.checkout.recovery.2.co_qris_1")).not.toBeNull();
     await act(async () => resolvePrepare({ ...PREPARED_QRIS, attemptKey: "co_qris_2" }));
     expect(await screen.findByRole("dialog", { name: "Konfirmasi QRIS manual" })).toBeTruthy();
-    expect(screen.getByText(/co_qris_2/)).toBeTruthy();
+    expect(screen.queryByText(/co_qris_2/)).toBeNull();
+    expect(localStorage.getItem("pos.checkout.recovery.2.co_qris_2")).not.toBeNull();
   });
 
   it.each(["co_aaa", "co_zzz"])("reload memilih pengganti %s terlepas urutan key", async (replacementKey) => {
@@ -323,7 +328,8 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     }));
     render(<Harness source={buildSource()} />);
     expect(screen.getByRole("dialog", { name: "Konfirmasi QRIS manual" })).toBeTruthy();
-    expect(screen.getByText(new RegExp(replacementKey))).toBeTruthy();
+    expect(screen.queryByText(new RegExp(replacementKey))).toBeNull();
+    expect(localStorage.getItem(`pos.checkout.recovery.2.${replacementKey}`)).not.toBeNull();
     expect(screen.getByText(/TRANSFER-ASLI/)).toBeTruthy();
   });
 
@@ -344,14 +350,14 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     await user.click(screen.getByRole("button", { name: "Konfirmasi Lunas" }));
 
     expect(await screen.findByRole("dialog", { name: "Status pembayaran belum diketahui" })).toBeTruthy();
-    expect(screen.getByText(/tidak boleh di-commit ulang/)).toBeTruthy();
+    expect(screen.getByText(/tidak boleh disimpan ulang/)).toBeTruthy();
     // Blokir replay harus bertahan setelah reload halaman.
     view.unmount();
     render(<Harness source={source} />);
-    expect(screen.getByText(/tidak boleh di-commit ulang/)).toBeTruthy();
+    expect(screen.getByText(/tidak boleh disimpan ulang/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
     await waitFor(() => expect(screen.getByText(/Status: PENDING/)).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "Lanjutkan commit upaya ini" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lanjutkan penyimpanan ini" })).toBeNull();
     expect(screen.getByRole("button", { name: /Selesai rekonsiliasi/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Coba upaya pengganti" })).toBeNull();
   });
@@ -384,7 +390,7 @@ describe("TASK-037 kasir: QRIS manual tidak lunas otomatis", () => {
     render(<Harness source={source} />);
     await user.click(screen.getByRole("button", { name: "Cek status upaya" }));
     await waitFor(() => expect(screen.getByText(/Status: PENDING/)).toBeTruthy());
-    await user.click(screen.getByRole("button", { name: "Lanjutkan commit upaya ini" }));
+    await user.click(screen.getByRole("button", { name: "Lanjutkan penyimpanan ini" }));
 
     expect(await screen.findByRole("dialog", { name: "Transaksi tersimpan" })).toBeTruthy();
     expect(commitCalls).toBe(2);

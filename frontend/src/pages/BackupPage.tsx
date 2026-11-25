@@ -116,7 +116,7 @@ export function BackupPage({
                 const result = await dataSource.createBackup();
                 setStatus({
                   tone: result.valid ? "success" : "warning",
-                  text: `Cadangan ${result.name} berhasil diverifikasi.`,
+                  text: result.valid ? `Cadangan ${result.name} berhasil diverifikasi.` : `Pemeriksaan selesai, tetapi verifikasi cadangan ${result.name} gagal. Jangan gunakan untuk pemulihan.`,
                 });
                 await load();
               })
