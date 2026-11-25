@@ -136,4 +136,59 @@ describe("TASK-037 laporan QRIS terpisah dari kas", () => {
     clickSpy.mockRestore();
     vi.unstubAllGlobals();
   });
+
+  it("BUG-257 (dipindah ke Laporan §4.6 A): tombol Sinkronkan Spreadsheet memicu flush saat aktif, nonaktif saat belum terkonfigurasi, dan menandai Excel Lokal/Konfigurasi belum tersedia", async () => {
+    const syncSheetsNow = vi.fn(async () => ({ enabled: true, sentCount: 2, pendingCount: 0 }));
+    const enabledSource: PosDataSource = {
+      ...sourceWith(REPORT),
+      getSheetsSyncStatus: vi.fn(async () => ({ enabled: true, pendingCount: 2 })),
+      syncSheetsNow,
+    };
+    const user = userEvent.setup();
+    const first = render(<ReportsPage dataSource={enabledSource} currentUser={ADMIN} onSessionExpired={vi.fn()} />);
+
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    expect((screen.getByRole("button", { name: "Pilih file" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Konfigurasi" }) as HTMLButtonElement).disabled).toBe(true);
+
+    const syncButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+    await waitFor(() => expect((syncButton as HTMLButtonElement).disabled).toBe(false));
+    await user.click(syncButton);
+    expect(syncSheetsNow).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/2 penjualan terkirim/)).toBeTruthy();
+    first.unmount();
+
+    const disabledSource: PosDataSource = {
+      ...sourceWith(REPORT),
+      getSheetsSyncStatus: vi.fn(async () => ({ enabled: false, pendingCount: 0 })),
+    };
+    render(<ReportsPage dataSource={disabledSource} currentUser={ADMIN} onSessionExpired={vi.fn()} />);
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    const disabledButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+    await waitFor(() => expect((disabledButton as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeTruthy();
+  });
+
+  it("BUG-263 (dipindah ke Laporan §4.6 A): gagal muat status sinkronisasi menampilkan error dan tombol Coba lagi, bukan pesan belum dikonfigurasi", async () => {
+    const getSheetsSyncStatus = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR", "Server sinkronisasi sementara sibuk."))
+      .mockResolvedValueOnce({ enabled: true, pendingCount: 1 });
+    const source: PosDataSource = {
+      ...sourceWith(REPORT),
+      getSheetsSyncStatus,
+    };
+    const user = userEvent.setup();
+    render(<ReportsPage dataSource={source} currentUser={ADMIN} onSessionExpired={vi.fn()} />);
+
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    expect(await screen.findByText("Server sinkronisasi sementara sibuk.")).toBeTruthy();
+    expect(screen.queryByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeNull();
+    const syncButton = screen.getByRole("button", { name: "Sinkronkan Spreadsheet" }) as HTMLButtonElement;
+    expect(syncButton.disabled).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+    await waitFor(() => expect(syncButton.disabled).toBe(false));
+    expect(screen.queryByText("Server sinkronisasi sementara sibuk.")).toBeNull();
+  });
 });

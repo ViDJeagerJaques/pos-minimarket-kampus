@@ -441,7 +441,7 @@ it("BUG-224/225/234: Daftar Barang memfilter langsung dengan saran, filter kateg
   );
 
   await screen.findByText("Teh Botol");
-  expect(screen.getAllByRole("heading", { name: /Daftar Barang/i })).toHaveLength(1);
+  expect(screen.getAllByRole("heading", { name: /Barang\/Stok/i })).toHaveLength(1);
   expect(screen.queryByText(/403/)).toBeNull();
   const searchInput = screen.getByLabelText("Cari produk");
   expect(searchInput.closest(".catalog-search")).toBeTruthy();
@@ -753,56 +753,16 @@ it("BUG-256: kolom stok menumpuk angka dan badge serta tombol Nonaktifkan memaka
   expect(deactivateButton.className).toContain("btn--outline-danger");
 });
 
-it("BUG-257: tombol Sinkronkan Spreadsheet memicu flush saat aktif dan nonaktif saat belum terkonfigurasi", async () => {
-  const syncSheetsNow = vi.fn(async () => ({ enabled: true, sentCount: 2, pendingCount: 0 }));
-  const enabledSource = buildSource({
+it("UI_UX_ADMIN §4.2 & §4.3: tidak menampilkan tombol Sinkronkan Spreadsheet di Barang/Stok dan menyediakan 4 tab di Daftar Barang", async () => {
+  const user = userEvent.setup();
+  const source = buildSource({
+    listCategories: vi.fn(async () => [{ id: 1, name: "Minuman" }]),
+    listSuppliers: vi.fn(async () => [{ id: 1, name: "PT Segar" }]),
     listCatalogProducts: vi.fn(async () => [PRODUCT]),
     getSheetsSyncStatus: vi.fn(async () => ({ enabled: true, pendingCount: 2 })),
-    syncSheetsNow,
   });
-  const first = render(
-    <ProductsPage
-      dataSource={enabledSource}
-      currentUser={ADMIN}
-      view="list"
-      onSessionExpired={vi.fn()}
-    />,
-  );
-  const user = userEvent.setup();
-  const syncButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
-  await waitFor(() => expect((syncButton as HTMLButtonElement).disabled).toBe(false));
-  await user.click(syncButton);
-  expect(syncSheetsNow).toHaveBeenCalledTimes(1);
-  expect(await screen.findByText(/2 penjualan terkirim/)).toBeTruthy();
-  first.unmount();
 
-  const disabledSource = buildSource({
-    listCatalogProducts: vi.fn(async () => [PRODUCT]),
-    getSheetsSyncStatus: vi.fn(async () => ({ enabled: false, pendingCount: 0 })),
-  });
-  render(
-    <ProductsPage
-      dataSource={disabledSource}
-      currentUser={ADMIN}
-      view="list"
-      onSessionExpired={vi.fn()}
-    />,
-  );
-  const disabledButton = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
-  await waitFor(() => expect((disabledButton as HTMLButtonElement).disabled).toBe(true));
-  expect(screen.getByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeTruthy();
-});
-
-it("BUG-263: gagal muat status sinkronisasi menampilkan error dan tombol Coba lagi, bukan pesan belum dikonfigurasi", async () => {
-  const getSheetsSyncStatus = vi
-    .fn()
-    .mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR", "Server sinkronisasi sementara sibuk."))
-    .mockResolvedValueOnce({ enabled: true, pendingCount: 1 });
-  const source = buildSource({
-    listCatalogProducts: vi.fn(async () => [PRODUCT]),
-    getSheetsSyncStatus,
-  });
-  render(
+  const { unmount } = render(
     <ProductsPage
       dataSource={source}
       currentUser={ADMIN}
@@ -810,14 +770,28 @@ it("BUG-263: gagal muat status sinkronisasi menampilkan error dan tombol Coba la
       onSessionExpired={vi.fn()}
     />,
   );
-  const user = userEvent.setup();
+  await screen.findByText("Produk Uji");
+  expect(screen.queryByRole("button", { name: /Sinkronkan Spreadsheet/i })).toBeNull();
+  unmount();
 
-  expect(await screen.findByText("Server sinkronisasi sementara sibuk.")).toBeTruthy();
-  expect(screen.queryByText(/Sinkronisasi spreadsheet belum dikonfigurasi/)).toBeNull();
-  const syncButton = screen.getByRole("button", { name: "Sinkronkan Spreadsheet" }) as HTMLButtonElement;
-  expect(syncButton.disabled).toBe(true);
+  render(
+    <ProductsPage
+      dataSource={source}
+      currentUser={ADMIN}
+      view="manage"
+      onSessionExpired={vi.fn()}
+    />,
+  );
+  expect(await screen.findByRole("heading", { name: "Daftar Barang" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Sinkronkan Spreadsheet/i })).toBeNull();
+  expect(screen.getByRole("tab", { name: /Tambah Barang/ })).toBeTruthy();
 
-  await user.click(screen.getByRole("button", { name: "Coba lagi" }));
-  await waitFor(() => expect(syncButton.disabled).toBe(false));
-  expect(screen.queryByText("Server sinkronisasi sementara sibuk.")).toBeNull();
+  await user.click(screen.getByRole("tab", { name: /Kategori/ }));
+  expect(screen.getByRole("table", { name: "Daftar kategori" }).textContent).toContain("Minuman");
+
+  await user.click(screen.getByRole("tab", { name: /Supplier/ }));
+  expect(screen.getByRole("table", { name: "Daftar supplier" }).textContent).toContain("PT Segar");
+
+  await user.click(screen.getByRole("tab", { name: /Tag Harga/ }));
+  expect(screen.getByRole("button", { name: /Cetak \/ PDF Tag Harga/ })).toBeTruthy();
 });

@@ -5,6 +5,7 @@ import { createHttpDataSource } from "./api/httpDataSource";
 import { createMockDataSource } from "./api/mockDataSource";
 import "./styles/tokens.css";
 import "./styles/app.css";
+import "./styles/admin.css";
 
 /**
  * Jembatan opsional yang disediakan kandidat Electron (TASK-031). Di browser

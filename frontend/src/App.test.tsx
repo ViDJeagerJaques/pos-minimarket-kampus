@@ -82,14 +82,18 @@ describe("TASK-007 Kerangka layar lokal (MODE DEMO)", () => {
     await screen.findByRole("navigation", { name: "Menu utama" });
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
 
-    for (const label of ["Dashboard", "Barang/Stok", "Daftar Barang", "Penerimaan", "Koreksi Stok", "Laporan", "Akun", "Backup"]) {
+    for (const label of ["Dashboard", "Barang/Stok", "Daftar Barang", "Penerimaan", "Koreksi Stok", "Laporan", "Akun", "Cadangan Data"]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
     }
     expect(screen.queryByRole("button", { name: "Kasir" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Daftar Barang" }));
+    await user.click(screen.getByRole("button", { name: "Barang/Stok" }));
     await screen.findByRole("table", { name: "Daftar barang" });
     expect(screen.getByText("Roti Isi Cokelat (DEMO)")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Tambah Barang" }));
+    expect(await screen.findByRole("heading", { name: "Daftar Barang" })).toBeTruthy();
+    expect(screen.getByRole("form", { name: "Buat produk" })).toBeTruthy();
   });
 
   it("barcode tidak dikenal tidak menambahkan barang ke keranjang dan menjaga fokus input", async () => {

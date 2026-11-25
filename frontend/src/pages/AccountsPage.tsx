@@ -1,6 +1,17 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ApiError } from "../api/errors";
 import type { AccountSummary, PosDataSource, Role, SessionUser } from "../api/types";
+import {
+  IconCheckCircle,
+  IconEye,
+  IconEyeOff,
+  IconKey,
+  IconPlus,
+  IconSearch,
+  IconShield,
+  IconUsers,
+  IconXCircle,
+} from "../components/AdminIcons";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
@@ -12,6 +23,8 @@ interface AccountsPageProps {
   onSessionExpired: () => void;
   selfServiceOnly?: boolean;
 }
+
+type AccountTab = "users" | "security";
 
 type CreateConfirmation = {
   kind: "create";
@@ -53,12 +66,21 @@ function validateCreateForm(username: string, password: string): string | null {
 }
 
 /**
- * Pengelolaan akun ADMIN (TASK-011, AC-01.04).
- * Otorisasi sesungguhnya tetap di backend; halaman ini tidak boleh dianggap izin.
- * Form tidak pernah menampilkan/mencatat kata sandi di dialog, log, atau pesan error.
+ * Pengelolaan akun ADMIN (TASK-011, AC-01.04) & Ganti Sandi mandiri.
+ * Otorisasi sesungguhnya tetap di backend; kata sandi tidak pernah ditampilkan di dialog/log.
  */
-export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfServiceOnly = false }: AccountsPageProps) {
+export function AccountsPage({
+  dataSource,
+  currentUser,
+  onSessionExpired,
+  selfServiceOnly = false,
+}: AccountsPageProps) {
   const canManageAccounts = currentUser.role === "ADMIN" && !selfServiceOnly;
+  const [activeTab, setActiveTab] = useState<AccountTab>("users");
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+
   const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -71,6 +93,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
   const [confirmationPassword, setConfirmationPassword] = useState("");
   const [changing, setChanging] = useState(false);
   const passwordLock = useRef(false);
+
   const [resetTarget, setResetTarget] = useState<AccountSummary | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [resetConfirm, setResetConfirm] = useState("");
@@ -80,6 +103,19 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
   const resetDialogRef = useRef<HTMLFormElement>(null);
   const resetNewInputRef = useRef<HTMLInputElement>(null);
   const resetOpenerRef = useRef<HTMLElement | null>(null);
+  const createUsernameInputRef = useRef<HTMLInputElement>(null);
+
+  const [status, setStatus] = useState<Status | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const submitLockRef = useRef(false);
+  const updateLockRef = useRef(false);
+  const listRequestSeqRef = useRef(0);
+  const listMutationSeqRef = useRef(0);
+  const usernameId = useId();
+  const passwordId = useId();
+  const formErrorId = useId();
 
   useEffect(() => {
     if (!resetTarget) return;
@@ -126,7 +162,11 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
   async function submitResetPassword(event: FormEvent) {
     event.preventDefault();
     if (!resetTarget || resetLock.current) return;
-    if (resetPassword.length < PASSWORD_MIN_LENGTH || resetPassword.length > 1024 || resetPassword !== resetConfirm) {
+    if (
+      resetPassword.length < PASSWORD_MIN_LENGTH ||
+      resetPassword.length > 1024 ||
+      resetPassword !== resetConfirm
+    ) {
       setResetError(`Isi sandi baru ${PASSWORD_MIN_LENGTH}-1024 karakter dan konfirmasi yang sama.`);
       return;
     }
@@ -158,36 +198,53 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
       setResetting(false);
     }
   }
+
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     if (passwordLock.current) return;
-    if (!oldPassword || newPassword.length < 8 || newPassword.length > 1024 || newPassword !== confirmationPassword) {
-      setStatus({ tone: "danger", text: "Isi sandi lama, sandi baru 8-1024 karakter, dan konfirmasi yang sama." }); return;
+    if (
+      !oldPassword ||
+      newPassword.length < 8 ||
+      newPassword.length > 1024 ||
+      newPassword !== confirmationPassword
+    ) {
+      setStatus({
+        tone: "danger",
+        text: "Isi sandi lama, sandi baru 8-1024 karakter, dan konfirmasi yang sama.",
+      });
+      return;
     }
-    passwordLock.current = true; setChanging(true);
+    passwordLock.current = true;
+    setChanging(true);
     try {
       await dataSource.changePassword({ oldPassword, newPassword });
-      setOldPassword(""); setNewPassword(""); setConfirmationPassword(""); setVisible({});
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmationPassword("");
+      setVisible({});
       onSessionExpired();
-    } catch (error) { handleActionError(error); }
-    finally { passwordLock.current = false; setChanging(false); }
+    } catch (error) {
+      handleActionError(error);
+    } finally {
+      passwordLock.current = false;
+      setChanging(false);
+    }
   }
-  function visibility(key: string, label: string) {
-    return <Button type="button" aria-label={`${visible[key] ? "Sembunyikan" : "Lihat"} ${label}`} aria-pressed={!!visible[key]} onClick={() => setVisible(previous => ({ ...previous, [key]: !previous[key] }))}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />{visible[key] && <path d="m3 3 18 18" />}</svg></Button>;
+
+  function renderEyeToggle(key: string, label: string) {
+    const isShown = !!visible[key];
+    return (
+      <button
+        type="button"
+        className="input-with-icon__suffix-btn"
+        aria-label={`${isShown ? "Sembunyikan" : "Lihat"} ${label}`}
+        aria-pressed={isShown}
+        onClick={() => setVisible((previous) => ({ ...previous, [key]: !previous[key] }))}
+      >
+        {isShown ? <IconEyeOff size={18} /> : <IconEye size={18} />}
+      </button>
+    );
   }
-  const [status, setStatus] = useState<Status | null>(null);
-  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [updatingId, setUpdatingId] = useState<number | null>(null);
-  const submitLockRef = useRef(false);
-  // Kunci ref terpisah untuk PATCH status: dua klik cepat sebelum re-render
-  // tidak boleh mengirim dua permintaan.
-  const updateLockRef = useRef(false);
-  const listRequestSeqRef = useRef(0);
-  const listMutationSeqRef = useRef(0);
-  const usernameId = useId();
-  const passwordId = useId();
-  const formErrorId = useId();
 
   useEffect(() => {
     if (!canManageAccounts) {
@@ -250,22 +307,17 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitLockRef.current) {
-      return;
-    }
+    if (submitLockRef.current) return;
     const validationMessage = validateCreateForm(username, password);
     if (validationMessage !== null) {
       setStatus({ tone: "danger", text: validationMessage });
       return;
     }
-    // Konfirmasi dulu; kata sandi TIDAK dimasukkan ke dialog.
     setConfirmation({ kind: "create", username: username.trim(), role: "CASHIER" });
   }
 
   async function confirmCreate(target: CreateConfirmation): Promise<void> {
-    if (submitLockRef.current) {
-      return;
-    }
+    if (submitLockRef.current) return;
     submitLockRef.current = true;
     setIsSubmitting(true);
     try {
@@ -278,6 +330,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
       setAccounts((previous) => sortAccounts([...(previous ?? []), created]));
       setUsername("");
       setPassword("");
+      setVisible((previous) => ({ ...previous, initial: false }));
       setStatus({ tone: "success", text: `Akun kasir "${created.username}" dibuat dan aktif.` });
       setConfirmation(null);
     } catch (error) {
@@ -290,9 +343,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
   }
 
   async function confirmDisable(target: DisableConfirmation): Promise<void> {
-    if (updateLockRef.current) {
-      return;
-    }
+    if (updateLockRef.current) return;
     updateLockRef.current = true;
     setUpdatingId(target.account.id);
     try {
@@ -315,9 +366,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
   }
 
   function handleConfirm(): void {
-    if (confirmation === null) {
-      return;
-    }
+    if (confirmation === null) return;
     if (confirmation.kind === "create") {
       void confirmCreate(confirmation);
       return;
@@ -325,30 +374,64 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
     void confirmDisable(confirmation);
   }
 
+  const totalAccounts = accounts?.length ?? 0;
+  const activeAccounts = accounts?.filter((a) => a.active).length ?? 0;
+  const inactiveAccounts = accounts?.filter((a) => !a.active).length ?? 0;
+
+  const filteredAccounts =
+    accounts?.filter((account) => {
+      if (statusFilter === "active" && !account.active) return false;
+      if (statusFilter === "inactive" && account.active) return false;
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return true;
+      return account.username.toLowerCase().includes(q);
+    }) ?? null;
+
+  const passwordMismatch =
+    confirmationPassword.length > 0 && newPassword !== confirmationPassword;
+
   return (
-    <section className="panel" aria-labelledby="accounts-title" aria-busy={isLoading}>
-      <h1 id="accounts-title" className="page-title">
-        {canManageAccounts ? (
-          <>
-            Akun <span className="chip chip--warning">ADMIN · API lokal</span>
-          </>
-        ) : (
-          "Ganti Sandi"
+    <section
+      className={canManageAccounts ? "admin-page" : "panel"}
+      aria-labelledby="accounts-title"
+      aria-busy={isLoading}
+    >
+      <header className={canManageAccounts ? "admin-header" : undefined}>
+        <div className={canManageAccounts ? "admin-header__titles" : undefined}>
+          <h1 id="accounts-title" className={canManageAccounts ? "admin-header__title" : "page-title"}>
+            {canManageAccounts ? "Akun" : "Ganti Sandi"}
+          </h1>
+          <p className={canManageAccounts ? "admin-header__subtitle" : "muted"}>
+            {canManageAccounts ? (
+              <>
+                Kelola akun petugas kasir dan keamanan kata sandi administrator (<strong>{currentUser.username}</strong>).
+              </>
+            ) : (
+              <>
+                Masuk sebagai <strong>{currentUser.username}</strong>. Anda hanya dapat mengubah kata sandi akun Anda sendiri.
+              </>
+            )}
+          </p>
+        </div>
+
+        {canManageAccounts && (
+          <div className="admin-header__actions">
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => {
+                setActiveTab("users");
+                setShowCreateForm((prev) => !prev);
+                setTimeout(() => createUsernameInputRef.current?.focus(), 0);
+              }}
+            >
+              <IconPlus size={18} />
+              <span>Tambah akun</span>
+            </Button>
+          </div>
         )}
-      </h1>
-      <p className="muted">
-        {canManageAccounts ? (
-          <>
-            Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
-            setiap permintaan; CASHIER yang memanggil endpoint ini menerima <strong>403</strong>.
-          </>
-        ) : (
-          <>
-            Masuk sebagai <strong>{currentUser.username}</strong>. Anda hanya dapat mengubah kata
-            sandi akun Anda sendiri.
-          </>
-        )}
-      </p>
+      </header>
+
       {canManageAccounts && dataSource.authMode === "DEMO" && (
         <StatusMessage
           tone="warning"
@@ -356,159 +439,375 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
         />
       )}
 
-      {canManageAccounts && (
-      <form className="account-form" onSubmit={handleSubmit} aria-label="Buat akun kasir" noValidate>
-        <h2 className="section-title">Buat akun kasir</h2>
-        <div className="form-grid">
-          <div>
-            <label htmlFor={usernameId} className="field-label">
-              Nama pengguna
-            </label>
-            <input
-              id={usernameId}
-              className="input"
-              type="text"
-              autoComplete="off"
-              maxLength={64}
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              disabled={isSubmitting}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor={passwordId} className="field-label">
-              Kata sandi awal
-            </label>
-            <input
-              id={passwordId}
-              className="input"
-              type={visible.initial ? "text" : "password"}
-              autoComplete="new-password"
-              maxLength={1024}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={isSubmitting}
-              aria-describedby={formErrorId}
-              required
-            />
-            {visibility("initial", "kata sandi awal")}
-          </div>
-        </div>
-        <p id={formErrorId} className="muted">
-          Minimal {PASSWORD_MIN_LENGTH} karakter. Kata sandi hanya dikirim ke backend lokal, tidak
-          disimpan sebagai teks, dan tidak dicatat di log.
-        </p>
-        <Button type="submit" variant="primary" disabled={isSubmitting}>
-          {isSubmitting ? "Menyimpan…" : "Buat akun kasir"}
-        </Button>
-      </form>
-      )}
-
-      <form className="account-form" aria-label="Ubah sandi sendiri" onSubmit={changePassword}>
-        <h2>Ubah sandi akun sendiri</h2>
-        <p>Sandi berhasil diubah akan mengakhiri semua sesi akun Anda. Masuk kembali dengan sandi baru.</p>
-        {([
-          ["old", "Sandi lama", oldPassword, setOldPassword],
-          ["new", "Sandi baru", newPassword, setNewPassword],
-          ["confirm", "Konfirmasi sandi baru", confirmationPassword, setConfirmationPassword],
-        ] as const).map(([key, label, value, setter]) => <div key={key}>
-          <label className="field-label" htmlFor={`password-${key}`}>{label}</label>
-          <input id={`password-${key}`} className="input" type={visible[key] ? "text" : "password"} autoComplete={key === "old" ? "current-password" : "new-password"} value={value} onChange={event => setter(event.target.value)} maxLength={1024} disabled={changing} required />
-          {visibility(key, label.toLowerCase())}
-        </div>)}
-        <Button type="submit" disabled={changing}>Ubah sandi</Button>
-      </form>
       {status && <StatusMessage tone={status.tone} text={status.text} />}
 
       {canManageAccounts && (
-      <>
-      <h2 className="section-title">Daftar akun</h2>
-      {loadError && (
-        <div className="account-load-error">
-          <p className="field-error" role="alert">
-            {loadError}
-          </p>
-          <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
-            Coba lagi
-          </Button>
+        <div className="admin-tabs" role="tablist" aria-label="Submenu Akun">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "users"}
+            className={activeTab === "users" ? "admin-tab admin-tab--active" : "admin-tab"}
+            onClick={() => setActiveTab("users")}
+          >
+            <IconUsers size={18} />
+            <span>Pengguna</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "security"}
+            className={activeTab === "security" ? "admin-tab admin-tab--active" : "admin-tab"}
+            onClick={() => setActiveTab("security")}
+          >
+            <IconShield size={18} />
+            <span>Keamanan</span>
+          </button>
         </div>
       )}
-      {!loadError && accounts === null && <p className="muted">Memuat akun…</p>}
-      {!loadError && accounts !== null && accounts.length === 0 && (
-        <p className="muted">Belum ada akun. Buat akun kasir melalui formulir di atas.</p>
+
+      {/* TAB PENGGUNA (ADMIN) */}
+      {canManageAccounts && activeTab === "users" && (
+        <>
+          <div className="admin-kpi-grid admin-kpi-grid--3">
+            <div className="admin-kpi-card">
+              <div className="admin-kpi-card__top">
+                <span className="admin-kpi-card__label">Total akun</span>
+                <span className="admin-kpi-card__icon">
+                  <IconUsers size={18} />
+                </span>
+              </div>
+              <div className="admin-kpi-card__value">{totalAccounts}</div>
+              <p className="admin-kpi-card__meta">Terdaftar pada aplikasi lokal</p>
+            </div>
+
+            <div className="admin-kpi-card">
+              <div className="admin-kpi-card__top">
+                <span className="admin-kpi-card__label">Akun aktif</span>
+                <span className="admin-kpi-card__icon">
+                  <IconCheckCircle size={18} />
+                </span>
+              </div>
+              <div className="admin-kpi-card__value">{activeAccounts}</div>
+              <p className="admin-kpi-card__meta">Dapat masuk ke sesi aplikasi</p>
+            </div>
+
+            <div className="admin-kpi-card">
+              <div className="admin-kpi-card__top">
+                <span className="admin-kpi-card__label">Akun nonaktif</span>
+                <span className="admin-kpi-card__icon">
+                  <IconXCircle size={18} />
+                </span>
+              </div>
+              <div className="admin-kpi-card__value">{inactiveAccounts}</div>
+              <p className="admin-kpi-card__meta">Login diblokir; riwayat tetap tersimpan</p>
+            </div>
+          </div>
+
+          {showCreateForm && (
+            <form className="admin-card" onSubmit={handleSubmit} aria-label="Buat akun kasir" noValidate>
+              <div className="admin-card__header">
+                <div>
+                  <h2 className="admin-card__title">Buat Akun Kasir Baru</h2>
+                  <p className="admin-card__desc">
+                    Role akun baru dikunci sebagai Kasir sesuai kebijakan otorisasi sistem.
+                  </p>
+                </div>
+              </div>
+
+              <div className="form-grid">
+                <div>
+                  <label htmlFor={usernameId} className="field-label">
+                    Nama pengguna
+                  </label>
+                  <input
+                    ref={createUsernameInputRef}
+                    id={usernameId}
+                    className="input"
+                    type="text"
+                    autoComplete="off"
+                    maxLength={64}
+                    placeholder="Contoh: kasir.pagi"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    disabled={isSubmitting}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor={passwordId} className="field-label">
+                    Kata sandi awal
+                  </label>
+                  <div className="input-with-icon">
+                    <input
+                      id={passwordId}
+                      className="input input--pr"
+                      type={visible.initial ? "text" : "password"}
+                      autoComplete="new-password"
+                      maxLength={1024}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      disabled={isSubmitting}
+                      aria-describedby={formErrorId}
+                      required
+                    />
+                    {renderEyeToggle("initial", "kata sandi awal")}
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="account-role-locked" className="field-label">
+                    Role
+                  </label>
+                  <input
+                    id="account-role-locked"
+                    className="input"
+                    type="text"
+                    value="Kasir (CASHIER)"
+                    disabled
+                    readOnly
+                  />
+                </div>
+              </div>
+
+              <p id={formErrorId} className="field-hint" style={{ marginTop: "10px" }}>
+                Nama pengguna 3–64 karakter (huruf, angka, titik, strip, garis bawah). Kata sandi minimal{" "}
+                {PASSWORD_MIN_LENGTH} karakter (s.d. 1024 karakter) dan tidak dicatat di log.
+              </p>
+
+              <div className="dialog__actions" style={{ borderTop: "1px solid var(--color-border)", paddingTop: "12px" }}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setUsername("");
+                    setPassword("");
+                  }}
+                >
+                  Tutup
+                </Button>
+                <Button type="submit" variant="primary" disabled={isSubmitting}>
+                  <IconCheckCircle size={18} />
+                  <span>{isSubmitting ? "Menyimpan…" : "Buat akun kasir"}</span>
+                </Button>
+              </div>
+            </form>
+          )}
+
+          <div className="admin-card">
+            <div className="admin-card__header">
+              <div>
+                <h2 className="admin-card__title">Daftar Pengguna</h2>
+                <p className="admin-card__desc">Kelola akses masuk petugas pada PC kasir ini.</p>
+              </div>
+            </div>
+
+            <div className="catalog-search" style={{ marginBottom: "16px" }}>
+              <div className="catalog-search__field">
+                <label htmlFor="account-search" className="field-label">
+                  Cari username
+                </label>
+                <div className="input-with-icon">
+                  <span className="input-with-icon__prefix">
+                    <IconSearch size={16} />
+                  </span>
+                  <input
+                    id="account-search"
+                    type="search"
+                    className="input input--pl"
+                    placeholder="Ketik nama pengguna…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="catalog-search__filter">
+                <label htmlFor="account-status-filter" className="field-label">
+                  Status
+                </label>
+                <select
+                  id="account-status-filter"
+                  className="input"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")}
+                >
+                  <option value="all">Semua status</option>
+                  <option value="active">Status: Aktif</option>
+                  <option value="inactive">Status: Nonaktif</option>
+                </select>
+              </div>
+            </div>
+
+            {loadError && (
+              <div className="account-load-error">
+                <p className="field-error" role="alert">
+                  {loadError}
+                </p>
+                <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
+                  Coba lagi
+                </Button>
+              </div>
+            )}
+
+            {!loadError && filteredAccounts === null && <p className="muted">Memuat akun…</p>}
+
+            {!loadError && filteredAccounts !== null && filteredAccounts.length === 0 && (
+              <div className="admin-empty">
+                <span className="admin-empty__icon">
+                  <IconUsers size={24} />
+                </span>
+                <p className="admin-empty__title">Tidak ada akun yang cocok</p>
+                <p className="admin-empty__desc">
+                  Ubah kata kunci pencarian atau klik Tambah akun untuk mendaftarkan kasir baru.
+                </p>
+              </div>
+            )}
+
+            {!loadError && filteredAccounts !== null && filteredAccounts.length > 0 && (
+              <div className="table-wrap">
+                <table className="table" aria-label="Daftar akun">
+                  <thead>
+                    <tr>
+                      <th scope="col">Nama pengguna</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAccounts.map((account) => {
+                      const isSelf = account.id === currentUser.userId;
+                      const canDisable = account.role === "CASHIER" && account.active;
+                      const isUpdating = updatingId === account.id;
+                      return (
+                        <tr key={account.id}>
+                          <td>
+                            <span className="cell-primary">{account.username}</span>
+                            {isSelf && (
+                              <span className="chip chip--local" style={{ marginLeft: "8px" }}>
+                                Akun Anda
+                              </span>
+                            )}
+                          </td>
+                          <td>{ROLE_LABEL[account.role]}</td>
+                          <td>
+                            {account.active ? (
+                              <span className="badge badge--ok">Aktif</span>
+                            ) : (
+                              <span className="badge">Nonaktif</span>
+                            )}
+                          </td>
+                          <td>
+                            <div className="table-actions">
+                              {!isSelf && (
+                                <Button
+                                  variant="secondary"
+                                  onClick={(event) => {
+                                    resetOpenerRef.current = event.currentTarget;
+                                    setResetTarget(account);
+                                    setResetPassword("");
+                                    setResetConfirm("");
+                                    setResetError(null);
+                                  }}
+                                  disabled={updatingId !== null || isSubmitting || resetting}
+                                  aria-label={`Ubah sandi ${account.username}`}
+                                >
+                                  <IconKey size={14} />
+                                  <span>Reset sandi</span>
+                                </Button>
+                              )}
+                              {canDisable ? (
+                                <Button
+                                  variant="destructive"
+                                  onClick={() => setConfirmation({ kind: "disable", account })}
+                                  disabled={updatingId !== null || isSubmitting || resetting}
+                                  aria-label={`Nonaktifkan ${account.username}`}
+                                >
+                                  {isUpdating ? "Menyimpan…" : "Nonaktifkan"}
+                                </Button>
+                              ) : (
+                                isSelf && <span className="muted">Kelola di tab Keamanan</span>
+                              )}
+                              {!account.active && <span className="muted">Akses ditolak saat login</span>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
-      {!loadError && accounts !== null && accounts.length > 0 && (
-        <div className="table-wrap">
-          <table className="table" aria-label="Daftar akun">
-            <thead>
-              <tr>
-                <th scope="col">Nama pengguna</th>
-                <th scope="col">Role</th>
-                <th scope="col">Status</th>
-                <th scope="col">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((account) => {
-                const canDisable = account.role === "CASHIER" && account.active;
-                const isUpdating = updatingId === account.id;
-                return (
-                  <tr key={account.id}>
-                    <td>{account.username}</td>
-                    <td>{ROLE_LABEL[account.role]}</td>
-                    <td>
-                      {account.active ? (
-                        <span className="badge badge--ok">Aktif</span>
-                      ) : (
-                        <span className="badge">Nonaktif</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="table-actions">
-                        {account.id !== currentUser.userId && (
-                          <Button
-                            variant="secondary"
-                            onClick={(event) => {
-                              resetOpenerRef.current = event.currentTarget;
-                              setResetTarget(account);
-                              setResetPassword("");
-                              setResetConfirm("");
-                              setResetError(null);
-                            }}
-                            disabled={updatingId !== null || isSubmitting || resetting}
-                            aria-label={`Ubah sandi ${account.username}`}
-                          >
-                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M12 20h9" />
-                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                            </svg>{" "}
-                            Reset sandi
-                          </Button>
-                        )}
-                        {canDisable ? (
-                          <Button
-                            variant="destructive"
-                            onClick={() => setConfirmation({ kind: "disable", account })}
-                            disabled={updatingId !== null || isSubmitting || resetting}
-                            aria-label={`Nonaktifkan ${account.username}`}
-                          >
-                            {isUpdating ? "Menyimpan…" : "Nonaktifkan"}
-                          </Button>
-                        ) : (
-                          account.id === currentUser.userId && <span className="muted">—</span>
-                        )}
-                        {!account.active && <span className="muted">Akses ditolak saat login</span>}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      </>
+
+      {/* TAB KEAMANAN / GANTI SANDI SENDIRI */}
+      {(!canManageAccounts || activeTab === "security") && (
+        <form
+          className={canManageAccounts ? "admin-card" : "account-form"}
+          style={canManageAccounts ? { maxWidth: "620px" } : undefined}
+          aria-label="Ubah sandi sendiri"
+          onSubmit={changePassword}
+        >
+          <div className="admin-card__header">
+            <div>
+              <h2 className="admin-card__title">Ubah Sandi Akun Sendiri</h2>
+              <p className="admin-card__desc">
+                Mengubah kata sandi akan mengakhiri seluruh sesi aktif akun Anda dan mengarahkan kembali ke halaman login.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {(
+              [
+                ["old", "Sandi lama", oldPassword, setOldPassword],
+                ["new", "Sandi baru", newPassword, setNewPassword],
+                ["confirm", "Konfirmasi sandi baru", confirmationPassword, setConfirmationPassword],
+              ] as const
+            ).map(([key, label, value, setter]) => (
+              <div key={key}>
+                <label className="field-label" htmlFor={`password-${key}`}>
+                  {label}
+                </label>
+                <div className="input-with-icon">
+                  <input
+                    id={`password-${key}`}
+                    className="input input--pr"
+                    type={visible[key] ? "text" : "password"}
+                    autoComplete={key === "old" ? "current-password" : "new-password"}
+                    value={value}
+                    onChange={(event) => setter(event.target.value)}
+                    maxLength={1024}
+                    disabled={changing}
+                    required
+                  />
+                  {renderEyeToggle(key, label.toLowerCase())}
+                </div>
+              </div>
+            ))}
+
+            <span className="field-hint">
+              Ketentuan backend: minimal {PASSWORD_MIN_LENGTH} hingga 1024 karakter.
+              {passwordMismatch ? " Konfirmasi sandi baru belum cocok." : ""}
+              {!passwordMismatch && confirmationPassword.length >= PASSWORD_MIN_LENGTH
+                ? " Konfirmasi sandi cocok."
+                : ""}
+            </span>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Button type="submit" variant="primary" disabled={changing}>
+                <IconKey size={18} />
+                <span>{changing ? "Menyimpan…" : "Ubah sandi"}</span>
+              </Button>
+            </div>
+          </div>
+        </form>
       )}
 
       {confirmation?.kind === "create" && (
@@ -524,7 +823,7 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
       {confirmation?.kind === "disable" && (
         <ConfirmDialog
           title="Nonaktifkan akun?"
-          message={`Akun "${confirmation.account.username}" tidak dapat login lagi setelah dinonaktifkan. Sesi aktif akun tersebut akan dicabut oleh backend.`}
+          message={`Akun "${confirmation.account.username}" tidak dapat login lagi setelah dinonaktifkan. Sesi aktif akun tersebut akan dicabut oleh backend. Riwayat transaksi tetap dipertahankan.`}
           confirmLabel="Ya, nonaktifkan"
           cancelLabel="Batal"
           destructive
@@ -548,43 +847,46 @@ export function AccountsPage({ dataSource, currentUser, onSessionExpired, selfSe
               Reset sandi akun
             </h2>
             <p className="muted">
-              Atur kata sandi baru untuk akun <strong>{resetTarget.username}</strong>. Semua sesi
-              aktif akun tersebut akan diakhiri oleh backend.
+              Atur kata sandi baru untuk akun <strong>{resetTarget.username}</strong>. Semua sesi aktif akun tersebut akan diakhiri oleh backend.
             </p>
-            <div>
+            <div style={{ marginBottom: "12px" }}>
               <label className="field-label" htmlFor="reset-password-new">
                 Sandi baru
               </label>
-              <input
-                ref={resetNewInputRef}
-                id="reset-password-new"
-                className="input"
-                type={visible.resetNew ? "text" : "password"}
-                autoComplete="new-password"
-                maxLength={1024}
-                value={resetPassword}
-                onChange={(event) => setResetPassword(event.target.value)}
-                disabled={resetting}
-                required
-              />
-              {visibility("resetNew", "sandi baru reset")}
+              <div className="input-with-icon">
+                <input
+                  ref={resetNewInputRef}
+                  id="reset-password-new"
+                  className="input input--pr"
+                  type={visible.resetNew ? "text" : "password"}
+                  autoComplete="new-password"
+                  maxLength={1024}
+                  value={resetPassword}
+                  onChange={(event) => setResetPassword(event.target.value)}
+                  disabled={resetting}
+                  required
+                />
+                {renderEyeToggle("resetNew", "sandi baru reset")}
+              </div>
             </div>
             <div>
               <label className="field-label" htmlFor="reset-password-confirm">
                 Konfirmasi sandi baru
               </label>
-              <input
-                id="reset-password-confirm"
-                className="input"
-                type={visible.resetConfirm ? "text" : "password"}
-                autoComplete="new-password"
-                maxLength={1024}
-                value={resetConfirm}
-                onChange={(event) => setResetConfirm(event.target.value)}
-                disabled={resetting}
-                required
-              />
-              {visibility("resetConfirm", "konfirmasi sandi baru reset")}
+              <div className="input-with-icon">
+                <input
+                  id="reset-password-confirm"
+                  className="input input--pr"
+                  type={visible.resetConfirm ? "text" : "password"}
+                  autoComplete="new-password"
+                  maxLength={1024}
+                  value={resetConfirm}
+                  onChange={(event) => setResetConfirm(event.target.value)}
+                  disabled={resetting}
+                  required
+                />
+                {renderEyeToggle("resetConfirm", "konfirmasi sandi baru reset")}
+              </div>
             </div>
             {resetError && (
               <p className="field-error" role="alert">

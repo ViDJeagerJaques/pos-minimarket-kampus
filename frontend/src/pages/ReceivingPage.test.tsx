@@ -270,6 +270,8 @@ describe("TASK-027 ReceivingPage — draft, upaya, riwayat", () => {
     report.products[0]!.movementsTruncated = true;
     const { source } = makeSource({ getStockReport: vi.fn(async () => report) });
     renderPage(source);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: /Riwayat Penerimaan/ }));
     expect(await screen.findByText(/Riwayat menampilkan sebagian/)).toBeTruthy();
     expect(screen.queryByText(/Belum ada mutasi penerimaan yang tersimpan/)).toBeNull();
   });
@@ -277,6 +279,8 @@ describe("TASK-027 ReceivingPage — draft, upaya, riwayat", () => {
   it("riwayat menampilkan mutasi RECEIPT yang tersimpan", async () => {
     const { source } = makeSource();
     renderPage(source);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: /Riwayat Penerimaan/ }));
     const table = await screen.findByRole("table", { name: "Riwayat penerimaan tersimpan" });
     expect(table.textContent).toContain("rcv_hist_1");
     expect(table.textContent).toContain("Barang A");

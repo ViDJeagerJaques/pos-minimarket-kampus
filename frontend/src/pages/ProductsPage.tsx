@@ -5,14 +5,31 @@ import type {
   CategorySummary,
   PosDataSource,
   SessionUser,
-  SheetsSyncStatus,
   SupplierSummary,
 } from "../api/types";
+import {
+  IconAlertTriangle,
+  IconCheckCircle,
+  IconChevronLeft,
+  IconChevronRight,
+  IconEdit,
+  IconLayers,
+  IconPackage,
+  IconPlus,
+  IconPrinter,
+  IconRotateCcw,
+  IconSearch,
+  IconTag,
+  IconTrash,
+  IconTruck,
+  IconX,
+  IconXCircle,
+} from "../components/AdminIcons";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { DEMO_LOW_STOCK_THRESHOLD, StockBadge } from "../components/StockBadge";
 import { MoneyText } from "../components/MoneyText";
 import { StatusMessage, type StatusTone } from "../components/StatusMessage";
+import { DEMO_LOW_STOCK_THRESHOLD, StockBadge } from "../components/StockBadge";
 import { buildPriceTags, buildPriceTagsPdfBlob } from "../domain/priceTags";
 
 interface ProductsPageProps {
@@ -20,10 +37,17 @@ interface ProductsPageProps {
   currentUser: SessionUser;
   /** Dipanggil saat backend menjawab 401: App wajib membersihkan sesi dan kembali ke login. */
   onSessionExpired: () => void;
+  /**
+   * "list" = halaman Barang/Stok (katalog & saldo stok).
+   * "manage" = halaman Daftar Barang (input produk, kategori, supplier, tag harga).
+   * "all" = gabungan untuk pengujian unit terisolasi.
+   */
   view?: "all" | "manage" | "list";
+  onNavigateToCreate?: () => void;
 }
 
 type Status = { tone: StatusTone; text: string };
+type MasterTab = "product" | "category" | "supplier" | "tags";
 
 type EditState = {
   product: CatalogProduct;
@@ -78,13 +102,17 @@ function truncateToCodeUnits(text: string, maxUnits: number): string {
 }
 
 /**
- * Katalog ADMIN (TASK-012): kategori, supplier, produk, barcode, dan harga.
- * Otorisasi sesungguhnya tetap di backend; menyembunyikan menu bukan izin
- * (DEC-014). CASHIER yang memanggil endpoint tulis menerima 403.
- * Halaman ini TIDAK membuat penjualan, pembayaran, atau mutasi stok; keranjang
- * kasir tetap draft lokal di `domain/cart.ts`.
+ * Katalog ADMIN:
+ * - view="list" -> Barang/Stok (tabel katalog, filter, saldo stok, ubah produk & barcode).
+ * - view="manage" -> Daftar Barang (tab Tambah Barang, Kategori, Supplier, Tag Harga).
  */
-export function ProductsPage({ dataSource, currentUser, onSessionExpired, view = "all" }: ProductsPageProps) {
+export function ProductsPage({
+  dataSource,
+  currentUser: _currentUser,
+  onSessionExpired,
+  view = "all",
+  onNavigateToCreate,
+}: ProductsPageProps) {
   const [categories, setCategories] = useState<CategorySummary[] | null>(null);
   const [suppliers, setSuppliers] = useState<SupplierSummary[] | null>(null);
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
@@ -103,12 +131,10 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const [listCategoryId, setListCategoryId] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [stockFilter, setStockFilter] = useState<"all" | "safe" | "low" | "empty">("all");
-  const [sheetsSyncStatus, setSheetsSyncStatus] = useState<SheetsSyncStatus | null>(null);
-  const [sheetsSyncStatusError, setSheetsSyncStatusError] = useState<string | null>(null);
-  const [sheetsSyncStatusReloadKey, setSheetsSyncStatusReloadKey] = useState(0);
-  const [syncingSheets, setSyncingSheets] = useState(false);
-  const [sheetsSyncFeedback, setSheetsSyncFeedback] = useState<Status | null>(null);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(25);
 
+  const [masterTab, setMasterTab] = useState<MasterTab>("product");
   const [status, setStatus] = useState<Status | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [busyProductId, setBusyProductId] = useState<number | null>(null);
@@ -121,10 +147,13 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const [newPrice, setNewPrice] = useState("");
   const [newCategoryId, setNewCategoryId] = useState("");
   const [newSupplierIds, setNewSupplierIds] = useState<number[]>([]);
+  const [supplierFilter, setSupplierFilter] = useState("");
   const [newBarcodes, setNewBarcodes] = useState("");
+  const [barcodeDraft, setBarcodeDraft] = useState("");
   const [categoryName, setCategoryName] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [tagCategoryId, setTagCategoryId] = useState<string>("all");
+  const [excludedTagProductIds, setExcludedTagProductIds] = useState<number[]>([]);
 
   const submitLockRef = useRef(false);
   const listSeqRef = useRef(0);
@@ -136,6 +165,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
   const supplierId = useId();
   const barcodeId = useId();
   const searchId = useId();
+  const categoryDropdownId = useId();
   const statusFilterId = useId();
   const stockFilterId = useId();
 
@@ -230,82 +260,6 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
     };
   }, [dataSource, reloadKey, appliedQuery, onSessionExpired]);
 
-  useEffect(() => {
-    if (view !== "list" || !dataSource.getSheetsSyncStatus) {
-      setSheetsSyncStatus(null);
-      setSheetsSyncStatusError(null);
-      return;
-    }
-    let active = true;
-    setSheetsSyncStatusError(null);
-    dataSource
-      .getSheetsSyncStatus()
-      .then((result) => {
-        if (!active) return;
-        setSheetsSyncStatus(result);
-        setSheetsSyncStatusError(null);
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        if (error instanceof ApiError && error.isSessionExpired) {
-          onSessionExpired();
-          return;
-        }
-        setSheetsSyncStatus(null);
-        setSheetsSyncStatusError(
-          error instanceof ApiError
-            ? error.message
-            : "Status sinkronisasi spreadsheet gagal dimuat.",
-        );
-      });
-    return () => {
-      active = false;
-    };
-  }, [view, dataSource, onSessionExpired, sheetsSyncStatusReloadKey]);
-
-  async function handleSyncSheets(): Promise<void> {
-    if (syncingSheets || !dataSource.syncSheetsNow || !sheetsSyncStatus?.enabled) return;
-    setSyncingSheets(true);
-    setSheetsSyncFeedback(null);
-    try {
-      const result = await dataSource.syncSheetsNow();
-      setSheetsSyncStatus({ enabled: result.enabled, pendingCount: result.pendingCount });
-      if (!result.enabled) {
-        setSheetsSyncFeedback({
-          tone: "warning",
-          text: "Sinkronisasi spreadsheet belum dikonfigurasi pada server lokal.",
-        });
-      } else if (result.pendingCount === 0) {
-        setSheetsSyncFeedback({
-          tone: "success",
-          text:
-            result.sentCount > 0
-              ? `Sinkronisasi spreadsheet berhasil: ${result.sentCount} penjualan terkirim.`
-              : "Sinkronisasi spreadsheet berhasil: tidak ada penjualan tertunda.",
-        });
-      } else {
-        setSheetsSyncFeedback({
-          tone: "warning",
-          text:
-            result.sentCount > 0
-              ? `Sinkronisasi sebagian berhasil: ${result.sentCount} terkirim, ${result.pendingCount} masih tertunda.`
-              : `Sinkronisasi spreadsheet gagal: ${result.pendingCount} penjualan masih tertunda.`,
-        });
-      }
-    } catch (error: unknown) {
-      if (error instanceof ApiError && error.isSessionExpired) {
-        onSessionExpired();
-        return;
-      }
-      setSheetsSyncFeedback({
-        tone: "danger",
-        text: error instanceof ApiError ? error.message : "Sinkronisasi spreadsheet gagal. Coba lagi.",
-      });
-    } finally {
-      setSyncingSheets(false);
-    }
-  }
-
   const needsFullPagination =
     listCategoryId !== "all" || statusFilter !== "all" || stockFilter !== "all";
 
@@ -397,6 +351,19 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
     );
   }
 
+  function resetCreateProductForm(): void {
+    setNewSku("");
+    setNewName("");
+    setNewPrice("");
+    setNewSupplierIds([]);
+    setSupplierFilter("");
+    setNewBarcodes("");
+    setBarcodeDraft("");
+    if (categories && categories[0]) {
+      setNewCategoryId(String(categories[0].id));
+    }
+  }
+
   async function handleCreateProduct(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (submitLockRef.current) return;
@@ -434,11 +401,7 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
       });
       setProducts((previous) => sortProducts([...(previous ?? []), created]));
       invalidatePendingReadsAndRefresh();
-      setNewSku("");
-      setNewName("");
-      setNewPrice("");
-      setNewSupplierIds([]);
-      setNewBarcodes("");
+      resetCreateProductForm();
       setStatus({
         tone: "success",
         text: `Produk "${created.sku}" tersimpan. Barcode disimpan sebagai teks: ${
@@ -504,7 +467,6 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
     submitLockRef.current = true;
     setBusyProductId(edit.product.id);
     try {
-      // Dikirim sebagai string; jangan konversi ke angka agar nol awal aman.
       const updated = await dataSource.addBarcode(edit.product.id, barcode);
       replaceProduct(updated);
       invalidatePendingReadsAndRefresh();
@@ -621,106 +583,124 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
     );
   }
 
+  function appendBarcodeDraft(): void {
+    const trimmed = barcodeDraft.trim();
+    if (!trimmed) return;
+    const existing = parseBarcodeInput(newBarcodes);
+    if (existing.includes(trimmed)) {
+      setStatus({ tone: "warning", text: `Barcode "${trimmed}" sudah ada di daftar produk ini.` });
+      return;
+    }
+    const next = [...existing, trimmed].join("\n");
+    setNewBarcodes(next);
+    setBarcodeDraft("");
+  }
+
+  function removeDraftBarcode(targetBarcode: string): void {
+    const next = parseBarcodeInput(newBarcodes)
+      .filter((code) => code !== targetBarcode)
+      .join("\n");
+    setNewBarcodes(next);
+  }
+
   const canCreateProduct = categories !== null && categories.length > 0;
   const searchNeedle = searchInput.trim().toLowerCase();
   const productCollection = needsFullPagination && fullProducts !== null ? fullProducts : products;
-  const visibleProducts = productCollection === null
-    ? null
-    : productCollection.filter((product) => {
-        if (listCategoryId !== "all" && product.categoryId !== Number(listCategoryId)) {
-          return false;
-        }
-        if (statusFilter === "active" && !product.active) {
-          return false;
-        }
-        if (statusFilter === "inactive" && product.active) {
-          return false;
-        }
-        if (stockFilter === "empty" && product.stockOnHand > 0) {
-          return false;
-        }
-        if (
-          stockFilter === "low" &&
-          (product.stockOnHand <= 0 || product.stockOnHand > DEMO_LOW_STOCK_THRESHOLD)
-        ) {
-          return false;
-        }
-        if (stockFilter === "safe" && product.stockOnHand <= DEMO_LOW_STOCK_THRESHOLD) {
-          return false;
-        }
-        if (searchNeedle.length === 0) {
-          return true;
-        }
-        return (
-          product.name.toLowerCase().includes(searchNeedle) ||
-          product.sku.toLowerCase().includes(searchNeedle) ||
-          product.categoryName.toLowerCase().includes(searchNeedle) ||
-          product.barcodes.some((code) => code.toLowerCase().includes(searchNeedle))
-        );
-      });
+  const visibleProducts =
+    productCollection === null
+      ? null
+      : productCollection.filter((product) => {
+          if (listCategoryId !== "all" && product.categoryId !== Number(listCategoryId)) {
+            return false;
+          }
+          if (statusFilter === "active" && !product.active) {
+            return false;
+          }
+          if (statusFilter === "inactive" && product.active) {
+            return false;
+          }
+          if (stockFilter === "empty" && product.stockOnHand > 0) {
+            return false;
+          }
+          if (
+            stockFilter === "low" &&
+            (product.stockOnHand <= 0 || product.stockOnHand > DEMO_LOW_STOCK_THRESHOLD)
+          ) {
+            return false;
+          }
+          if (stockFilter === "safe" && product.stockOnHand <= DEMO_LOW_STOCK_THRESHOLD) {
+            return false;
+          }
+          if (searchNeedle.length === 0) {
+            return true;
+          }
+          return (
+            product.name.toLowerCase().includes(searchNeedle) ||
+            product.sku.toLowerCase().includes(searchNeedle) ||
+            product.categoryName.toLowerCase().includes(searchNeedle) ||
+            product.barcodes.some((code) => code.toLowerCase().includes(searchNeedle))
+          );
+        });
+
   const searchSuggestions =
     showSuggestions && searchNeedle.length > 0 && visibleProducts !== null
       ? visibleProducts.slice(0, 6)
       : [];
 
+  // Ringkasan KPI untuk Barang/Stok
+  const totalLoaded = productCollection?.length ?? 0;
+  const activeCount = productCollection?.filter((p) => p.active).length ?? 0;
+  const lowCount =
+    productCollection?.filter((p) => p.stockOnHand > 0 && p.stockOnHand <= DEMO_LOW_STOCK_THRESHOLD).length ?? 0;
+  const emptyCount = productCollection?.filter((p) => p.stockOnHand <= 0).length ?? 0;
+
+  // Pagination tampilan tabel
+  const totalVisible = visibleProducts?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalVisible / pageSize));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pagedProducts =
+    visibleProducts === null
+      ? null
+      : visibleProducts.slice(safePageIndex * pageSize, (safePageIndex + 1) * pageSize);
+
+  const parsedNewBarcodes = parseBarcodeInput(newBarcodes);
+  const filteredSuppliers = (suppliers ?? []).filter((s) =>
+    supplierFilter.trim().length === 0
+      ? true
+      : s.name.toLowerCase().includes(supplierFilter.trim().toLowerCase()),
+  );
+
+  const isCatalogView = view === "list";
+  const isMasterView = view === "manage";
+  const showProductForm = view === "all" || (isMasterView && masterTab === "product");
+  const showCategorySection = view === "all" || (isMasterView && masterTab === "category");
+  const showSupplierSection = view === "all" || (isMasterView && masterTab === "supplier");
+  const showTagSection = view === "all" || (isMasterView && masterTab === "tags");
+
   return (
-    <section className="panel" aria-labelledby="products-title" aria-busy={isLoading}>
-      <div className="products-header">
-        <div>
-          <h1 id="products-title" className="page-title">
-            {view === "list" ? (
-              "Daftar Barang"
-            ) : (
-              <>
-                Barang/Stok <span className="chip chip--warning">ADMIN · katalog</span>
-              </>
-            )}
+    <section className="admin-page" aria-labelledby="products-title" aria-busy={isLoading}>
+      <header className="admin-header">
+        <div className="admin-header__titles">
+          <h1 id="products-title" className="admin-header__title">
+            {isMasterView ? "Daftar Barang" : "Barang/Stok"}
           </h1>
-          <p className="muted">
-            {view === "list" ? (
-              "Kelola daftar barang, harga jual, status aktif, dan barcode katalog toko."
-            ) : (
-              <>
-                Masuk sebagai <strong>{currentUser.username}</strong>. Backend memeriksa role ADMIN pada
-                setiap perubahan; CASHIER yang memanggil endpoint tulis menerima <strong>403</strong>.
-                Halaman ini tidak membuat penjualan atau mutasi stok.
-              </>
-            )}
+          <p className="admin-header__subtitle">
+            {isMasterView
+              ? "Tambahkan produk master serta kelola data kategori, supplier, dan pencetakan tag harga rak."
+              : "Cari, periksa saldo stok terkini, dan kelola status maupun harga katalog barang terdaftar."}
           </p>
         </div>
-        {view === "list" && (
-          <div className="products-header__actions">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={syncingSheets || !sheetsSyncStatus?.enabled}
-              onClick={() => void handleSyncSheets()}
-            >
-              {syncingSheets ? "Menyinkronkan…" : "Sinkronkan Spreadsheet"}
+
+        {isCatalogView && onNavigateToCreate && (
+          <div className="admin-header__actions">
+            <Button type="button" variant="primary" onClick={onNavigateToCreate}>
+              <IconPlus size={18} />
+              <span>Tambah Barang</span>
             </Button>
-            {sheetsSyncStatus !== null && !sheetsSyncStatus.enabled && (
-              <span className="muted">Sinkronisasi spreadsheet belum dikonfigurasi.</span>
-            )}
-            {sheetsSyncStatusError !== null && (
-              <div className="account-load-error">
-                <span className="field-error" role="alert">
-                  {sheetsSyncStatusError}
-                </span>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setSheetsSyncStatusReloadKey((value) => value + 1)}
-                >
-                  Coba lagi
-                </Button>
-              </div>
-            )}
           </div>
         )}
-      </div>
-      {view === "list" && sheetsSyncFeedback && (
-        <StatusMessage tone={sheetsSyncFeedback.tone} text={sheetsSyncFeedback.text} />
-      )}
+      </header>
+
       {dataSource.catalogMode === "DEMO" && (
         <StatusMessage
           tone="warning"
@@ -728,177 +708,11 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
         />
       )}
 
-      {view !== "list" && (
-      <>
-      <div className="catalog-grid">
-        <form className="catalog-form" onSubmit={handleCreateCategory} aria-label="Buat kategori">
-          <h2 className="section-title">Kategori</h2>
-          <label htmlFor={`${categoryId}-new`} className="field-label">
-            Nama kategori baru
-          </label>
-          <input
-            id={`${categoryId}-new`}
-            className="input"
-            type="text"
-            maxLength={120}
-            value={categoryName}
-            onChange={(event) => setCategoryName(event.target.value)}
-            disabled={isSubmitting}
-          />
-          <Button type="submit" disabled={isSubmitting || categoryName.trim().length === 0}>
-            Tambah kategori
-          </Button>
-          <ul className="catalog-list" aria-label="Daftar kategori">
-            {(categories ?? []).map((item) => (
-              <li key={item.id}>{item.name}</li>
-            ))}
-          </ul>
-        </form>
-
-        <form className="catalog-form" onSubmit={handleCreateSupplier} aria-label="Buat supplier">
-          <h2 className="section-title">Supplier</h2>
-          <label htmlFor={`${supplierId}-new`} className="field-label">
-            Nama supplier baru
-          </label>
-          <input
-            id={`${supplierId}-new`}
-            className="input"
-            type="text"
-            maxLength={120}
-            value={supplierName}
-            onChange={(event) => setSupplierName(event.target.value)}
-            disabled={isSubmitting}
-          />
-          <Button type="submit" disabled={isSubmitting || supplierName.trim().length === 0}>
-            Tambah supplier
-          </Button>
-          <ul className="catalog-list" aria-label="Daftar supplier">
-            {(suppliers ?? []).map((item) => (
-              <li key={item.id}>{item.name}</li>
-            ))}
-          </ul>
-        </form>
-      </div>
-
-      <form className="product-form" onSubmit={handleCreateProduct} aria-label="Buat produk" noValidate>
-        <h2 className="section-title">Produk baru</h2>
-        {!canCreateProduct && !isLoading && (
-          <p className="muted">Buat minimal satu kategori sebelum menambah produk.</p>
-        )}
-        <div className="form-grid">
-          <div>
-            <label htmlFor={skuId} className="field-label">
-              SKU
-            </label>
-            <input
-              id={skuId}
-              className="input"
-              type="text"
-              maxLength={64}
-              autoComplete="off"
-              value={newSku}
-              onChange={(event) => setNewSku(event.target.value)}
-              disabled={isSubmitting || !canCreateProduct}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor={nameId} className="field-label">
-              Nama produk
-            </label>
-            <input
-              id={nameId}
-              className="input"
-              type="text"
-              maxLength={120}
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              disabled={isSubmitting || !canCreateProduct}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor={priceId} className="field-label">
-              Harga (Rp)
-            </label>
-            <input
-              id={priceId}
-              className="input"
-              type="text"
-              inputMode="numeric"
-              value={newPrice.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
-              onChange={(event) => setNewPrice(event.target.value.replace(/\./g, ""))}
-              disabled={isSubmitting || !canCreateProduct}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor={categoryId} className="field-label">
-              Kategori
-            </label>
-            <select
-              id={categoryId}
-              className="input"
-              value={newCategoryId}
-              onChange={(event) => setNewCategoryId(event.target.value)}
-              disabled={isSubmitting || !canCreateProduct}
-              required
-            >
-              <option value="">Pilih kategori…</option>
-              {(categories ?? []).map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <fieldset className="catalog-fieldset" disabled={isSubmitting || !canCreateProduct}>
-          <legend className="field-label">Supplier (opsional)</legend>
-          {(suppliers ?? []).length === 0 && <span className="muted">Belum ada supplier.</span>}
-          {(suppliers ?? []).map((item) => (
-            <label key={item.id} className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={newSupplierIds.includes(item.id)}
-                onChange={() => toggleSupplier(item.id)}
-              />
-              {item.name}
-            </label>
-          ))}
-        </fieldset>
-        <div>
-          <label htmlFor={barcodeId} className="field-label">
-            Barcode (satu per baris)
-          </label>
-          <textarea
-            id={barcodeId}
-            className="input"
-            rows={3}
-            value={newBarcodes}
-            onChange={(event) => setNewBarcodes(event.target.value)}
-            disabled={isSubmitting || !canCreateProduct}
-            placeholder="Contoh: 000123"
-          />
-          <p className="muted">
-            Barcode disimpan sebagai teks. Nol di depan tidak diubah menjadi angka.
-          </p>
-        </div>
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={isSubmitting || !canCreateProduct}
-        >
-          {isSubmitting ? "Menyimpan…" : "Simpan produk"}
-        </Button>
-      </form>
-      </>
-      )}
-
       {status && <StatusMessage tone={status.tone} text={status.text} />}
+
       {loadError && (
-        <div className="account-load-error">
-          <p className="field-error" role="alert">
+        <div className="admin-card account-load-error">
+          <p className="field-error" role="alert" style={{ margin: 0 }}>
             {loadError}
           </p>
           <Button variant="secondary" onClick={() => setReloadKey((value) => value + 1)}>
@@ -907,426 +721,1131 @@ export function ProductsPage({ dataSource, currentUser, onSessionExpired, view =
         </div>
       )}
 
-      {view !== "manage" && (
-      <>
-      {edit && (
-        <form className="product-form" onSubmit={handleSaveEdit} aria-label="Ubah produk">
-          <h2 className="section-title">Ubah produk {edit.product.sku}</h2>
-          <div className="form-grid">
-            <div>
-              <label htmlFor={`${nameId}-edit`} className="field-label">
-                Nama produk
-              </label>
-              <input
-                id={`${nameId}-edit`}
-                className="input"
-                type="text"
-                maxLength={120}
-                value={edit.name}
-                onChange={(event) => setEdit({ ...edit, name: event.target.value })}
-                disabled={isSubmitting}
-              />
-            </div>
-            <div>
-              <label htmlFor={`${priceId}-edit`} className="field-label">
-                Harga (Rp)
-              </label>
-              <input
-                id={`${priceId}-edit`}
-                className="input"
-                type="text"
-                inputMode="numeric"
-                value={edit.price.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
-                onChange={(event) => setEdit({ ...edit, price: event.target.value.replace(/\./g, "") })}
-                disabled={isSubmitting}
-              />
-            </div>
-            <div>
-              <label htmlFor={`${categoryId}-edit`} className="field-label">
-                Kategori
-              </label>
-              <select
-                id={`${categoryId}-edit`}
-                className="input"
-                value={edit.categoryId}
-                onChange={(event) => setEdit({ ...edit, categoryId: event.target.value })}
-                disabled={isSubmitting}
-              >
-                {(categories ?? []).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="catalog-barcodes">
-            <h3 className="section-title">Barcode</h3>
-            <ul className="catalog-list" aria-label="Barcode produk">
-              {edit.product.barcodes.length === 0 && <li className="muted">Belum ada barcode.</li>}
-              {edit.product.barcodes.map((barcode) => (
-                <li key={barcode}>
-                  <code>{barcode}</code>{" "}
-                  <Button
-                    variant="destructive"
-                    aria-label={`Hapus barcode ${barcode}`}
-                    disabled={busyProductId !== null}
-                    onClick={() =>
-                      setConfirmation({
-                        kind: "remove-barcode",
-                        product: edit.product,
-                        barcode,
-                      })
-                    }
-                  >
-                    Hapus
-                  </Button>
-                </li>
-              ))}
-            </ul>
-            <label htmlFor={`${barcodeId}-add`} className="field-label">
-              Barcode baru
-            </label>
-            <input
-              id={`${barcodeId}-add`}
-              className="input"
-              type="text"
-              maxLength={64}
-              value={edit.newBarcode}
-              onChange={(event) => setEdit({ ...edit, newBarcode: event.target.value })}
-              disabled={busyProductId !== null}
-              placeholder="000123"
-            />
-            <Button
-              variant="secondary"
-              aria-label={`Tambah barcode ${edit.product.sku}`}
-              disabled={busyProductId !== null || edit.newBarcode.trim().length === 0}
-              onClick={() => void handleAddBarcode()}
-            >
-              Tambah barcode
-            </Button>
-          </div>
-          <div className="dialog__actions">
-            <Button type="submit" variant="primary" disabled={isSubmitting}>
-              {isSubmitting ? "Menyimpan…" : "Simpan perubahan"}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={isSubmitting}
-              onClick={(event) => {
-                event.preventDefault();
-                setEdit(null);
-              }}
-            >
-              Batal ubah
-            </Button>
-          </div>
-        </form>
-      )}
-
-      {view !== "list" && <h2 className="section-title">Daftar barang</h2>}
-      <form
-        className="catalog-search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setShowSuggestions(false);
-          setAppliedQuery(truncateToCodeUnits(searchInput.trim(), 80));
-        }}
-        role="search"
-        aria-label="Cari produk admin"
-      >
-        <div className="catalog-search__field">
-          <label htmlFor={searchId} className="field-label">
-            Cari produk
-          </label>
-          <input
-            id={searchId}
-            className="input"
-            type="search"
-            name="query"
-            maxLength={80}
-            placeholder="Ketik nama, SKU, atau barcode…"
-            value={searchInput}
-            onFocus={() => setShowSuggestions(true)}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setSearchInput(nextValue);
-              setShowSuggestions(true);
-              if (appliedQuery !== "" && nextValue.trim() !== appliedQuery) {
-                setAppliedQuery("");
-              }
-            }}
-          />
-          {searchSuggestions.length > 0 && (
-            <ul className="catalog-suggestions" role="listbox" aria-label="Saran produk">
-              {searchSuggestions.map((item) => (
-                <li key={item.id} role="option" aria-selected={false}>
-                  <button
-                    type="button"
-                    className="catalog-suggestions__item"
-                    onClick={() => {
-                      setSearchInput(truncateToCodeUnits(item.name, 80));
-                      setShowSuggestions(false);
-                    }}
-                  >
-                    <span>{item.name}</span>
-                    <span className="muted"> · {item.sku}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="catalog-search__filter">
-          <label htmlFor={statusFilterId} className="field-label">
-            Status
-          </label>
-          <select
-            id={statusFilterId}
-            className="input"
-            aria-label="Filter status barang"
-            value={statusFilter}
-            onChange={(event) =>
-              setStatusFilter(event.target.value as "all" | "active" | "inactive")
-            }
-          >
-            <option value="all">Semua</option>
-            <option value="active">Aktif</option>
-            <option value="inactive">Nonaktif</option>
-          </select>
-        </div>
-        <div className="catalog-search__filter">
-          <label htmlFor={stockFilterId} className="field-label">
-            Kondisi Stok
-          </label>
-          <select
-            id={stockFilterId}
-            className="input"
-            aria-label="Filter kondisi stok"
-            value={stockFilter}
-            onChange={(event) =>
-              setStockFilter(event.target.value as "all" | "safe" | "low" | "empty")
-            }
-          >
-            <option value="all">Semua</option>
-            <option value="safe">Stok Aman</option>
-            <option value="low">Stok Menipis</option>
-            <option value="empty">Stok Habis</option>
-          </select>
-        </div>
-        <div className="catalog-search__actions">
-          <Button type="submit">Cari</Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              setSearchInput("");
-              setAppliedQuery("");
-              setListCategoryId("all");
-              setStatusFilter("all");
-              setStockFilter("all");
-              setShowSuggestions(false);
-            }}
-          >
-            Tampilkan semua
-          </Button>
-        </div>
-      </form>
-      {categories !== null && categories.length > 0 && (
-        <div className="catalog-category-bar" role="group" aria-label="Filter kategori barang">
-          <Button
-            type="button"
-            variant={listCategoryId === "all" ? "primary" : "secondary"}
-            aria-pressed={listCategoryId === "all"}
-            onClick={() => setListCategoryId("all")}
-          >
-            Semua
-          </Button>
-          {categories.map((cat) => {
-            const selected = listCategoryId === String(cat.id);
-            return (
-              <Button
-                key={cat.id}
+      {/* =====================================================================
+          BAGIAN 1: DAFTAR BARANG (MASTER DATA INPUT, KATEGORI, SUPPLIER, TAG)
+          ===================================================================== */}
+      {view !== "list" && (
+        <>
+          {isMasterView && (
+            <div className="admin-tabs" role="tablist" aria-label="Submenu Daftar Barang">
+              <button
                 type="button"
-                variant={selected ? "primary" : "secondary"}
-                aria-pressed={selected}
-                onClick={() => setListCategoryId(String(cat.id))}
+                role="tab"
+                aria-selected={masterTab === "product"}
+                className={masterTab === "product" ? "admin-tab admin-tab--active" : "admin-tab"}
+                onClick={() => setMasterTab("product")}
               >
-                {cat.name}
-              </Button>
-            );
-          })}
-        </div>
+                <IconPlus size={18} />
+                <span>Tambah Barang</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={masterTab === "category"}
+                className={masterTab === "category" ? "admin-tab admin-tab--active" : "admin-tab"}
+                onClick={() => setMasterTab("category")}
+              >
+                <IconLayers size={18} />
+                <span>Kategori ({categories?.length ?? 0})</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={masterTab === "supplier"}
+                className={masterTab === "supplier" ? "admin-tab admin-tab--active" : "admin-tab"}
+                onClick={() => setMasterTab("supplier")}
+              >
+                <IconTruck size={18} />
+                <span>Supplier ({suppliers?.length ?? 0})</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={masterTab === "tags"}
+                className={masterTab === "tags" ? "admin-tab admin-tab--active" : "admin-tab"}
+                onClick={() => setMasterTab("tags")}
+              >
+                <IconTag size={18} />
+                <span>Tag Harga</span>
+              </button>
+            </div>
+          )}
+
+          {showProductForm && (
+            <form className="admin-card" onSubmit={handleCreateProduct} aria-label="Buat produk" noValidate>
+              <div className="admin-card__header">
+                <div>
+                  <h2 className="admin-card__title">Informasi Barang</h2>
+                  <p className="admin-card__desc">
+                    Daftarkan katalog barang baru. Stok awal dicatat terpisah melalui Penerimaan atau Koreksi Stok.
+                  </p>
+                </div>
+              </div>
+
+              {!canCreateProduct && !isLoading && (
+                <StatusMessage
+                  tone="warning"
+                  text="Buat minimal satu kategori terlebih dahulu pada bagian Kategori sebelum menambah produk."
+                />
+              )}
+
+              <div className="admin-split-55-45" style={{ marginTop: "12px" }}>
+                {/* Kiri: Informasi Dasar Barang */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <div>
+                    <div style={{ display: "flex", gap: "4px", alignItems: "baseline" }}>
+                      <label htmlFor={nameId} className="field-label">
+                        Nama produk
+                      </label>
+                      <span aria-hidden="true" style={{ color: "var(--color-danger)", fontWeight: 700 }}>*</span>
+                    </div>
+                    <input
+                      id={nameId}
+                      className="input"
+                      type="text"
+                      maxLength={120}
+                      placeholder="Contoh: Air Mineral 600 ml"
+                      value={newName}
+                      onChange={(event) => setNewName(event.target.value)}
+                      disabled={isSubmitting || !canCreateProduct}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-grid">
+                    <div>
+                      <div style={{ display: "flex", gap: "4px", alignItems: "baseline" }}>
+                        <label htmlFor={skuId} className="field-label">
+                          SKU
+                        </label>
+                        <span aria-hidden="true" style={{ color: "var(--color-danger)", fontWeight: 700 }}>*</span>
+                      </div>
+                      <input
+                        id={skuId}
+                        className="input"
+                        type="text"
+                        maxLength={64}
+                        autoComplete="off"
+                        placeholder="Contoh: MIN-001"
+                        value={newSku}
+                        onChange={(event) => setNewSku(event.target.value)}
+                        disabled={isSubmitting || !canCreateProduct}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ display: "flex", gap: "4px", alignItems: "baseline" }}>
+                        <label htmlFor={categoryId} className="field-label">
+                          Kategori
+                        </label>
+                        <span aria-hidden="true" style={{ color: "var(--color-danger)", fontWeight: 700 }}>*</span>
+                      </div>
+                      <select
+                        id={categoryId}
+                        className="input"
+                        value={newCategoryId}
+                        onChange={(event) => setNewCategoryId(event.target.value)}
+                        disabled={isSubmitting || !canCreateProduct}
+                        required
+                      >
+                        <option value="">Pilih kategori…</option>
+                        {(categories ?? []).map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ display: "flex", gap: "4px", alignItems: "baseline" }}>
+                      <label htmlFor={priceId} className="field-label">
+                        Harga (Rp)
+                      </label>
+                      <span aria-hidden="true" style={{ color: "var(--color-danger)", fontWeight: 700 }}>*</span>
+                    </div>
+                    <input
+                      id={priceId}
+                      className="input"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Contoh: 5.000"
+                      value={newPrice.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
+                      onChange={(event) => setNewPrice(event.target.value.replace(/\./g, ""))}
+                      disabled={isSubmitting || !canCreateProduct}
+                      required
+                    />
+                    <span className="field-hint">Bilangan bulat Rupiah tanpa desimal.</span>
+                  </div>
+
+                  <p className="muted" style={{ margin: "4px 0 0", fontSize: "12px" }}>
+                    * Wajib diisi sebelum menyimpan produk.
+                  </p>
+                </div>
+
+                {/* Kanan: Supplier & Barcode */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <fieldset className="catalog-fieldset" style={{ margin: 0 }} disabled={isSubmitting || !canCreateProduct}>
+                    <legend className="field-label">
+                      Supplier (opsional)
+                      {newSupplierIds.length > 0 ? ` · ${newSupplierIds.length} dipilih` : ""}
+                    </legend>
+                    {(suppliers ?? []).length > 5 && (
+                      <input
+                        type="search"
+                        className="input"
+                        style={{ marginBottom: "8px", minHeight: "38px" }}
+                        placeholder="Filter nama supplier…"
+                        value={supplierFilter}
+                        onChange={(event) => setSupplierFilter(event.target.value)}
+                      />
+                    )}
+                    {(suppliers ?? []).length === 0 ? (
+                      <span className="muted">Belum ada supplier terdaftar.</span>
+                    ) : (
+                      <div style={{ maxHeight: "140px", overflowY: "auto" }}>
+                        {filteredSuppliers.map((item) => (
+                          <label key={item.id} className="checkbox-row">
+                            <input
+                              type="checkbox"
+                              checked={newSupplierIds.includes(item.id)}
+                              onChange={() => toggleSupplier(item.id)}
+                            />
+                            <span>{item.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </fieldset>
+
+                  <div className="catalog-fieldset" style={{ margin: 0 }}>
+                    <label htmlFor={barcodeId} className="field-label">
+                      Barcode (satu per baris)
+                    </label>
+                    <div className="search__row" style={{ marginBottom: "8px" }}>
+                      <input
+                        type="text"
+                        className="input"
+                        maxLength={64}
+                        placeholder="Scan atau ketik kode barcode…"
+                        value={barcodeDraft}
+                        disabled={isSubmitting || !canCreateProduct}
+                        onChange={(event) => setBarcodeDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            appendBarcodeDraft();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={isSubmitting || !canCreateProduct || barcodeDraft.trim().length === 0}
+                        onClick={appendBarcodeDraft}
+                      >
+                        <IconPlus size={16} />
+                        <span>Tambah</span>
+                      </Button>
+                    </div>
+                    <textarea
+                      id={barcodeId}
+                      className="input"
+                      rows={2}
+                      value={newBarcodes}
+                      onChange={(event) => setNewBarcodes(event.target.value)}
+                      disabled={isSubmitting || !canCreateProduct}
+                      placeholder="Contoh: 000123"
+                    />
+                    {parsedNewBarcodes.length > 0 && (
+                      <div className="barcode-chip-list" aria-label="Pratinjau barcode baru">
+                        {parsedNewBarcodes.map((code) => (
+                          <span key={code} className="barcode-chip">
+                            <span>{code}</span>
+                            <button
+                              type="button"
+                              className="barcode-chip__remove"
+                              aria-label={`Hapus pratinjau barcode ${code}`}
+                              onClick={() => removeDraftBarcode(code)}
+                            >
+                              <IconX size={14} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <span className="field-hint">
+                      Barcode disimpan sebagai teks; angka nol di depan tetap dipertahankan.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="dialog__actions" style={{ borderTop: "1px solid var(--color-border)", paddingTop: "12px" }}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={isSubmitting}
+                  onClick={resetCreateProductForm}
+                >
+                  <IconRotateCcw size={16} />
+                  <span>Reset</span>
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={isSubmitting || !canCreateProduct}
+                >
+                  <IconCheckCircle size={18} />
+                  <span>{isSubmitting ? "Menyimpan…" : "Simpan produk"}</span>
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {(showCategorySection || showSupplierSection) && (
+            <div className={view === "all" ? "catalog-grid" : undefined}>
+              {showCategorySection && (
+                <div className="admin-card">
+                  <form onSubmit={handleCreateCategory} aria-label="Buat kategori">
+                    <div className="admin-card__header">
+                      <div>
+                        <h2 className="admin-card__title">Kategori Barang</h2>
+                        <p className="admin-card__desc">Kelompokkan produk agar pencarian katalog lebih terstruktur.</p>
+                      </div>
+                    </div>
+                    <div className="search__row" style={{ alignItems: "flex-end", marginBottom: "16px" }}>
+                      <div style={{ flex: 1 }}>
+                        <label htmlFor={`${categoryId}-new`} className="field-label">
+                          Nama kategori baru
+                        </label>
+                        <input
+                          id={`${categoryId}-new`}
+                          className="input"
+                          type="text"
+                          maxLength={120}
+                          placeholder="Contoh: Makanan Ringan"
+                          value={categoryName}
+                          onChange={(event) => setCategoryName(event.target.value)}
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                      <Button type="submit" variant="primary" disabled={isSubmitting || categoryName.trim().length === 0}>
+                        <IconPlus size={18} />
+                        <span>Tambah kategori</span>
+                      </Button>
+                    </div>
+                  </form>
+
+                  {(categories ?? []).length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="admin-empty__icon">
+                        <IconLayers size={24} />
+                      </span>
+                      <p className="admin-empty__title">Belum ada kategori</p>
+                      <p className="admin-empty__desc">Tambahkan minimal satu kategori untuk mulai mendaftarkan barang.</p>
+                    </div>
+                  ) : (
+                    <div className="table-wrap">
+                      <table className="table" aria-label="Daftar kategori">
+                        <thead>
+                          <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">Nama Kategori</th>
+                            <th scope="col" className="num">Produk Dimuat</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(categories ?? []).map((item) => {
+                            const count = (products ?? []).filter((p) => p.categoryId === item.id).length;
+                            return (
+                              <tr key={item.id}>
+                                <td className="muted">#{item.id}</td>
+                                <td className="cell-primary">{item.name}</td>
+                                <td className="num">{count}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {showSupplierSection && (
+                <div className="admin-card">
+                  <form onSubmit={handleCreateSupplier} aria-label="Buat supplier">
+                    <div className="admin-card__header">
+                      <div>
+                        <h2 className="admin-card__title">Data Supplier</h2>
+                        <p className="admin-card__desc">Daftar pemasok resmi untuk pencatatan penerimaan barang.</p>
+                      </div>
+                    </div>
+                    <div className="search__row" style={{ alignItems: "flex-end", marginBottom: "16px" }}>
+                      <div style={{ flex: 1 }}>
+                        <label htmlFor={`${supplierId}-new`} className="field-label">
+                          Nama supplier baru
+                        </label>
+                        <input
+                          id={`${supplierId}-new`}
+                          className="input"
+                          type="text"
+                          maxLength={120}
+                          placeholder="Contoh: PT Sumber Segar"
+                          value={supplierName}
+                          onChange={(event) => setSupplierName(event.target.value)}
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                      <Button type="submit" variant="primary" disabled={isSubmitting || supplierName.trim().length === 0}>
+                        <IconPlus size={18} />
+                        <span>Tambah supplier</span>
+                      </Button>
+                    </div>
+                  </form>
+
+                  {(suppliers ?? []).length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="admin-empty__icon">
+                        <IconTruck size={24} />
+                      </span>
+                      <p className="admin-empty__title">Belum ada supplier</p>
+                      <p className="admin-empty__desc">Tambahkan nama pemasok agar dapat dipilih pada penerimaan barang.</p>
+                    </div>
+                  ) : (
+                    <div className="table-wrap">
+                      <table className="table" aria-label="Daftar supplier">
+                        <thead>
+                          <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">Nama Supplier</th>
+                            <th scope="col" className="num">Produk Terkait</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(suppliers ?? []).map((item) => {
+                            const count = (products ?? []).filter((p) => p.supplierIds.includes(item.id)).length;
+                            return (
+                              <tr key={item.id}>
+                                <td className="muted">#{item.id}</td>
+                                <td className="cell-primary">{item.name}</td>
+                                <td className="num">{count}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {showTagSection &&
+            ((allActiveProducts && allActiveProducts.length > 0) ||
+              (products && products.length > 0) ||
+              tagLoadError !== null ||
+              isMasterView) &&
+            (() => {
+              const tagSource = allActiveProducts ?? [];
+              const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
+              const categoryTags = buildPriceTags(tagSource, selectedCategory);
+              const excludedSet = new Set(excludedTagProductIds);
+              const batchTags = categoryTags.filter((tag) => !excludedSet.has(tag.productId));
+
+              return (
+                <section className="admin-card" aria-label="Tag harga otomatis">
+                  <div className="admin-card__header">
+                    <div>
+                      <h2 className="admin-card__title">Tag Harga Rak</h2>
+                      <p className="admin-card__desc">
+                        Unduh PDF tag harga rak dari produk aktif (nama toko, nama barang, harga jual, kode barcode teks, dan SKU).
+                      </p>
+                    </div>
+                  </div>
+
+                  {tagLoadError && (
+                    <div className="account-load-error" style={{ marginBottom: "12px" }}>
+                      <p className="field-error" role="alert" style={{ margin: 0 }}>
+                        {tagLoadError}
+                      </p>
+                      <Button variant="secondary" onClick={invalidatePendingReadsAndRefresh}>
+                        Coba lagi
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="admin-toolbar" style={{ padding: "12px", background: "var(--color-bg)" }}>
+                    <div className="admin-toolbar__controls">
+                      <div className="admin-toolbar__field">
+                        <label htmlFor="tag-category-filter" className="field-label">
+                          Batch tag harga
+                        </label>
+                        <select
+                          id="tag-category-filter"
+                          className="input"
+                          value={tagCategoryId}
+                          onChange={(event) => {
+                            setTagCategoryId(event.target.value);
+                            setExcludedTagProductIds([]);
+                          }}
+                        >
+                          <option value="all">Semua produk aktif</option>
+                          {(categories ?? []).map((cat) => (
+                            <option key={cat.id} value={String(cat.id)}>
+                              {cat.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {excludedTagProductIds.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setExcludedTagProductIds([])}
+                        >
+                          Pilih semua ({categoryTags.length})
+                        </Button>
+                      )}
+                    </div>
+
+                    <Button
+                      variant="primary"
+                      disabled={allActiveProducts === null}
+                      onClick={() => {
+                        if (batchTags.length === 0) {
+                          setStatus({
+                            tone: "warning",
+                            text: "Tidak ada produk aktif pada batch tag harga yang dipilih.",
+                          });
+                          return;
+                        }
+                        const blob = buildPriceTagsPdfBlob(batchTags);
+                        const url = URL.createObjectURL(blob);
+                        const anchor = document.createElement("a");
+                        anchor.href = url;
+                        anchor.download = "tag-harga.pdf";
+                        anchor.click();
+                        URL.revokeObjectURL(url);
+                        setStatus({
+                          tone: "success",
+                          text: `Tag harga disiapkan untuk ${batchTags.length} produk.`,
+                        });
+                      }}
+                    >
+                      <IconPrinter size={18} />
+                      <span>Cetak / PDF Tag Harga ({batchTags.length})</span>
+                    </Button>
+                  </div>
+
+                  {isMasterView && categoryTags.length > 0 && (
+                    <>
+                      <p className="field-hint" style={{ marginTop: "12px" }}>
+                        Pratinjau label ({Math.min(6, batchTags.length)} dari {batchTags.length} produk terpilih). Nomor barcode dicetak sebagai teks sesuai katalog.
+                      </p>
+                      <div className="price-tag-grid">
+                        {categoryTags.slice(0, 6).map((tag) => {
+                          const checked = !excludedSet.has(tag.productId);
+                          return (
+                            <div key={tag.productId} className="price-tag-card">
+                              <div className="price-tag-card__store" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span>{tag.storeName}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  aria-label={`Sertakan tag ${tag.name}`}
+                                  onChange={() =>
+                                    setExcludedTagProductIds((prev) =>
+                                      prev.includes(tag.productId)
+                                        ? prev.filter((id) => id !== tag.productId)
+                                        : [...prev, tag.productId],
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div className="price-tag-card__name">{tag.name}</div>
+                              <div className="price-tag-card__price">{tag.formattedPrice}</div>
+                              <div className="price-tag-card__codes">
+                                <span>Barcode: {tag.barcode || "—"}</span>
+                                <span>SKU: {tag.sku}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </section>
+              );
+            })()}
+        </>
       )}
 
-      {!loadError && categoryPageError && (
-        <div className="report-toolbar">
-          <p className="field-error" role="alert">
-            {categoryPageError}
-          </p>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => setCategoryReloadKey((previous) => previous + 1)}
-          >
-            Coba lagi
-          </Button>
-        </div>
-      )}
-      {!loadError && (visibleProducts === null || categoryPageLoading) && (
-        <p className="muted">{categoryPageLoading ? "Memuat produk kategori…" : "Memuat katalog…"}</p>
-      )}
-      {!loadError && !categoryPageLoading && !categoryPageError && visibleProducts !== null && visibleProducts.length === 0 && (
-        <p className="muted">Belum ada produk yang cocok.</p>
-      )}
-      {!loadError && visibleProducts !== null && visibleProducts.length > 0 && (
-        <div className="table-wrap">
-          <table className="table" aria-label="Daftar barang">
-            <thead>
-              <tr>
-                <th scope="col">SKU</th>
-                <th scope="col">Nama</th>
-                <th scope="col">Kategori</th>
-                <th scope="col" className="num">
-                  Harga
-                </th>
-                <th scope="col" className="num">
-                  Stok
-                </th>
-                <th scope="col">Status</th>
-                <th scope="col">Barcode</th>
-                <th scope="col">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleProducts.map((product) => (
-                <tr key={product.id}>
-                  <td>
-                    <code>{product.sku}</code>
-                  </td>
-                  <td>{product.name}</td>
-                  <td>{product.categoryName}</td>
-                  <td className="num">
-                    <MoneyText amountRp={product.priceRp} />
-                  </td>
-                  <td className="num stock-cell">
-                    <div className="stock-cell__wrap">
-                      <span className="stock-cell__qty">{product.stockOnHand}</span>
-                      <StockBadge stock={product.stockOnHand} />
-                    </div>
-                  </td>
-                  <td>
-                    {product.active ? (
-                      <span className="badge badge--ok">Aktif</span>
-                    ) : (
-                      <span className="badge">Nonaktif</span>
-                    )}
-                  </td>
-                  <td>
-                    {product.barcodes.length === 0 ? (
-                      <span className="muted">—</span>
-                    ) : (
-                      <span className="barcode-cell">{product.barcodes.join(", ")}</span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="table-actions">
+      {/* =====================================================================
+          BAGIAN 2: BARANG/STOK (TABEL KATALOG, FILTER & UBAH PRODUK)
+          ===================================================================== */}
+      {view !== "manage" && (
+        <>
+          {/* Empat KPI Ringkasan Katalog */}
+          <div className="admin-kpi-grid">
+            <div className="admin-kpi-card">
+              <div className="admin-kpi-card__top">
+                <span className="admin-kpi-card__label">Total barang</span>
+                <span className="admin-kpi-card__icon">
+                  <IconPackage size={18} />
+                </span>
+              </div>
+              <div className="admin-kpi-card__value">{totalLoaded}</div>
+              <p className="admin-kpi-card__meta">
+                {products && products.length === MAX_PRODUCTS
+                  ? "Batas muat awal 100 produk katalog"
+                  : "Seluruh produk terdaftar"}
+              </p>
+            </div>
+
+            <div className="admin-kpi-card">
+              <div className="admin-kpi-card__top">
+                <span className="admin-kpi-card__label">Aktif</span>
+                <span className="admin-kpi-card__icon">
+                  <IconCheckCircle size={18} />
+                </span>
+              </div>
+              <div className="admin-kpi-card__value">{activeCount}</div>
+              <p className="admin-kpi-card__meta">Tersedia untuk pencarian & scan kasir</p>
+            </div>
+
+            <div className="admin-kpi-card admin-kpi-card--warning">
+              <div className="admin-kpi-card__top">
+                <span className="admin-kpi-card__label">Menipis</span>
+                <span className="admin-kpi-card__icon">
+                  <IconAlertTriangle size={18} />
+                </span>
+              </div>
+              <div className="admin-kpi-card__value">{lowCount}</div>
+              <p className="admin-kpi-card__meta">Saldo 1 s.d. {DEMO_LOW_STOCK_THRESHOLD} unit</p>
+            </div>
+
+            <div className="admin-kpi-card admin-kpi-card--danger">
+              <div className="admin-kpi-card__top">
+                <span className="admin-kpi-card__label">Habis</span>
+                <span className="admin-kpi-card__icon">
+                  <IconXCircle size={18} />
+                </span>
+              </div>
+              <div className="admin-kpi-card__value">{emptyCount}</div>
+              <p className="admin-kpi-card__meta">Saldo 0 unit (penjualan diblokir)</p>
+            </div>
+          </div>
+
+          {edit && (
+            <form className="admin-card product-form" style={{ margin: 0 }} onSubmit={handleSaveEdit} aria-label="Ubah produk">
+              <div className="admin-card__header">
+                <div>
+                  <h2 className="admin-card__title">Ubah Produk · {edit.product.sku}</h2>
+                  <p className="admin-card__desc">
+                    Perubahan harga berlaku pada checkout berikutnya; transaksi lama tetap memakai harga historis.
+                  </p>
+                </div>
+              </div>
+
+              <div className="form-grid">
+                <div>
+                  <label htmlFor={`${nameId}-edit`} className="field-label">
+                    Nama produk
+                  </label>
+                  <input
+                    id={`${nameId}-edit`}
+                    className="input"
+                    type="text"
+                    maxLength={120}
+                    value={edit.name}
+                    onChange={(event) => setEdit({ ...edit, name: event.target.value })}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <div>
+                  <label htmlFor={`${priceId}-edit`} className="field-label">
+                    Harga (Rp)
+                  </label>
+                  <input
+                    id={`${priceId}-edit`}
+                    className="input"
+                    type="text"
+                    inputMode="numeric"
+                    value={edit.price.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
+                    onChange={(event) => setEdit({ ...edit, price: event.target.value.replace(/\./g, "") })}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <div>
+                  <label htmlFor={`${categoryId}-edit`} className="field-label">
+                    Kategori
+                  </label>
+                  <select
+                    id={`${categoryId}-edit`}
+                    className="input"
+                    value={edit.categoryId}
+                    onChange={(event) => setEdit({ ...edit, categoryId: event.target.value })}
+                    disabled={isSubmitting}
+                  >
+                    {(categories ?? []).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="catalog-barcodes">
+                <h3 className="section-title">Barcode Terdaftar</h3>
+                <ul className="catalog-list" aria-label="Barcode produk" style={{ listStyle: "none", paddingLeft: 0, display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  {edit.product.barcodes.length === 0 && <li className="muted">Belum ada barcode.</li>}
+                  {edit.product.barcodes.map((barcode) => (
+                    <li key={barcode} className="barcode-chip">
+                      <code>{barcode}</code>
                       <Button
-                        variant="secondary"
-                        aria-label={`Ubah ${product.sku}`}
-                        disabled={busyProductId !== null || isSubmitting}
+                        variant="destructive"
+                        className="btn--icon"
+                        style={{ minHeight: "28px", minWidth: "28px", padding: "0 8px", fontSize: "12px", marginTop: 0 }}
+                        aria-label={`Hapus barcode ${barcode}`}
+                        disabled={busyProductId !== null}
                         onClick={() =>
-                          setEdit({
-                            product,
-                            name: product.name,
-                            price: String(product.priceRp),
-                            categoryId: String(product.categoryId),
-                            newBarcode: "",
+                          setConfirmation({
+                            kind: "remove-barcode",
+                            product: edit.product,
+                            barcode,
                           })
                         }
                       >
-                        Ubah
+                        <IconTrash size={14} />
+                        <span>Hapus</span>
                       </Button>
-                      <Button
-                        variant={product.active ? "secondary" : "primary"}
-                        className={product.active ? "btn--outline-danger" : undefined}
-                        aria-label={`${product.active ? "Nonaktifkan" : "Aktifkan"} ${product.sku}`}
-                        disabled={busyProductId !== null || isSubmitting}
-                        onClick={() => setConfirmation({ kind: "toggle", product, nextActive: !product.active })}
-                      >
-                        {product.active ? "Nonaktifkan" : "Aktifkan"}
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {!loadError && products !== null && products.length === MAX_PRODUCTS && (
-        <p className="muted" role="note">
-          Menampilkan 100 produk pertama. Gunakan pencarian untuk produk lainnya.
-        </p>
-      )}
-      </>
-      )}
+                    </li>
+                  ))}
+                </ul>
 
-      {view !== "list" && ((allActiveProducts && allActiveProducts.length > 0) || (products && products.length > 0) || tagLoadError !== null) && (() => {
-        const tagSource = allActiveProducts ?? [];
-        const selectedCategory = tagCategoryId === "all" ? null : Number(tagCategoryId);
-        const batchTags = buildPriceTags(tagSource, selectedCategory);
-        return (
-        <section className="panel" aria-label="Tag harga otomatis" style={{ marginTop: "20px" }}>
-          <h2 className="section-title">Tag Harga Otomatis (Ide 2)</h2>
-          <p className="muted">
-            Cetak atau simpan PDF tag harga rak dari database (layout header toko, nama produk, harga, barcode EAN-13, dan slogan).
-          </p>
-          {tagLoadError && (
-            <div className="report-toolbar">
-              <p className="field-error" role="alert">{tagLoadError}</p>
-              <Button variant="secondary" onClick={invalidatePendingReadsAndRefresh}>
-                Coba lagi
-              </Button>
-            </div>
+                <div className="search__row" style={{ alignItems: "flex-end", marginTop: "12px", maxWidth: "460px" }}>
+                  <div style={{ flex: 1 }}>
+                    <label htmlFor={`${barcodeId}-add`} className="field-label">
+                      Barcode baru
+                    </label>
+                    <input
+                      id={`${barcodeId}-add`}
+                      className="input"
+                      type="text"
+                      maxLength={64}
+                      value={edit.newBarcode}
+                      onChange={(event) => setEdit({ ...edit, newBarcode: event.target.value })}
+                      disabled={busyProductId !== null}
+                      placeholder="000123"
+                    />
+                  </div>
+                  <Button
+                    variant="secondary"
+                    style={{ marginTop: 0 }}
+                    aria-label={`Tambah barcode ${edit.product.sku}`}
+                    disabled={busyProductId !== null || edit.newBarcode.trim().length === 0}
+                    onClick={() => void handleAddBarcode()}
+                  >
+                    <IconPlus size={16} />
+                    <span>Tambah barcode</span>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="dialog__actions" style={{ borderTop: "1px solid var(--color-border)", paddingTop: "12px" }}>
+                <Button
+                  variant="secondary"
+                  disabled={isSubmitting}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setEdit(null);
+                  }}
+                >
+                  Batal ubah
+                </Button>
+                <Button type="submit" variant="primary" disabled={isSubmitting}>
+                  {isSubmitting ? "Menyimpan…" : "Simpan perubahan"}
+                </Button>
+              </div>
+            </form>
           )}
-          <div className="report-toolbar">
-            <label htmlFor="tag-category-filter" className="field-label">Batch tag harga</label>
-            <select
-              id="tag-category-filter"
-              className="input"
-              value={tagCategoryId}
-              onChange={(event) => setTagCategoryId(event.target.value)}
-            >
-              <option value="all">Semua produk aktif</option>
-              {(categories ?? []).map((cat) => (
-                <option key={cat.id} value={String(cat.id)}>{cat.name}</option>
-              ))}
-            </select>
-            <Button
-              variant="secondary"
-              disabled={allActiveProducts === null}
-              onClick={() => {
-                if (batchTags.length === 0) {
-                  setStatus({ tone: "warning", text: "Tidak ada produk aktif pada batch tag harga yang dipilih." });
-                  return;
-                }
-                const blob = buildPriceTagsPdfBlob(batchTags);
-                const url = URL.createObjectURL(blob);
-                const anchor = document.createElement("a");
-                anchor.href = url;
-                anchor.download = "tag-harga.pdf";
-                anchor.click();
-                URL.revokeObjectURL(url);
-                setStatus({ tone: "success", text: `Tag harga disiapkan untuk ${batchTags.length} produk.` });
+
+          <div className="admin-card">
+            {view !== "list" && <h2 className="admin-card__title" style={{ marginBottom: "12px" }}>Daftar barang</h2>}
+
+            <form
+              className="catalog-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setShowSuggestions(false);
+                setPageIndex(0);
+                setAppliedQuery(truncateToCodeUnits(searchInput.trim(), 80));
               }}
+              role="search"
+              aria-label="Cari produk admin"
             >
-              Cetak / PDF Tag Harga ({batchTags.length})
-            </Button>
+              <div className="catalog-search__field">
+                <label htmlFor={searchId} className="field-label">
+                  Cari produk
+                </label>
+                <div className="input-with-icon">
+                  <span className="input-with-icon__prefix">
+                    <IconSearch size={16} />
+                  </span>
+                  <input
+                    id={searchId}
+                    className="input input--pl"
+                    type="search"
+                    name="query"
+                    maxLength={80}
+                    placeholder="Ketik nama, SKU, atau barcode…"
+                    value={searchInput}
+                    onFocus={() => setShowSuggestions(true)}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setSearchInput(nextValue);
+                      setShowSuggestions(true);
+                      setPageIndex(0);
+                      if (appliedQuery !== "" && nextValue.trim() !== appliedQuery) {
+                        setAppliedQuery("");
+                      }
+                    }}
+                  />
+                </div>
+                {searchSuggestions.length > 0 && (
+                  <ul className="catalog-suggestions" role="listbox" aria-label="Saran produk">
+                    {searchSuggestions.map((item) => (
+                      <li key={item.id} role="option" aria-selected={false}>
+                        <button
+                          type="button"
+                          className="catalog-suggestions__item"
+                          onClick={() => {
+                            setSearchInput(truncateToCodeUnits(item.name, 80));
+                            setShowSuggestions(false);
+                            setPageIndex(0);
+                          }}
+                        >
+                          <span>{item.name}</span>
+                          <span className="muted"> · {item.sku}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="catalog-search__filter">
+                <label htmlFor={categoryDropdownId} className="field-label">
+                  Filter Kategori
+                </label>
+                <select
+                  id={categoryDropdownId}
+                  className="input"
+                  aria-label="Filter dropdown kategori"
+                  value={listCategoryId}
+                  onChange={(event) => {
+                    setListCategoryId(event.target.value);
+                    setPageIndex(0);
+                  }}
+                >
+                  <option value="all">Semua kategori</option>
+                  {(categories ?? []).map((cat) => (
+                    <option key={cat.id} value={String(cat.id)}>
+                      Kategori: {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="catalog-search__filter">
+                <label htmlFor={statusFilterId} className="field-label">
+                  Status
+                </label>
+                <select
+                  id={statusFilterId}
+                  className="input"
+                  aria-label="Filter status barang"
+                  value={statusFilter}
+                  onChange={(event) => {
+                    setStatusFilter(event.target.value as "all" | "active" | "inactive");
+                    setPageIndex(0);
+                  }}
+                >
+                  <option value="all">Semua</option>
+                  <option value="active">Aktif</option>
+                  <option value="inactive">Nonaktif</option>
+                </select>
+              </div>
+
+              <div className="catalog-search__filter">
+                <label htmlFor={stockFilterId} className="field-label">
+                  Kondisi Stok
+                </label>
+                <select
+                  id={stockFilterId}
+                  className="input"
+                  aria-label="Filter kondisi stok"
+                  value={stockFilter}
+                  onChange={(event) => {
+                    setStockFilter(event.target.value as "all" | "safe" | "low" | "empty");
+                    setPageIndex(0);
+                  }}
+                >
+                  <option value="all">Semua</option>
+                  <option value="safe">Stok Aman</option>
+                  <option value="low">Stok Menipis</option>
+                  <option value="empty">Stok Habis</option>
+                </select>
+              </div>
+
+              <div className="catalog-search__actions">
+                <Button type="submit" variant="primary">
+                  <IconSearch size={16} />
+                  <span>Cari</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setSearchInput("");
+                    setAppliedQuery("");
+                    setListCategoryId("all");
+                    setStatusFilter("all");
+                    setStockFilter("all");
+                    setShowSuggestions(false);
+                    setPageIndex(0);
+                  }}
+                >
+                  <IconRotateCcw size={16} />
+                  <span>Tampilkan semua</span>
+                </Button>
+              </div>
+            </form>
+
+            {categories !== null && categories.length > 0 && (
+              <div className="catalog-category-bar" role="group" aria-label="Filter kategori barang">
+                <Button
+                  type="button"
+                  variant={listCategoryId === "all" ? "primary" : "secondary"}
+                  aria-pressed={listCategoryId === "all"}
+                  onClick={() => {
+                    setListCategoryId("all");
+                    setPageIndex(0);
+                  }}
+                >
+                  Semua
+                </Button>
+                {categories.map((cat) => {
+                  const selected = listCategoryId === String(cat.id);
+                  return (
+                    <Button
+                      key={cat.id}
+                      type="button"
+                      variant={selected ? "primary" : "secondary"}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        setListCategoryId(String(cat.id));
+                        setPageIndex(0);
+                      }}
+                    >
+                      {cat.name}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
+
+            {!loadError && categoryPageError && (
+              <div className="account-load-error" style={{ marginBottom: "12px" }}>
+                <p className="field-error" role="alert" style={{ margin: 0 }}>
+                  {categoryPageError}
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setCategoryReloadKey((previous) => previous + 1)}
+                >
+                  Coba lagi
+                </Button>
+              </div>
+            )}
+
+            {!loadError && (visibleProducts === null || categoryPageLoading) && (
+              <p className="muted">{categoryPageLoading ? "Memuat produk kategori…" : "Memuat katalog…"}</p>
+            )}
+
+            {!loadError &&
+              !categoryPageLoading &&
+              !categoryPageError &&
+              visibleProducts !== null &&
+              visibleProducts.length === 0 && (
+                <div className="admin-empty">
+                  <span className="admin-empty__icon">
+                    <IconPackage size={24} />
+                  </span>
+                  <p className="admin-empty__title">Belum ada produk yang cocok.</p>
+                  <p className="admin-empty__desc">
+                    Periksa kata kunci pencarian atau atur ulang filter kategori, status, dan stok.
+                  </p>
+                </div>
+              )}
+
+            {!loadError && pagedProducts !== null && pagedProducts.length > 0 && (
+              <>
+                <div className="table-wrap">
+                  <table className="table" aria-label="Daftar barang">
+                    <thead>
+                      <tr>
+                        <th scope="col">Nama &amp; SKU</th>
+                        <th scope="col">Kategori</th>
+                        <th scope="col" className="num">
+                          Harga Jual
+                        </th>
+                        <th scope="col" className="num">
+                          Stok
+                        </th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Barcode</th>
+                        <th scope="col">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedProducts.map((product) => (
+                        <tr key={product.id}>
+                          <td>
+                            <div className="cell-primary">{product.name}</div>
+                            <div className="cell-sub">
+                              <code>{product.sku}</code>
+                            </div>
+                          </td>
+                          <td>{product.categoryName}</td>
+                          <td className="num">
+                            <MoneyText amountRp={product.priceRp} />
+                          </td>
+                          <td className="num stock-cell">
+                            <div className="stock-cell__wrap">
+                              <span className="stock-cell__qty">{product.stockOnHand}</span>
+                              <StockBadge stock={product.stockOnHand} />
+                            </div>
+                          </td>
+                          <td>
+                            {product.active ? (
+                              <span className="badge badge--ok">Aktif</span>
+                            ) : (
+                              <span className="badge">Nonaktif</span>
+                            )}
+                          </td>
+                          <td>
+                            {product.barcodes.length === 0 ? (
+                              <span className="muted">—</span>
+                            ) : (
+                              <span className="barcode-cell">{product.barcodes.join(", ")}</span>
+                            )}
+                          </td>
+                          <td>
+                            <div className="table-actions">
+                              <Button
+                                variant="secondary"
+                                aria-label={`Ubah ${product.sku}`}
+                                disabled={busyProductId !== null || isSubmitting}
+                                onClick={() =>
+                                  setEdit({
+                                    product,
+                                    name: product.name,
+                                    price: String(product.priceRp),
+                                    categoryId: String(product.categoryId),
+                                    newBarcode: "",
+                                  })
+                                }
+                              >
+                                <IconEdit size={14} />
+                                <span>Ubah</span>
+                              </Button>
+                              <Button
+                                variant={product.active ? "secondary" : "primary"}
+                                className={product.active ? "btn--outline-danger" : undefined}
+                                aria-label={`${product.active ? "Nonaktifkan" : "Aktifkan"} ${product.sku}`}
+                                disabled={busyProductId !== null || isSubmitting}
+                                onClick={() =>
+                                  setConfirmation({ kind: "toggle", product, nextActive: !product.active })
+                                }
+                              >
+                                {product.active ? "Nonaktifkan" : "Aktifkan"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="admin-pagination">
+                  <span>
+                    Menampilkan {safePageIndex * pageSize + 1}–
+                    {Math.min((safePageIndex + 1) * pageSize, totalVisible)} dari {totalVisible} barang
+                  </span>
+                  <div className="admin-pagination__controls">
+                    <label htmlFor="products-page-size" className="visually-hidden">
+                      Baris per halaman
+                    </label>
+                    <select
+                      id="products-page-size"
+                      className="input"
+                      style={{ width: "auto", minHeight: "36px", padding: "4px 10px" }}
+                      value={pageSize}
+                      onChange={(event) => {
+                        setPageSize(Number(event.target.value));
+                        setPageIndex(0);
+                      }}
+                    >
+                      <option value={25}>25 baris</option>
+                      <option value={50}>50 baris</option>
+                      <option value={100}>100 baris</option>
+                    </select>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="btn--icon"
+                      aria-label="Halaman sebelumnya"
+                      disabled={safePageIndex <= 0}
+                      onClick={() => setPageIndex((prev) => Math.max(0, prev - 1))}
+                    >
+                      <IconChevronLeft size={16} />
+                    </Button>
+                    <span>
+                      Hal. {safePageIndex + 1} / {totalPages}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="btn--icon"
+                      aria-label="Halaman berikutnya"
+                      disabled={safePageIndex >= totalPages - 1}
+                      onClick={() => setPageIndex((prev) => Math.min(totalPages - 1, prev + 1))}
+                    >
+                      <IconChevronRight size={16} />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {!loadError && products !== null && products.length === MAX_PRODUCTS && (
+              <p className="muted" role="note" style={{ marginTop: "8px", marginBottom: 0 }}>
+                Menampilkan 100 produk pertama. Gunakan pencarian untuk produk lainnya.
+              </p>
+            )}
           </div>
-        </section>
-        );
-      })()}
+        </>
+      )}
 
       {confirmation?.kind === "create-product" && (
         <ConfirmDialog

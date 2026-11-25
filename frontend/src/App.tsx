@@ -39,7 +39,7 @@ const PAGE_LABEL: Record<PageId, string> = {
   reports: "Laporan",
   accounts: "Akun",
   password: "Ganti Sandi",
-  backup: "Backup",
+  backup: "Cadangan Data",
 };
 
 const ROLE_LABEL = { ADMIN: "Admin", CASHIER: "Kasir" } as const;
@@ -287,7 +287,14 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
 
   function renderPage() {
     if (activePage === "dashboard") {
-      return <DashboardPage dataSource={dataSource} currentUser={currentUser} onSessionExpired={handleSessionExpired} />;
+      return (
+        <DashboardPage
+          dataSource={dataSource}
+          currentUser={currentUser}
+          onSessionExpired={handleSessionExpired}
+          onNavigate={navigateTo}
+        />
+      );
     }
     if (activePage === "cashier") {
       return (
@@ -313,7 +320,8 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}
-          view="manage"
+          view="list"
+          onNavigateToCreate={() => navigateTo("product-list")}
         />
       );
     }
@@ -323,7 +331,7 @@ export function App({ dataSource, onAfterLogout = () => window.location.reload()
           dataSource={dataSource}
           currentUser={currentUser}
           onSessionExpired={handleSessionExpired}
-          view="list"
+          view="manage"
         />
       );
     }

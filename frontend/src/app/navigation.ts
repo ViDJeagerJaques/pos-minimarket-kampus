@@ -18,9 +18,12 @@ export type PageId =
   | "password"
   | "backup";
 
+export type NavGroup = "Utama" | "Barang & Persediaan" | "Pelaporan" | "Sistem";
+
 export interface NavItem {
   id: PageId;
   label: string;
+  group?: NavGroup;
 }
 
 export const NAV_BY_ROLE: Record<Role, readonly NavItem[]> = {
@@ -31,14 +34,14 @@ export const NAV_BY_ROLE: Record<Role, readonly NavItem[]> = {
     { id: "password", label: "Ganti Sandi" },
   ],
   ADMIN: [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "products", label: "Barang/Stok" },
-    { id: "product-list", label: "Daftar Barang" },
-    { id: "receiving", label: "Penerimaan" },
-    { id: "stock-adjustment", label: "Koreksi Stok" },
-    { id: "reports", label: "Laporan" },
-    { id: "accounts", label: "Akun" },
-    { id: "backup", label: "Backup" },
+    { id: "dashboard", label: "Dashboard", group: "Utama" },
+    { id: "products", label: "Barang/Stok", group: "Barang & Persediaan" },
+    { id: "product-list", label: "Daftar Barang", group: "Barang & Persediaan" },
+    { id: "receiving", label: "Penerimaan", group: "Barang & Persediaan" },
+    { id: "stock-adjustment", label: "Koreksi Stok", group: "Barang & Persediaan" },
+    { id: "reports", label: "Laporan", group: "Pelaporan" },
+    { id: "accounts", label: "Akun", group: "Sistem" },
+    { id: "backup", label: "Cadangan Data", group: "Sistem" },
   ],
 };
 

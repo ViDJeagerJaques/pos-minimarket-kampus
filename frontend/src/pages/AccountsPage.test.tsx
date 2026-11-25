@@ -34,6 +34,9 @@ function makeTestPassword(prefix = "pw"): string {
 }
 
 async function fillCreateForm(user: ReturnType<typeof userEvent.setup>, password = makeTestPassword("kasir")) {
+  if (!screen.queryByLabelText("Nama pengguna")) {
+    await user.click(screen.getByRole("button", { name: "Tambah akun" }));
+  }
   await user.type(screen.getByLabelText("Nama pengguna"), "kasir.baru");
   await user.type(screen.getByLabelText("Kata sandi awal"), password);
   await user.click(screen.getByRole("button", { name: "Buat akun kasir" }));
@@ -229,6 +232,7 @@ describe("TASK-011 halaman pengelolaan akun ADMIN", () => {
 it("BUG-207: lihat sandi, validasi konfirmasi dan ubah hanya sandi sendiri", async () => {
   const changePassword = vi.fn(async () => {});
   const { user, onSessionExpired } = renderAccounts(makeSource({ changePassword }));
+  await user.click(screen.getByRole("tab", { name: "Keamanan" }));
   const old = makeTestPassword(); const next = makeTestPassword();
   await user.type(screen.getByLabelText("Sandi lama"), old);
   await user.type(screen.getByLabelText("Sandi baru"), next);

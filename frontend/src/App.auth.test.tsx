@@ -263,6 +263,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     await user.click(screen.getByRole("button", { name: "Akun" }));
     await screen.findByRole("heading", { name: /Akun/ });
 
+    await user.click(screen.getByRole("button", { name: "Tambah akun" }));
     await user.type(screen.getByLabelText("Nama pengguna"), "kasir.baru");
     await user.type(screen.getByLabelText("Kata sandi awal"), "sandi-uji-123");
     await user.click(screen.getByRole("button", { name: "Buat akun kasir" }));
