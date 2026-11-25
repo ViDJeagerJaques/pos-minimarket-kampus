@@ -11,6 +11,7 @@ import { createShiftService } from "../shift/service.ts";
 import { createCheckoutService } from "../checkout/service.ts";
 import { createPrintService } from "../print/service.ts";
 import { createReportService } from "../reports/service.ts";
+import { createExcelSync } from "../reports/excelSync.ts";
 import { createAdjustmentService } from "../inventory/adjustments.ts";
 import { createReceivingService } from "../receiving/service.ts";
 import { createHash } from "node:crypto";
@@ -169,6 +170,7 @@ async function main(argv: string[]): Promise<number> {
       shift,
       checkout,
       reports,
+      excelSync: createExcelSync(reports, path.join(path.dirname(options.dbPath), "config", "excel-sync.json")),
       receiving,
       adjustments: createAdjustmentService(db),
       print,

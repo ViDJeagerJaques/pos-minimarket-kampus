@@ -46,7 +46,7 @@ function formatTime(ms: number): string {
  * 1. Pembayaran (Tunai vs QRIS terverifikasi terpisah)
  * 2. Penjualan (per tanggal / shift)
  * 3. Persediaan & Mutasi (ledger stok + panel detail)
- * 4. Ekspor & Sinkronisasi (Excel Lokal belum tersedia, Google Sheets existing, Ekspor Manual)
+ * 4. Ekspor & Sinkronisasi (Excel Lokal, Google Sheets, Ekspor Manual)
  */
 export function ReportsPage({
   dataSource,
@@ -55,6 +55,19 @@ export function ReportsPage({
   initialTab = "payments",
 }: ReportsPageProps) {
   const [activeTab, setActiveTab] = useState<ReportTab>(initialTab);
+  const [excel, setExcel] = useState<{ file: string | null; lastSync: number | null } | null>(null);
+  const [excelBusy, setExcelBusy] = useState(false);
+  const [excelMessage, setExcelMessage] = useState("");
+  useEffect(() => { let active = true; dataSource.getExcelSync?.().then(result => { if (active) setExcel(result); }).catch(error => { if (active && error instanceof ApiError && error.isSessionExpired) onSessionExpired(); }); return () => { active = false; }; }, [dataSource, onSessionExpired]);
+  async function excelAction(action: "choose" | "sync" | "open") {
+    if (excelBusy) return; setExcelBusy(true); setExcelMessage("");
+    try {
+      if (action === "choose") { const file = await window.POS_SPIKE?.chooseExcelFile(); if (file && dataSource.configureExcelSync) { setExcel(await dataSource.configureExcelSync(file)); setExcelMessage("Lokasi tersimpan."); } }
+      if (action === "sync" && dataSource.runExcelSync) { setExcel(await dataSource.runExcelSync()); setExcelMessage("Sinkronisasi berhasil."); }
+      if (action === "open" && !(await dataSource.openExcelSync?.())) setExcelMessage("File tidak dapat dibuka. Pastikan file tersedia dan aplikasi Excel terpasang.");
+    } catch (error) { if (error instanceof ApiError && error.isSessionExpired) onSessionExpired(); else setExcelMessage(error instanceof ApiError ? error.message : "Operasi Excel gagal. Periksa lokasi dan apakah file sedang dibuka."); }
+    finally { setExcelBusy(false); }
+  }
   const [report, setReport] = useState<PaymentReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -204,6 +217,15 @@ export function ReportsPage({
               : "Sinkronisasi spreadsheet berhasil: tidak ada penjualan tertunda.",
         });
       } else {
+        const reasons: Record<NonNullable<typeof result.failure>, string> = {
+          NETWORK: "Jaringan tidak tersedia atau permintaan habis waktu.",
+          UNSAFE_REDIRECT: "Pengalihan receiver tidak aman.",
+          HTTP_ERROR: "Layanan receiver mengembalikan kesalahan HTTP.",
+          INVALID_RESPONSE: "Respons receiver tidak dapat dibaca.",
+          SALE_CONFLICT: "Nomor struk sudah ada dengan data yang berbeda; periksa receiver dan laporan.",
+          NAMESPACE_MISMATCH: "Identitas database tidak sesuai dengan receiver.",
+          REJECTED: "Receiver menolak transaksi; periksa konfigurasi dan data.",
+        };
         setSheetsSyncFeedback({
           tone: "warning",
           text:
@@ -211,6 +233,7 @@ export function ReportsPage({
               ? `Sinkronisasi sebagian berhasil: ${result.sentCount} terkirim, ${result.pendingCount} masih tertunda.`
               : `Sinkronisasi spreadsheet gagal: ${result.pendingCount} penjualan masih tertunda.`,
         });
+        if (result.failure) setSheetsSyncFeedback(previous => previous ? { ...previous, text: `${previous.text} ${reasons[result.failure!]}` } : previous);
       }
     } catch (error: unknown) {
       if (error instanceof ApiError && error.isSessionExpired) {
@@ -650,8 +673,8 @@ export function ReportsPage({
       {/* TAB 4: EKSPOR & SINKRONISASI */}
       {activeTab === "sync" && (
         <div className="sync-stack">
-          {/* Kartu 1: Microsoft Excel Lokal (Fitur Baru — Belum Tersedia pada Tahap Ini) */}
-          <article className="sync-card sync-card--disabled" aria-label="Microsoft Excel Lokal">
+          {/* Kartu 1: Microsoft Excel Lokal */}
+          <article className="sync-card" aria-label="Microsoft Excel Lokal">
             <div className="admin-card__header" style={{ marginBottom: 0 }}>
               <div>
                 <h2 className="admin-card__title">
@@ -662,35 +685,37 @@ export function ReportsPage({
                   Perbarui satu workbook (.xlsx) lokal yang sama tanpa membuat file baru setiap hari.
                 </p>
               </div>
-              <span className="badge">Belum tersedia</span>
+              <span className="badge">{excelBusy ? "Memproses…" : excel?.file ? "Dikonfigurasi" : "Belum dikonfigurasi"}</span>
             </div>
 
             <div className="sync-card__meta-grid">
               <div>
                 <span className="sync-card__kv-label">File tujuan</span>
-                <span className="sync-card__kv-value">Belum memilih file</span>
+                <span className="sync-card__kv-value">{excel?.file ?? "Belum memilih file"}</span>
               </div>
               <div>
-                <span className="sync-card__kv-label">Status fitur</span>
+                <span className="sync-card__kv-label">Sinkronisasi terakhir</span>
                 <span className="sync-card__kv-value">
-                  Dijadwalkan pada tahap implementasi IPC Electron terpisah
+                  {excel?.lastSync ? formatTime(excel.lastSync) : "Belum pernah"}
                 </span>
               </div>
             </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
               <span className="muted" style={{ fontSize: "12px" }}>
-                Gunakan kartu Ekspor Manual di bawah untuk mengunduh file .xlsx atau .csv saat ini.
+                Workbook khusus laporan POS. Perubahan manual dapat tertimpa saat sinkronisasi.
               </span>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <Button type="button" variant="secondary" disabled title="Fitur Local Excel Sync belum diimplementasikan">
+                <Button type="button" variant="secondary" disabled={excelBusy || !window.POS_SPIKE?.chooseExcelFile || !dataSource.configureExcelSync} onClick={() => void excelAction("choose")}>
                   Pilih file
                 </Button>
-                <Button type="button" variant="secondary" disabled title="Fitur Local Excel Sync belum diimplementasikan">
+                <Button type="button" variant="secondary" disabled={excelBusy || !excel?.file} onClick={() => void excelAction("sync")}>
                   Sinkronkan
                 </Button>
+                <Button type="button" variant="secondary" disabled={excelBusy || !excel?.lastSync} onClick={() => void excelAction("open")}>Buka File Excel</Button>
               </div>
             </div>
+            {excelMessage && <p role="status">{excelMessage}</p>}
           </article>
 
           {/* Kartu 2: Google Sheets — Online (Integrasi Existing Dipindahkan dari Barang/Stok) */}

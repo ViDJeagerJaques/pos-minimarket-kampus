@@ -1387,6 +1387,10 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
   return {
     authMode: "LOCAL_API",
     catalogMode: "LOCAL_API",
+    async getExcelSync() { const data = await request("GET", "/sync/excel", undefined, requireToken()); if (!isRecord(data) || (data.file !== null && typeof data.file !== "string") || (data.lastSync !== null && !isNonNegativeInt(data.lastSync))) throw invalidResponse("Status Excel tidak valid."); return { file: data.file as string | null, lastSync: data.lastSync as number | null }; },
+    async configureExcelSync(file) { const data = await request("POST", "/sync/excel/config", { file }, requireToken()); if (!isRecord(data) || typeof data.file !== "string" || (data.lastSync !== null && !isNonNegativeInt(data.lastSync))) throw invalidResponse("Konfigurasi Excel tidak valid."); return { file: data.file, lastSync: data.lastSync as number | null }; },
+    async runExcelSync() { const data = await request("POST", "/sync/excel/run", {}, requireToken()); if (!isRecord(data) || typeof data.file !== "string" || !isNonNegativeInt(data.lastSync)) throw invalidResponse("Hasil Excel tidak valid."); return { file: data.file, lastSync: data.lastSync }; },
+    async openExcelSync() { return window.POS_SPIKE?.openExcelFile(requireToken()) ?? false; },
     getBootstrapStatus,
     bootstrapAdmin,
     login,
@@ -1429,6 +1433,7 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
       let totalSent = 0;
       let enabled = false;
       let pendingCount = 0;
+      let failure: import("./types").SheetsSyncFailure | undefined;
       for (let step = 0; step < maxSteps; step += 1) {
         const data = await request("POST", "/sync/sheets/flush", { maxItems: 1 }, authToken, stepTimeoutMs);
         if (
@@ -1441,12 +1446,14 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
         }
         enabled = data.enabled;
         pendingCount = data.pendingCount;
+        const failures = ["NETWORK", "UNSAFE_REDIRECT", "HTTP_ERROR", "INVALID_RESPONSE", "SALE_CONFLICT", "NAMESPACE_MISMATCH", "REJECTED"] as const;
+        failure = failures.find(value => value === data.failure);
         totalSent += data.sentCount;
         if (!enabled || pendingCount === 0 || data.sentCount === 0) {
           break;
         }
       }
-      return { enabled, sentCount: totalSent, pendingCount };
+      return { enabled, sentCount: totalSent, pendingCount, ...(failure ? { failure } : {}) };
     },
     listAccounts,
     createAccount,

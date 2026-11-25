@@ -395,8 +395,13 @@ export interface BootstrapAdminInput {
 export interface AdjustmentResult { productId: number; previousOnHand: number; onHand: number; delta: number; duplicate: boolean }
 export interface BackupEntry { name: string; valid: boolean; createdAtMs: number | null }
 export interface SheetsSyncStatus { enabled: boolean; pendingCount: number }
-export interface SheetsSyncResult { enabled: boolean; sentCount: number; pendingCount: number }
+export type SheetsSyncFailure = "NETWORK" | "UNSAFE_REDIRECT" | "HTTP_ERROR" | "INVALID_RESPONSE" | "SALE_CONFLICT" | "NAMESPACE_MISMATCH" | "REJECTED";
+export interface SheetsSyncResult { enabled: boolean; sentCount: number; pendingCount: number; failure?: SheetsSyncFailure }
 export interface PosDataSource {
+  getExcelSync?: () => Promise<{ file: string | null; lastSync: number | null }>;
+  configureExcelSync?: (file: string) => Promise<{ file: string | null; lastSync: number | null }>;
+  runExcelSync?: () => Promise<{ file: string | null; lastSync: number | null }>;
+  openExcelSync?: () => Promise<boolean>;
   getBootstrapStatus?: () => Promise<BootstrapStatus>;
   bootstrapAdmin?: (input: BootstrapAdminInput) => Promise<AccountSummary>;
   getSheetsSyncStatus?: () => Promise<SheetsSyncStatus>;

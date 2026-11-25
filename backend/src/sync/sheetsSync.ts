@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { buildDemoSalePayload, sendDemoPayload } from "./sheetsProtocol.ts";
+import { buildDemoSalePayload, sendDemoPayloadResult, type SheetsFailure } from "./sheetsProtocol.ts";
 import { databaseBinding, readDemoConfig } from "./sheetsDemoConfig.ts";
 import type { CommitCheckoutResult } from "../checkout/types.ts";
 
@@ -30,6 +30,7 @@ export type SheetsSyncFlushResult = {
   enabled: boolean;
   sentCount: number;
   pendingCount: number;
+  failure?: SheetsFailure;
 };
 
 export type SheetsSyncFlushOptions = {
@@ -339,6 +340,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
   let flushRequestedAgain = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let consecutiveFailures = 0;
+  let lastFailure: SheetsFailure | undefined;
   let stopped = false;
 
   function clearRetryTimer(): void {
@@ -366,7 +368,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
 
   async function postOne(item: QueuedSaleSync): Promise<boolean> {
     if (!config) return false;
-    if (activeDemo) return sendDemoPayload(activeDemo.webhookUrl, buildDemoSalePayload(activeDemo.secret, activeDemo.databaseNamespace, item), fetchImpl);
+    if (activeDemo) { const result = await sendDemoPayloadResult(activeDemo.webhookUrl, buildDemoSalePayload(activeDemo.secret, activeDemo.databaseNamespace, item), fetchImpl); lastFailure = result.failure; return result.ok; }
     try {
       let currentUrl = config.webhookUrl;
       let method: "POST" | "GET" = "POST";
@@ -550,6 +552,7 @@ export function createSheetsSyncService(options: SheetsSyncOptions): SheetsSyncS
       enabled: true,
       sentCount: Math.max(0, durableAckKeys.size - beforeAckCount),
       pendingCount: state.pending.length,
+      ...(state.pending.length && lastFailure ? { failure: lastFailure } : {}),
     };
   }
 

@@ -44,6 +44,33 @@ function sourceWith(report: PaymentReport): PosDataSource {
 }
 
 describe("TASK-037 laporan QRIS terpisah dari kas", () => {
+  it("menjelaskan konflik struk saat antrean Sheets gagal", async () => {
+    const source: PosDataSource = { ...sourceWith(REPORT), getSheetsSyncStatus: vi.fn(async () => ({ enabled: true, pendingCount: 4 })), syncSheetsNow: vi.fn(async () => ({ enabled: true, sentCount: 0, pendingCount: 4, failure: "SALE_CONFLICT" as const })) };
+    const { user } = renderPage(source);
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    const button = await screen.findByRole("button", { name: "Sinkronkan Spreadsheet" });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    await user.click(button);
+    expect(await screen.findByText(/Nomor struk sudah ada dengan data yang berbeda/)).toBeTruthy();
+  });
+  it("Excel lokal memilih tujuan lalu menyinkronkan dan membuka file", async () => {
+    const file = "C:\\sandbox\\laporan.xlsx";
+    const chooseExcelFile = vi.fn(async () => file);
+    vi.stubGlobal("POS_SPIKE", { chooseExcelFile });
+    const configureExcelSync = vi.fn(async () => ({ file, lastSync: null }));
+    const runExcelSync = vi.fn(async () => ({ file, lastSync: 1700000000000 }));
+    const openExcelSync = vi.fn(async () => true);
+    const source = { ...sourceWith(REPORT), getExcelSync: vi.fn(async () => ({ file: null, lastSync: null })), configureExcelSync, runExcelSync, openExcelSync };
+    const { user } = renderPage(source);
+    await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+    await user.click(screen.getByRole("button", { name: "Pilih file" }));
+    expect(configureExcelSync).toHaveBeenCalledWith(file);
+    await user.click(screen.getByRole("button", { name: "Sinkronkan" }));
+    expect(await screen.findByText("Sinkronisasi berhasil.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Buka File Excel" }));
+    expect(openExcelSync).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
   it("menampilkan total kas dan QRIS terpisah beserta baris verifikasi", async () => {
     const source = sourceWith(REPORT);
     renderPage(source);

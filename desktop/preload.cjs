@@ -12,4 +12,6 @@ contextBridge.exposeInMainWorld("POS_SPIKE", Object.freeze({
   openExternal: (target) => ipcRenderer.invoke("pos:open-external", target),
   retryStartup: () => ipcRenderer.invoke("pos:retry-startup"),
   exitApp: () => ipcRenderer.invoke("pos:exit-app"),
+  chooseExcelFile: () => ipcRenderer.invoke("pos:choose-excel"),
+  openExcelFile: (token) => ipcRenderer.invoke("pos:open-excel", token),
 }));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
-import { buildDemoSalePayload, sendDemoPayload, validateDemoWebhookUrl } from "./sheetsProtocol.ts";
+import { buildDemoSalePayload, sendDemoPayload, sendDemoPayloadResult, validateDemoWebhookUrl } from "./sheetsProtocol.ts";
 
 test("sender DEMO identitas dan redirect tidak meneruskan secret ke host lain", async () => {
   const secret = randomBytes(32).toString("hex");
@@ -17,4 +17,12 @@ test("sender DEMO identitas dan redirect tidak meneruskan secret ke host lain", 
   assert.equal(await sendDemoPayload("https://script.google.com/macros/s/fixture/exec", payload, unsafe), false); assert.equal(sent, 1);
   const offline: typeof fetch = async () => { throw new Error("offline"); };
   assert.equal(await sendDemoPayload("https://script.google.com/macros/s/fixture/exec", payload, offline), false);
+});
+
+test("receiver conflict and namespace errors become safe codes without exposing response text", async () => {
+ const url = "https://script.google.com/macros/s/fixture/exec";
+ for (const [error, failure] of [["nomor struk sudah digunakan", "SALE_CONFLICT"], ["namespace berbeda", "NAMESPACE_MISMATCH"], ["secret and private URL", "REJECTED"]] as const) {
+  const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({ ok: false, error }), { status: 200 });
+  assert.deepEqual(await sendDemoPayloadResult(url, {}, fetchImpl), { ok: false, failure });
+ }
 });

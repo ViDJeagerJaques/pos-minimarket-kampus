@@ -959,3 +959,22 @@ test("DEMO v2 checkout tetap tersimpan saat Sheets offline", async () => {
   assert.equal((ctx.db.prepare("SELECT COUNT(*) AS count FROM sales").get() as { count: number }).count, 1);
  } finally { await ctx.cleanup(); }
 });
+
+test("konflik receiver menahan empat transaksi dan melaporkan alasan aman hingga retry berhasil", async () => {
+ let reject = true; const delivered: string[] = [];
+ const fetchImpl: typeof fetch = async (_url, init) => {
+  const body = JSON.parse(String(init?.body)) as { saleNo: string };
+  if (reject) return new Response(JSON.stringify({ ok: false, error: "nomor struk sudah digunakan" }), { status: 200 });
+  delivered.push(body.saleNo); return new Response(JSON.stringify({ ok: true, duplicate: delivered.length === 1 }), { status: 200 });
+ };
+ const ctx = await setupCheckoutHttp({ demoOnly: true, writeConfig: { webhookUrl: "https://script.google.com/macros/s/fixture/exec", secret: makeSyntheticSecret() }, fetchImpl, retryBaseDelayMs: 60000 });
+ try {
+  for (let i = 0; i < 4; i++) await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, `attempt-recovery-${i}`);
+  await ctx.sheetsSync.flush();
+  assert.equal(ctx.sheetsSync.getPendingCount(), 4);
+  assert.deepEqual(await ctx.sheetsSync.syncNow(), { enabled: true, sentCount: 0, pendingCount: 4, failure: "SALE_CONFLICT" });
+  reject = false;
+  assert.deepEqual(await ctx.sheetsSync.syncNow(), { enabled: true, sentCount: 4, pendingCount: 0 });
+  assert.equal(new Set(delivered).size, 4);
+ } finally { await ctx.cleanup(); }
+});

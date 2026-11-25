@@ -33,10 +33,13 @@ export type PaymentReport = {
 };
 
 export type ReportService = {
+  getExcelSales(actor: SessionUser): ExcelSale[];
   getPaymentReport(actor: SessionUser): PaymentReport;
   getDailyReport(actor: SessionUser, filter: DailyReportFilter): DailyReport;
   getStockReport(actor: SessionUser, filter: StockReportFilter): StockReport;
 };
+
+export type ExcelSale = { saleNo: string; committedAtMs: number; cashier: string; totalRp: number; method: string; items: string };
 
 export type DailyReportFilter = {
   startMs?: unknown;
@@ -176,6 +179,21 @@ function parseStockFilter(filter: StockReportFilter): number {
 
 export function createReportService(db: DatabaseSync): ReportService {
   return {
+    getExcelSales(actor) {
+      if (actor.role !== "ADMIN") throw new ForbiddenError("Laporan penjualan hanya untuk ADMIN.");
+      db.exec("BEGIN");
+      try {
+      const sales = db.prepare(`SELECT s.id, s.sale_no, s.committed_at_ms, s.total_rp, u.username,
+        p.method_code FROM sales s JOIN checkout_attempts a ON a.attempt_key = s.attempt_key
+        JOIN users u ON u.id = a.cashier_id
+        JOIN payments p ON p.id = (SELECT MIN(id) FROM payments WHERE sale_id = s.id)
+        ORDER BY s.committed_at_ms, s.id`).all() as Array<{ id: number; sale_no: string; committed_at_ms: number; total_rp: number; username: string; method_code: string }>;
+      const items = db.prepare("SELECT name_snapshot, quantity FROM sale_items WHERE sale_id = ? ORDER BY id");
+      const result = sales.map(s => ({ saleNo: s.sale_no, committedAtMs: s.committed_at_ms, cashier: s.username, totalRp: s.total_rp, method: s.method_code,
+        items: (items.all(s.id) as Array<{ name_snapshot: string; quantity: number }>).map(i => `${i.name_snapshot} x ${i.quantity}`).join(", ") }));
+      db.exec("COMMIT"); return result;
+      } catch (error) { try { db.exec("ROLLBACK"); } catch {} throw error; }
+    },
     getPaymentReport(actor) {
       if (actor.role !== "ADMIN" && actor.role !== "CASHIER") {
         throw new ForbiddenError("Akses laporan pembayaran ditolak.");

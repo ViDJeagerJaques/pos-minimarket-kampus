@@ -19,6 +19,8 @@ declare global {
       openExternal: (target: string) => Promise<boolean>;
       retryStartup: () => Promise<boolean>;
       exitApp: () => Promise<boolean>;
+      chooseExcelFile: () => Promise<string | null>;
+      openExcelFile: (token: string) => Promise<boolean>;
     };
   }
 }

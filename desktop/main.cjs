@@ -405,6 +405,22 @@ app.on("window-all-closed", () => {
 // BUG-121: renderer menunggu endpoint yang benar-benar dipilih main process,
 // bukan nilai build-time VITE_API_BASE_URL.
 ipcMain.handle("pos:get-api-base-url", async () => apiUrlReady);
+ipcMain.handle("pos:choose-excel", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return null;
+  const result = await dialog.showSaveDialog(mainWindow, { title: "Pilih file laporan POS", defaultPath: "laporan-penjualan-pos.xlsx", filters: [{ name: "Excel", extensions: ["xlsx"] }], properties: ["showOverwriteConfirmation"] });
+  return result.canceled ? null : result.filePath ?? null;
+});
+ipcMain.handle("pos:open-excel", async (event, token) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || typeof token !== "string") return false;
+  try {
+    const base = await apiUrlReady;
+    const response = await fetch(`${base}/sync/excel`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return false;
+    const result = await response.json();
+    if (typeof result?.data?.file !== "string" || path.extname(result.data.file).toLowerCase() !== ".xlsx") return false;
+    return (await shell.openPath(result.data.file)) === "";
+  } catch { return false; }
+});
 let retryStartup = null;
 ipcMain.handle("pos:retry-startup", async () => {
   if (!retryStartup) {
