@@ -430,3 +430,108 @@ export function IconFilter(props: IconProps) {
     </BaseSvg>
   );
 }
+
+export function IconScanBarcode(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M8 7v10" />
+      <path d="M12 7v10" />
+      <path d="M17 7v10" />
+    </BaseSvg>
+  );
+}
+
+export function IconShoppingCart(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <circle cx="8" cy="21" r="1" />
+      <circle cx="19" cy="21" r="1" />
+      <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+    </BaseSvg>
+  );
+}
+
+export function IconBanknote(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <rect width="20" height="12" x="2" y="6" rx="2" />
+      <circle cx="12" cy="12" r="2" />
+      <path d="M6 12h.01M18 12h.01" />
+    </BaseSvg>
+  );
+}
+
+export function IconQrCode(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <rect width="5" height="5" x="3" y="3" rx="1" />
+      <rect width="5" height="5" x="16" y="3" rx="1" />
+      <rect width="5" height="5" x="3" y="16" rx="1" />
+      <path d="M21 16h-3a2 2 0 0 0-2 2v3" />
+      <path d="M21 21v.01" />
+      <path d="M12 7v3a2 2 0 0 1-2 2H7" />
+      <path d="M3 12h.01" />
+      <path d="M12 3h.01" />
+      <path d="M12 16v.01" />
+      <path d="M16 12h1" />
+      <path d="M21 12v.01" />
+      <path d="M12 21v-1" />
+    </BaseSvg>
+  );
+}
+
+export function IconClock(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </BaseSvg>
+  );
+}
+
+export function IconReceipt(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
+      <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+      <path d="M12 17.5v-11" />
+    </BaseSvg>
+  );
+}
+
+export function IconCopy(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </BaseSvg>
+  );
+}
+
+export function IconMinus(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <path d="M5 12h14" />
+    </BaseSvg>
+  );
+}
+
+export function IconChevronUp(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <path d="m18 15-6-6-6 6" />
+    </BaseSvg>
+  );
+}
+
+export function IconCheck(props: IconProps) {
+  return (
+    <BaseSvg {...props}>
+      <path d="M20 6 9 17l-5-5" />
+    </BaseSvg>
+  );
+}

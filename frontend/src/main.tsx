@@ -6,6 +6,7 @@ import { createMockDataSource } from "./api/mockDataSource";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/admin.css";
+import "./styles/cashier.css";
 
 /**
  * Jembatan opsional yang disediakan kandidat Electron (TASK-031). Di browser

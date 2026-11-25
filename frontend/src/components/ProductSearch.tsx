@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { ProductSummary } from "../api/types";
+import { IconPlus, IconSearch } from "./AdminIcons";
 import { Button } from "./Button";
 import { MoneyText } from "./MoneyText";
 import { StockBadge } from "./StockBadge";
@@ -133,29 +134,34 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
   }
 
   return (
-    <section ref={containerRef} className="search" aria-label="Cari barang manual">
-      <form className="search__form" onSubmit={handleSubmit} role="search" aria-label="Cari barang">
-        <label htmlFor={inputId} className="field-label">
+    <section ref={containerRef} className="search cashier-input-group" aria-label="Cari barang manual">
+      <form className="cashier-input-group" onSubmit={handleSubmit} role="search" aria-label="Cari barang">
+        <label htmlFor={inputId} className="cashier-input-group__label">
           Cari barang
         </label>
-        <div className="search__row">
-          <input
-            id={inputId}
-            className="input"
-            type="search"
-            autoComplete="off"
-            maxLength={64}
-            placeholder="Nama, SKU, atau barcode"
-            value={query}
-            onChange={(event) => handleQueryChange(event.target.value)}
-            onKeyDown={handleKeyDown}
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={isOpen}
-            aria-controls={isOpen ? listboxId : undefined}
-            aria-activedescendant={activeOptionId}
-            disabled={disabled}
-          />
+        <div className="cashier-input-row">
+          <div className="cashier-input-icon-wrap">
+            <span className="cashier-input-icon-wrap__icon" aria-hidden="true">
+              <IconSearch size={16} />
+            </span>
+            <input
+              id={inputId}
+              className="input"
+              type="search"
+              autoComplete="off"
+              maxLength={64}
+              placeholder="Nama, SKU, atau barcode"
+              value={query}
+              onChange={(event) => handleQueryChange(event.target.value)}
+              onKeyDown={handleKeyDown}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={isOpen}
+              aria-controls={isOpen ? listboxId : undefined}
+              aria-activedescendant={activeOptionId}
+              disabled={disabled}
+            />
+          </div>
           <Button type="submit" variant="secondary" disabled={disabled}>
             Cari
           </Button>
@@ -186,7 +192,7 @@ export function ProductSearch({ search, onAdd, disabled = false }: ProductSearch
                 disabled={disabled || product.stock <= 0}
                 aria-label={`Tambah ${product.name}`}
               >
-                Tambah
+                <IconPlus size={14} /> Tambah
               </Button>
             </li>
           ))}

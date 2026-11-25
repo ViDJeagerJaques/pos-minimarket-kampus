@@ -1,6 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "../api/errors";
 import type { PaymentReport, PosDataSource, SessionUser, ShiftClosePreview, ShiftClosing, ShiftSummary } from "../api/types";
+import {
+  IconCheckCircle,
+  IconChevronDown,
+  IconClock,
+  IconRefresh,
+} from "../components/AdminIcons";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MoneyText } from "../components/MoneyText";
@@ -11,9 +17,16 @@ interface Props {
   currentUser: SessionUser;
   onSessionExpired: () => void;
   onPendingChange: (pending: boolean) => void;
+  onShiftActiveChange?: (active: boolean) => void;
 }
 
-export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPendingChange }: Props) {
+export function ShiftDemoPage({
+  dataSource,
+  currentUser,
+  onSessionExpired,
+  onPendingChange,
+  onShiftActiveChange,
+}: Props) {
   const [paymentReport, setPaymentReport] = useState<PaymentReport | null>(null);
   const [paymentError, setPaymentError] = useState("");
   const [shift, setShift] = useState<ShiftSummary | null>(null);
@@ -200,7 +213,9 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
         declaredCashRp: attempt.declaredCashRp,
         ...(attempt.varianceNote ? { varianceNote: attempt.varianceNote } : {}),
       };
-      accept(await dataSource.closeShift(attempt.shiftId, payload), attempt);
+      const result = await dataSource.closeShift(attempt.shiftId, payload);
+      accept(result, attempt);
+      onShiftActiveChange?.(false);
     }
     catch (error) {
       if (error instanceof ApiError && error.isSessionExpired) onSessionExpired();
@@ -225,112 +240,279 @@ export function ShiftDemoPage({ dataSource, currentUser, onSessionExpired, onPen
       setPending(attempt); onPendingChange(true); void submit(attempt);
     } catch { onPendingChange(true); setMessage("Catatan upaya tidak dapat disimpan atau dibaca. Penutupan tidak dikirim; periksa penyimpanan lokal."); }
   }
-  return <section className="panel" aria-labelledby="shift-title">
-    <h1 id="shift-title">Penutupan shift</h1>
-    <p role="note"><strong>DEMO:</strong> Rumus setoran masih fixture uji; SOP pengelola belum disahkan.</p>
-    {!owner && <p>Penutupan hanya tersedia bagi kasir pemilik melalui backend lokal. Mode DEMO tidak menyimpan shift.</p>}
-    {busy && <p role="status">Memeriksa shift…</p>}
-    {message && <p role="status">{message}</p>}
-    {recoveryFailedShiftId !== null && !preview && !pending && !closing && (
-      <div>
-        <Button disabled={busy} onClick={() => void retryRecovery()}>Coba lagi muat shift</Button>
-      </div>
-    )}
-    {preview && !pending && !closing && <>
-      <h2>Pratinjau shift #{shift?.id}</h2>
-      <Button disabled={busy || confirming} onClick={() => void reloadPreview()}>Muat ulang pratinjau</Button>
-      <table className="table" aria-label="Ringkasan shift"><tbody>
-        <tr><th scope="row">Modal awal</th><td>{preview.openingCashRp === null ? "Tidak dicatat (fixture: 0)" : <MoneyText amountRp={preview.openingCashRp} />}</td></tr>
-        <tr><th scope="row">Penjualan CASH</th><td><MoneyText amountRp={preview.cashTotalRp} /></td></tr>
-        <tr><th scope="row">Penjualan QRIS</th><td><MoneyText amountRp={preview.qrisTotalRp} /></td></tr>
-        <tr><th scope="row">Total penghasilan (CASH + QRIS)</th><td><MoneyText amountRp={preview.cashTotalRp + preview.qrisTotalRp} /></td></tr>
-        <tr><th scope="row">Uang tunai harapan</th><td><MoneyText amountRp={preview.expectedCashRp} /></td></tr>
-      </tbody></table>
-      <p>Pratinjau dapat berubah jika penjualan tersimpan sebelum shift ditutup. QRIS tidak masuk kas tunai.</p>
-      <div className="shift-close-box">
-        <div className="shift-close-row">
-          <div className="shift-close-field">
-            <label className="field-label" htmlFor={cashId}>Uang dihitung (Rp)</label>
-            <input id={cashId} className="input" inputMode="numeric" value={cash.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} onChange={(e) => setCash(e.target.value.replace(/\./g, ""))} />
-          </div>
-          <Button variant="primary" className="shift-close-submit" disabled={!canClose || busy} onClick={() => setConfirming(true)}>Tutup shift</Button>
-        </div>
-        {cash !== "" && !valid && <p role="alert">Masukkan bilangan rupiah bulat dari 0 sampai 1.000.000.000.</p>}
-        {estimatedVariance !== null && (
-          <p>
-            Perkiraan selisih:{" "}
-            <span className={varianceClass(estimatedVariance)}>
-              {estimatedVariance > 0 ? "+" : ""}
-              <MoneyText amountRp={estimatedVariance} />
+  return (
+    <section className="shift-page" aria-labelledby="shift-title">
+      <div className="shift-card">
+        <div className="shift-card__head">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span className="shift-open-card__icon" aria-hidden="true">
+              <IconClock size={20} />
             </span>
+            <div>
+              <h1 id="shift-title" className="shift-card__title">Penutupan shift</h1>
+              <p className="muted" role="note" style={{ margin: "2px 0 0", fontSize: "12.5px" }}>
+                <strong>DEMO:</strong> Rumus setoran masih fixture uji; SOP pengelola belum disahkan.
+              </p>
+            </div>
+          </div>
+          {shift && !closing && (
+            <span className="cashier-chip cashier-chip--success">Shift #{shift.id} Aktif</span>
+          )}
+        </div>
+
+        {!owner && (
+          <p className="muted" style={{ margin: 0 }}>
+            Penutupan hanya tersedia bagi kasir pemilik melalui backend lokal. Mode DEMO tidak menyimpan shift.
           </p>
         )}
-        {needsNote && (
-          <div className="shift-close-note">
-            <label className="field-label" htmlFor={noteId}>Catatan/Alasan Selisih</label>
-            <input
-              id={noteId}
-              className="input"
-              type="text"
-              maxLength={500}
-              placeholder="Jelaskan alasan selisih kas"
-              value={varianceNote}
-              onChange={(e) => setVarianceNote(e.target.value)}
-              required
-            />
-            {trimmedNote.length === 0 && (
-              <p className="muted">Wajib diisi sebelum menutup shift karena selisih bukan Rp0.</p>
+        {busy && <p role="status" className="muted" style={{ margin: 0 }}>Memeriksa shift…</p>}
+        {message && <p role="status" className="field-error" style={{ margin: 0 }}>{message}</p>}
+        {recoveryFailedShiftId !== null && !preview && !pending && !closing && (
+          <div>
+            <Button variant="secondary" disabled={busy} onClick={() => void retryRecovery()}>
+              Coba lagi muat shift
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {preview && !pending && !closing && (
+        <div className="shift-close-grid">
+          <div className="shift-card">
+            <div className="shift-card__head">
+              <h2 className="shift-card__title">Pratinjau shift #{shift?.id}</h2>
+              <Button variant="secondary" disabled={busy || confirming} onClick={() => void reloadPreview()}>
+                <IconRefresh size={14} /> Muat ulang pratinjau
+              </Button>
+            </div>
+            <div className="table-wrap">
+              <table className="cashier-cart-table" aria-label="Ringkasan shift">
+                <tbody>
+                  <tr>
+                    <th scope="row">Modal awal</th>
+                    <td className="cashier-cart-table__num">
+                      {preview.openingCashRp === null ? "Tidak dicatat (fixture: 0)" : <MoneyText amountRp={preview.openingCashRp} />}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Penjualan CASH</th>
+                    <td className="cashier-cart-table__num"><MoneyText amountRp={preview.cashTotalRp} /></td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Penjualan QRIS</th>
+                    <td className="cashier-cart-table__num"><MoneyText amountRp={preview.qrisTotalRp} /></td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Total penghasilan (CASH + QRIS)</th>
+                    <td className="cashier-cart-table__num"><strong><MoneyText amountRp={preview.cashTotalRp + preview.qrisTotalRp} /></strong></td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Uang tunai harapan</th>
+                    <td className="cashier-cart-table__num"><strong><MoneyText amountRp={preview.expectedCashRp} /></strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="muted" style={{ margin: 0, fontSize: "12.5px" }}>
+              Pratinjau dapat berubah jika penjualan tersimpan sebelum shift ditutup. QRIS tidak masuk kas tunai.
+            </p>
+          </div>
+
+          <div className="shift-card">
+            <h2 className="shift-card__title">Hitung Kas &amp; Tutup Shift</h2>
+            <div className="cashier-input-group shift-close-row">
+              <label className="field-label" htmlFor={cashId}>Uang dihitung (Rp)</label>
+              <input
+                id={cashId}
+                className="input"
+                inputMode="numeric"
+                placeholder="0"
+                value={cash.replace(/\B(?=(\d{3})+(?!\d))/g, ".")}
+                onChange={(e) => setCash(e.target.value.replace(/\./g, ""))}
+              />
+            </div>
+
+            {cash !== "" && !valid && (
+              <p className="field-error" role="alert" style={{ margin: 0 }}>
+                Masukkan bilangan rupiah bulat dari 0 sampai 1.000.000.000.
+              </p>
+            )}
+
+            {estimatedVariance !== null && (
+              <p
+                style={{ margin: 0 }}
+                className={
+                  estimatedVariance === 0
+                    ? "shift-variance-box shift-variance-box--ok"
+                    : estimatedVariance < 0
+                      ? "shift-variance-box shift-variance-box--short"
+                      : "shift-variance-box shift-variance-box--over"
+                }
+              >
+                Perkiraan selisih:{" "}
+                <span className={varianceClass(estimatedVariance)}>
+                  {estimatedVariance > 0 ? "+" : ""}
+                  <MoneyText amountRp={estimatedVariance} />
+                </span>
+              </p>
+            )}
+
+            {needsNote && (
+              <div className="cashier-input-group">
+                <label className="field-label" htmlFor={noteId}>Catatan/Alasan Selisih</label>
+                <input
+                  id={noteId}
+                  className="input"
+                  type="text"
+                  maxLength={500}
+                  placeholder="Jelaskan alasan selisih kas"
+                  value={varianceNote}
+                  onChange={(e) => setVarianceNote(e.target.value)}
+                  required
+                />
+                {trimmedNote.length === 0 && (
+                  <p className="muted" style={{ margin: 0, fontSize: "12px" }}>
+                    Wajib diisi sebelum menutup shift karena selisih bukan Rp0.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {estimatedVariance !== null && preview.qrisTotalRp > 0 && estimatedVariance !== 0 && Math.abs(estimatedVariance) === preview.qrisTotalRp && (
+              <p className="muted" role="note" style={{ margin: 0, fontSize: "12.5px" }}>
+                Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={preview.qrisTotalRp} />). Periksa apakah ada transaksi QRIS yang salah dicatat sebagai Tunai atau sebaliknya.
+              </p>
+            )}
+
+            <Button
+              variant="primary"
+              block
+              className="cashier-pay-cta"
+              disabled={!canClose || busy}
+              onClick={() => setConfirming(true)}
+            >
+              Tutup shift
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {pending && (
+        <div className="shift-card">
+          <p style={{ margin: 0 }}>
+            Upaya penutupan shift #{pending.shiftId}: <code>{pending.closeKey}</code>. Jangan membuat penutupan baru.
+          </p>
+          <div className="dialog__actions" style={{ justifyContent: "flex-start" }}>
+            <Button variant="secondary" disabled={busy} onClick={() => void checkStatus()}>
+              Cek status penutupan
+            </Button>
+            {checked && (
+              <Button variant="primary" disabled={busy} onClick={() => void submit(pending)}>
+                Ulangi permintaan yang sama
+              </Button>
             )}
           </div>
-        )}
-        {estimatedVariance !== null && preview.qrisTotalRp > 0 && estimatedVariance !== 0 && Math.abs(estimatedVariance) === preview.qrisTotalRp && (
-          <p className="muted" role="note">
-            Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={preview.qrisTotalRp} />). Periksa apakah ada transaksi QRIS yang salah dicatat sebagai Tunai atau sebaliknya.
+        </div>
+      )}
+
+      {closing && (
+        <div className="shift-card">
+          <h2 className="shift-card__title" style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-primary-dark)" }}>
+            <IconCheckCircle size={18} /> Penutupan tersimpan
+          </h2>
+          <p style={{ margin: 0 }}>
+            Shift #{closing.shiftId} · CASH <MoneyText amountRp={closing.totals.cashRp} /> · QRIS <MoneyText amountRp={closing.totals.qrisManualRp} />
           </p>
-        )}
-      </div>
-    </>}
-    {pending && <div><p>Upaya penutupan shift #{pending.shiftId}: <code>{pending.closeKey}</code>. Jangan membuat penutupan baru.</p>
-      <Button disabled={busy} onClick={() => void checkStatus()}>Cek status penutupan</Button>{" "}
-      {checked && <Button disabled={busy} onClick={() => void submit(pending)}>Ulangi permintaan yang sama</Button>}
-    </div>}
-    {closing && <div><h2>Penutupan tersimpan</h2><p>Shift #{closing.shiftId} · CASH <MoneyText amountRp={closing.totals.cashRp} /> · QRIS <MoneyText amountRp={closing.totals.qrisManualRp} /></p>
-      <p>Total penghasilan (CASH + QRIS): <MoneyText amountRp={closing.totals.cashRp + closing.totals.qrisManualRp} /></p>
-      <p>
-        Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih{" "}
-        {closing.varianceRp === null ? (
-          "tidak dicatat"
-        ) : (
-          <span className={varianceClass(closing.varianceRp)}>
-            {closing.varianceRp > 0 ? "+" : ""}
-            <MoneyText amountRp={closing.varianceRp} />
-          </span>
-        )}
-      </p>
-      {closing.varianceNote && <p>Catatan selisih: <strong>{closing.varianceNote}</strong></p>}
-      {closing.totals.qrisManualRp > 0 && closing.varianceRp !== null && closing.varianceRp !== 0 && Math.abs(closing.varianceRp) === closing.totals.qrisManualRp && (
-        <p className="muted" role="note">
-          Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={closing.totals.qrisManualRp} />). Periksa kemungkinan salah klasifikasi Tunai/QRIS.
-        </p>
-      )}</div>}
-    {currentUser.role === "CASHIER" && <section aria-label="Rincian QRIS terverifikasi">
-      <h2>Rincian QRIS terverifikasi</h2>
-      {dataSource.authMode === "DEMO" && <p>DEMO — data sintetis.</p>}
-      {paymentError && <p role="alert">{paymentError}</p>}
-      {paymentReport && <><p>Total QRIS: <MoneyText amountRp={paymentReport.qrisManual.totalRp} /> · {paymentReport.qrisManual.verifiedCount} terverifikasi</p>
-        {paymentReport.qrisSales.length < paymentReport.qrisManual.verifiedCount && <p>Menampilkan {paymentReport.qrisSales.length} dari {paymentReport.qrisManual.verifiedCount} transaksi terverifikasi.</p>}
-        {paymentReport.qrisSales.length === 0 ? <p>Belum ada transaksi QRIS terverifikasi.</p> : <div className="table-wrap"><table className="table" aria-label="Rincian QRIS terverifikasi"><thead><tr><th>No. penjualan</th><th>Waktu</th><th>Kasir verifikasi</th><th>Referensi bukti</th><th>Status</th><th>Total</th></tr></thead><tbody>
-        {paymentReport.qrisSales.map(sale => <tr key={sale.saleId}><td>{sale.saleNo}</td><td>{new Date(sale.verifiedAtMs).toLocaleString("id-ID")}</td><td>{sale.cashierUsername ?? `#${sale.verifiedBy}`}</td><td>{sale.evidenceRef ?? "—"}</td><td>Terverifikasi</td><td><MoneyText amountRp={sale.totalRp} /></td></tr>)}
-        </tbody></table></div>}</>}
-    </section>}
-    {confirming && shift && value !== null && estimatedVariance !== null && (
-      <ConfirmDialog
-        title="Konfirmasi tutup shift"
-        message={`Yakin tutup shift #${shift.id} dengan uang dihitung Rp${value.toLocaleString("id-ID")} dan selisih ${formatSignedRp(estimatedVariance)}? Hasil akhir mengikuti transaksi tersimpan.`}
-        confirmLabel="Ya, tutup shift"
-        onCancel={() => setConfirming(false)}
-        onConfirm={start}
-      />
-    )}
-  </section>;
+          <p style={{ margin: 0 }}>
+            Total penghasilan (CASH + QRIS): <strong><MoneyText amountRp={closing.totals.cashRp + closing.totals.qrisManualRp} /></strong>
+          </p>
+          <p style={{ margin: 0 }}>
+            Uang harapan <MoneyText amountRp={closing.expectedCashRp} /> · selisih{" "}
+            {closing.varianceRp === null ? (
+              "tidak dicatat"
+            ) : (
+              <span className={varianceClass(closing.varianceRp)}>
+                {closing.varianceRp > 0 ? "+" : ""}
+                <MoneyText amountRp={closing.varianceRp} />
+              </span>
+            )}
+          </p>
+          {closing.varianceNote && (
+            <p style={{ margin: 0 }}>Catatan selisih: <strong>{closing.varianceNote}</strong></p>
+          )}
+          {closing.totals.qrisManualRp > 0 && closing.varianceRp !== null && closing.varianceRp !== 0 && Math.abs(closing.varianceRp) === closing.totals.qrisManualRp && (
+            <p className="muted" role="note" style={{ margin: 0 }}>
+              Petunjuk rekonsiliasi: selisih kas sama persis dengan total QRIS (<MoneyText amountRp={closing.totals.qrisManualRp} />). Periksa kemungkinan salah klasifikasi Tunai/QRIS.
+            </p>
+          )}
+        </div>
+      )}
+
+      {currentUser.role === "CASHIER" && (
+        <details className="shift-card" open>
+          <summary className="shift-card__head" style={{ cursor: "pointer", listStyle: "none" }}>
+            <h2 className="shift-card__title">Rincian QRIS terverifikasi</h2>
+            <IconChevronDown size={16} />
+          </summary>
+          <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            {dataSource.authMode === "DEMO" && <p className="muted" style={{ margin: 0 }}>DEMO — data sintetis.</p>}
+            {paymentError && <p className="field-error" role="alert" style={{ margin: 0 }}>{paymentError}</p>}
+            {paymentReport && (
+              <>
+                <p style={{ margin: 0 }}>
+                  Total QRIS: <strong><MoneyText amountRp={paymentReport.qrisManual.totalRp} /></strong> ·{" "}
+                  <span className="cashier-chip cashier-chip--success">{paymentReport.qrisManual.verifiedCount} terverifikasi</span>
+                </p>
+                {paymentReport.qrisSales.length < paymentReport.qrisManual.verifiedCount && (
+                  <p className="muted" style={{ margin: 0 }}>
+                    Menampilkan {paymentReport.qrisSales.length} dari {paymentReport.qrisManual.verifiedCount} transaksi terverifikasi.
+                  </p>
+                )}
+                {paymentReport.qrisSales.length === 0 ? (
+                  <p className="muted" style={{ margin: 0 }}>Belum ada transaksi QRIS terverifikasi.</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="cashier-cart-table" aria-label="Rincian QRIS terverifikasi">
+                      <thead>
+                        <tr>
+                          <th>No. penjualan</th>
+                          <th>Waktu</th>
+                          <th>Kasir verifikasi</th>
+                          <th>Referensi bukti</th>
+                          <th>Status</th>
+                          <th className="cashier-cart-table__num">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paymentReport.qrisSales.map((sale) => (
+                          <tr key={sale.saleId}>
+                            <td><strong>{sale.saleNo}</strong></td>
+                            <td>{new Date(sale.verifiedAtMs).toLocaleString("id-ID")}</td>
+                            <td>{sale.cashierUsername ?? `#${sale.verifiedBy}`}</td>
+                            <td>{sale.evidenceRef ?? "—"}</td>
+                            <td><span className="cashier-chip cashier-chip--success">Terverifikasi</span></td>
+                            <td className="cashier-cart-table__num"><MoneyText amountRp={sale.totalRp} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </details>
+      )}
+
+      {confirming && shift && value !== null && estimatedVariance !== null && (
+        <ConfirmDialog
+          title="Konfirmasi tutup shift"
+          message={`Yakin tutup shift #${shift.id} dengan uang dihitung Rp${value.toLocaleString("id-ID")} dan selisih ${formatSignedRp(estimatedVariance)}? Hasil akhir mengikuti transaksi tersimpan.`}
+          confirmLabel="Ya, tutup shift"
+          onCancel={() => setConfirming(false)}
+          onConfirm={start}
+        />
+      )}
+    </section>
+  );
 }

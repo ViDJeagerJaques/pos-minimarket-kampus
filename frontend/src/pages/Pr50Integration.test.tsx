@@ -140,6 +140,7 @@ describe("PR 50 UI integration", () => {
         sessionEpoch={1}
         cashierId={2}
         onSessionExpired={vi.fn()}
+        enableCustomerDisplay
       />,
     );
 
@@ -349,6 +350,7 @@ describe("PR 50 UI integration", () => {
         sessionEpoch={1}
         cashierId={2}
         onSessionExpired={vi.fn()}
+        enableCustomerDisplay
       />,
     );
 
@@ -378,6 +380,7 @@ describe("PR 50 UI integration", () => {
         sessionEpoch={1}
         cashierId={2}
         onSessionExpired={vi.fn()}
+        enableCustomerDisplay
       />,
     );
 
@@ -405,6 +408,7 @@ describe("PR 50 UI integration", () => {
         sessionEpoch={1}
         cashierId={2}
         onSessionExpired={vi.fn()}
+        enableCustomerDisplay
       />,
     );
     await waitFor(() => expect(popupDoc.write).toHaveBeenCalledTimes(2));
@@ -422,6 +426,7 @@ describe("PR 50 UI integration", () => {
         sessionEpoch={1}
         cashierId={2}
         onSessionExpired={vi.fn()}
+        enableCustomerDisplay
       />,
     );
     expect(popupDoc.write).toHaveBeenCalledTimes(2);
@@ -601,6 +606,7 @@ describe("PR 50 UI integration", () => {
         sessionEpoch={1}
         cashierId={2}
         onSessionExpired={vi.fn()}
+        enableCustomerDisplay
       />,
     );
     await waitFor(() =>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError } from "../api/errors";
 import type { PosDataSource, PrintResult, ReceiptView } from "../api/types";
 import { buildDemoTaxInvoiceText } from "../domain/iposFeatures";
+import { IconCopy, IconPrinter, IconReceipt, IconRefresh } from "./AdminIcons";
 import { Button } from "./Button";
 import { MoneyText } from "./MoneyText";
 
@@ -105,27 +106,52 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
 
   return (
     <section className="receipt-panel" aria-label="Struk transaksi tersimpan">
-      <p className="muted">
+      <p className="muted" style={{ fontSize: "12.5px", margin: "0 0 10px" }}>
         Struk virtual DEMO dari transaksi tersimpan. Printer fisik belum diuji; ini
         bukan bukti pembayaran.
       </p>
       {view && (
-        <p className="receipt-panel__summary">
-          <span className="badge badge--ok">Asli</span> · <strong>{view.receipt.saleNo}</strong> ·{" "}
+        <p className="receipt-panel__summary" style={{ margin: "0 0 10px" }}>
+          <span className="cashier-chip cashier-chip--success">Asli</span> · <strong>{view.receipt.saleNo}</strong> ·{" "}
           <MoneyText amountRp={view.receipt.totalRp} /> ·{" "}
           {view.receipt.payment.method === "CASH" ? "Tunai" : "QRIS manual"}
         </p>
       )}
-      {view && <div className="table-wrap"><table className="table" aria-label="Rincian barang struk"><thead><tr><th>Barang</th><th>SKU</th><th>Jumlah</th><th>Harga satuan</th><th>Total baris</th></tr></thead><tbody>
-        {view.receipt.items.map((item, index) => <tr key={index}><td>{item.name}</td><td>{item.sku}</td><td>{item.quantity}</td><td><MoneyText amountRp={item.unitPriceRp} /></td><td><MoneyText amountRp={item.lineTotalRp} /></td></tr>)}
-      </tbody></table></div>}
+      {view && (
+        <div className="table-wrap" style={{ marginBottom: "10px" }}>
+          <table className="cashier-cart-table" aria-label="Rincian barang struk">
+            <thead>
+              <tr>
+                <th>Barang</th>
+                <th>SKU</th>
+                <th className="cashier-cart-table__num">Jumlah</th>
+                <th className="cashier-cart-table__num">Harga satuan</th>
+                <th className="cashier-cart-table__num">Total baris</th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.receipt.items.map((item, index) => (
+                <tr key={index}>
+                  <td>{item.name}</td>
+                  <td><span className="cashier-cart-table__sku">{item.sku}</span></td>
+                  <td className="cashier-cart-table__num">{item.quantity}</td>
+                  <td className="cashier-cart-table__num"><MoneyText amountRp={item.unitPriceRp} /></td>
+                  <td className="cashier-cart-table__num"><MoneyText amountRp={item.lineTotalRp} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {text.length > 0 && (
-        <pre className="receipt-panel__text" data-testid="receipt-text">
-          {text}
-        </pre>
+        <div className="receipt-paper">
+          <pre className="receipt-panel__text" data-testid="receipt-text">
+            {text}
+          </pre>
+        </div>
       )}
       {printResult && (
-        <p className="badge badge--ok" role="status">
+        <p className="cashier-chip cashier-chip--success" role="status" style={{ marginTop: "8px" }}>
           TERCETAK (virtual DEMO) · kanal {printResult.channel} · transaksi {printResult.saleNo}
         </p>
       )}
@@ -136,30 +162,32 @@ export function ReceiptPanel({ dataSource, saleId, onSessionExpired, autoLoad = 
         </p>
       )}
       {copyNote && <p className="muted" role="status">{copyNote}</p>}
-      <div className="dialog__actions">
-        <Button variant="secondary" disabled={isBusy} onClick={() => void loadReceipt()}>
-          {isBusy ? "Memproses…" : view ? "Muat ulang struk" : "Lihat struk"}
-        </Button>
+      <div className="receipt-panel__actions-row" style={{ marginTop: "12px" }}>
         <Button variant="primary" disabled={isBusy} onClick={() => void handlePrint()}>
-          {printResult || error ? "Cetak ulang" : "Cetak struk"}
+          <IconPrinter size={15} /> {printResult || error ? "Cetak ulang" : "Cetak struk"}
+        </Button>
+        <Button variant="secondary" disabled={isBusy} onClick={() => void loadReceipt()}>
+          <IconRefresh size={15} /> {isBusy ? "Memproses…" : view ? "Muat ulang struk" : "Lihat struk"}
         </Button>
         <Button variant="secondary" disabled={isBusy || text.length === 0} onClick={copyText}>
-          Salin teks (fallback manual)
+          <IconCopy size={15} /> Salin teks (fallback manual)
         </Button>
         {view && (
           <Button variant="secondary" disabled={isBusy} onClick={() => setShowTaxInvoice((prev) => !prev)}>
-            {showTaxInvoice ? "Tutup faktur pajak" : "Faktur Pajak (Simulasi DEMO)"}
+            <IconReceipt size={15} /> {showTaxInvoice ? "Tutup faktur pajak" : "Faktur Pajak (Simulasi DEMO)"}
           </Button>
         )}
       </div>
       {showTaxInvoice && view && (
-        <pre className="receipt-panel__text" data-testid="tax-invoice-text">
-          {buildDemoTaxInvoiceText({
-            saleNo: view.receipt.saleNo,
-            committedAtMs: view.receipt.committedAtMs,
-            totalRp: view.receipt.totalRp,
-          })}
-        </pre>
+        <div className="receipt-paper">
+          <pre className="receipt-panel__text" data-testid="tax-invoice-text">
+            {buildDemoTaxInvoiceText({
+              saleNo: view.receipt.saleNo,
+              committedAtMs: view.receipt.committedAtMs,
+              totalRp: view.receipt.totalRp,
+            })}
+          </pre>
+        </div>
       )}
     </section>
   );

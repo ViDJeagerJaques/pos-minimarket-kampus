@@ -1,0 +1,916 @@
+/* ==========================================================================
+   Cashier / POS Redesign Stylesheet (UI_UX_CASHIER.md v0.1.0)
+   Modern Minimalist Enterprise · Hijau (#267349) + Putih · Offline-first
+   ========================================================================== */
+
+.cashier-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-page, #f6f8f7);
+  color: var(--color-text, #17201b);
+}
+
+.cashier-topbar {
+  background: #ffffff;
+  border-bottom: 1px solid var(--color-border, #dce5df);
+  padding: 0 20px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.cashier-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cashier-topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  color: var(--color-primary-dark, #1d5938);
+  white-space: nowrap;
+}
+
+.cashier-topbar__brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--color-primary, #267349);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cashier-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cashier-topbar__user {
+  font-size: 13px;
+  color: var(--color-text-muted, #526158);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cashier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.cashier-chip--neutral {
+  background: #eff3f0;
+  color: #36453c;
+  border: 1px solid #d9e2dc;
+}
+
+.cashier-chip--success {
+  background: #e7f4ec;
+  color: #1c5b39;
+  border: 1px solid #bce0ca;
+}
+
+.cashier-chip--warning {
+  background: #fef5e7;
+  color: #96570c;
+  border: 1px solid #f5d8a9;
+}
+
+.cashier-chip--danger {
+  background: #fdecec;
+  color: #9e2222;
+  border: 1px solid #f4c2c2;
+}
+
+.cashier-nav {
+  background: #ffffff;
+  border-bottom: 1px solid var(--color-border, #dce5df);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cashier-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted, #526158);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease, background-color 0.14s ease;
+  white-space: nowrap;
+}
+
+.cashier-nav__item:hover {
+  color: var(--color-text, #17201b);
+  background: #f5f8f6;
+}
+
+.cashier-nav__item--active {
+  color: var(--color-primary, #267349);
+  border-bottom-color: var(--color-primary, #267349);
+}
+
+.cashier-main {
+  flex: 1;
+  padding: 16px 20px 24px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Shift Opening Gate (Centered Card) ---------- */
+
+.shift-open-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.shift-open-card {
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 12px;
+  padding: 28px;
+  box-shadow: 0 2px 10px rgba(17, 36, 25, 0.05);
+}
+
+.shift-open-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.shift-open-card__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #e9f5ee;
+  color: var(--color-primary, #267349);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shift-open-card__title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text, #17201b);
+}
+
+.shift-open-card__subtitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text-muted, #526158);
+}
+
+/* ---------- Kasir 65:35 Workspace ---------- */
+
+.cashier-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 65fr) minmax(320px, 35fr);
+  gap: 18px;
+  align-items: start;
+  flex: 1;
+}
+
+.cashier-left {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cashier-input-bar {
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.cashier-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cashier-input-group__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted, #526158);
+}
+
+.cashier-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cashier-input-icon-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.cashier-input-icon-wrap__icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted, #526158);
+  pointer-events: none;
+  display: inline-flex;
+}
+
+.cashier-input-icon-wrap .input,
+.cashier-input-icon-wrap input {
+  width: 100%;
+  padding-left: 34px;
+}
+
+/* Cart Panel */
+
+.cashier-cart-card {
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 430px;
+  max-height: calc(100vh - 230px);
+  overflow: hidden;
+}
+
+.cashier-cart-card__header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border, #dce5df);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fafcfb;
+}
+
+.cashier-cart-card__title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--color-text, #17201b);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cashier-cart-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 220px;
+}
+
+.cashier-cart-empty {
+  height: 100%;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--color-text-muted, #526158);
+}
+
+.cashier-cart-empty__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #eff4f1;
+  color: var(--color-primary, #267349);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.cashier-cart-empty__title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text, #17201b);
+}
+
+.cashier-cart-empty__hint {
+  margin: 0;
+  font-size: 13px;
+}
+
+.cashier-cart-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.cashier-cart-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f5f8f6;
+  border-bottom: 1px solid var(--color-border, #dce5df);
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted, #526158);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cashier-cart-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf2ee;
+  vertical-align: middle;
+}
+
+.cashier-cart-table tbody tr:hover {
+  background: #f9fbfa;
+}
+
+.cashier-cart-table__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cashier-cart-table__product {
+  font-weight: 600;
+  color: var(--color-text, #17201b);
+}
+
+.cashier-cart-table__sku {
+  font-size: 11.5px;
+  color: var(--color-text-muted, #526158);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.cashier-qty-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cashier-qty-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #dce5df);
+  background: #ffffff;
+  color: var(--color-text, #17201b);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.cashier-qty-btn:hover:not(:disabled) {
+  background: #f0f5f2;
+  border-color: var(--color-primary, #267349);
+  color: var(--color-primary, #267349);
+}
+
+.cashier-qty-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cashier-qty-val {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cashier-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted, #526158);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.cashier-icon-btn--danger:hover:not(:disabled) {
+  background: #fdecec;
+  color: #b42318;
+}
+
+.cashier-cart-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--color-border, #dce5df);
+  background: #fafcfb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cashier-cart-footer__meta {
+  font-size: 13px;
+  color: var(--color-text-muted, #526158);
+  font-weight: 500;
+}
+
+/* Right Summary Panel */
+
+.cashier-summary-card {
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 10px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 16px;
+}
+
+.cashier-summary-card__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #526158);
+}
+
+.cashier-summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #edf2ee;
+}
+
+.cashier-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13.5px;
+  color: var(--color-text-muted, #526158);
+}
+
+.cashier-summary-row strong {
+  color: var(--color-text, #17201b);
+  font-variant-numeric: tabular-nums;
+}
+
+.cashier-summary-total {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f2f8f4;
+  border: 1px solid #d4e8dc;
+}
+
+.cashier-summary-total__label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primary-dark, #1d5938);
+}
+
+.cashier-summary-total__value {
+  font-size: 36px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: var(--color-primary, #267349);
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-method-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.pay-method-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border-radius: 8px;
+  border: 1.5px solid var(--color-border, #dce5df);
+  background: #ffffff;
+  color: var(--color-text, #17201b);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.pay-method-btn:hover:not(:disabled) {
+  border-color: var(--color-primary, #267349);
+  background: #f6fbf8;
+}
+
+.pay-method-btn--active {
+  border-color: var(--color-primary, #267349);
+  background: #eaf5ef;
+  color: var(--color-primary-dark, #1d5938);
+}
+
+.cashier-pay-cta {
+  width: 100%;
+  min-height: 52px;
+  font-size: 15.5px;
+  font-weight: 700;
+  border-radius: 9px;
+}
+
+.cashier-shortcut-hint {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--color-text-muted, #526158);
+}
+
+.cashier-collapse-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 8px;
+  background: #fafcfb;
+  color: var(--color-text, #17201b);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cashier-collapse-body {
+  padding: 12px;
+  border: 1px solid var(--color-border, #dce5df);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- Payment & Recovery Modals ---------- */
+
+.cashier-modal {
+  width: 100%;
+  max-width: 460px;
+}
+
+.cashier-modal--wide {
+  max-width: 680px;
+}
+
+.cashier-modal__amount-box {
+  background: #f2f8f4;
+  border: 1px solid #d4e8dc;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.cashier-modal__amount-box span {
+  font-size: 13px;
+  color: var(--color-text-muted, #526158);
+  font-weight: 600;
+}
+
+.cashier-modal__amount-box strong {
+  font-size: 22px;
+  color: var(--color-primary, #267349);
+  font-variant-numeric: tabular-nums;
+}
+
+.cashier-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cashier-change-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cashier-change-box--short {
+  background: #fdecec;
+  color: #9e2222;
+  border: 1px solid #f4c2c2;
+}
+
+.cashier-change-box--ok {
+  background: #e7f4ec;
+  color: #1c5b39;
+  border: 1px solid #bce0ca;
+}
+
+.cashier-items-summary {
+  margin-top: 12px;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cashier-items-summary__toggle {
+  width: 100%;
+  padding: 8px 12px;
+  background: #fafcfb;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted, #526158);
+  cursor: pointer;
+}
+
+.cashier-items-summary__list {
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  border-top: 1px solid var(--color-border, #dce5df);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.cashier-items-summary__list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ---------- Receipt Panel & History Page ---------- */
+
+.receipt-page {
+  max-width: 1160px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.receipt-toolbar {
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.receipt-toolbar__search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.receipt-card {
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.receipt-card__head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border, #dce5df);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.receipt-card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.receipt-paper {
+  margin-top: 10px;
+  background: #fafcfb;
+  border: 1px dashed #c2d1c8;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.receipt-paper pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.receipt-panel__actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.receipt-more-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.receipt-more-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 210px;
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(17, 36, 25, 0.12);
+  padding: 4px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+
+.receipt-more-dropdown button {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-text, #17201b);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.receipt-more-dropdown button:hover:not(:disabled) {
+  background: #f2f7f4;
+}
+
+/* ---------- Shift Page (50:50 Desktop) ---------- */
+
+.shift-page {
+  max-width: 1120px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shift-close-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.shift-card {
+  background: #ffffff;
+  border: 1px solid var(--color-border, #dce5df);
+  border-radius: 10px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.shift-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shift-card__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text, #17201b);
+}
+
+.shift-variance-box {
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.shift-variance-box--ok {
+  background: #e7f4ec;
+  color: #1c5b39;
+  border: 1px solid #bce0ca;
+}
+
+.shift-variance-box--short {
+  background: #fdecec;
+  color: #9e2222;
+  border: 1px solid #f4c2c2;
+}
+
+.shift-variance-box--over {
+  background: #fef5e7;
+  color: #96570c;
+  border: 1px solid #f5d8a9;
+}
+
+/* ---------- Cashier Account (Ganti Sandi) ---------- */
+
+.cashier-account-wrap {
+  max-width: 500px;
+  width: 100%;
+  margin: 12px auto;
+}
+
+@media (max-width: 1024px) {
+  .cashier-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .cashier-input-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .shift-close-grid {
+    grid-template-columns: 1fr;
+  }
+}

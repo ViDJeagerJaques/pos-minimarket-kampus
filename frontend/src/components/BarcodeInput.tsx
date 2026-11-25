@@ -1,4 +1,5 @@
 import { useId, useState, type ComponentPropsWithRef, type FormEvent } from "react";
+import { IconScanBarcode } from "./AdminIcons";
 
 interface BarcodeInputProps {
   ref?: ComponentPropsWithRef<"input">["ref"];
@@ -26,24 +27,29 @@ export function BarcodeInput({ ref, onSubmitCode, disabled = false }: BarcodeInp
   }
 
   return (
-    <form className="barcode-form" onSubmit={handleSubmit} role="search" aria-label="Scan barcode">
-      <label htmlFor={inputId} className="field-label">
+    <form className="cashier-input-group" onSubmit={handleSubmit} role="search" aria-label="Scan barcode">
+      <label htmlFor={inputId} className="cashier-input-group__label">
         Scan barcode
       </label>
-      <input
-        ref={ref}
-        id={inputId}
-        className="input input--barcode"
-        type="text"
-        inputMode="text"
-        autoComplete="off"
-        spellCheck={false}
-        maxLength={64}
-        placeholder="Arahkan scanner atau ketik barcode lalu Enter"
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        disabled={disabled}
-      />
+      <div className="cashier-input-icon-wrap">
+        <span className="cashier-input-icon-wrap__icon" aria-hidden="true">
+          <IconScanBarcode size={16} />
+        </span>
+        <input
+          ref={ref}
+          id={inputId}
+          className="input input--barcode"
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={64}
+          placeholder="Arahkan scanner atau ketik barcode lalu Enter"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          disabled={disabled}
+        />
+      </div>
     </form>
   );
 }

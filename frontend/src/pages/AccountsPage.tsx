@@ -392,7 +392,7 @@ export function AccountsPage({
 
   return (
     <section
-      className={canManageAccounts ? "admin-page" : "panel"}
+      className={canManageAccounts ? "admin-page" : "panel cashier-account-wrap"}
       aria-labelledby="accounts-title"
       aria-busy={isLoading}
     >
