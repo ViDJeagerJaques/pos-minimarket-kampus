@@ -2,9 +2,11 @@
 
 const assert = require("node:assert/strict");
 const os = require("node:os");
+const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const {
+  appendBackendLog,
   requireSandboxLaunch,
   applySandboxEnvironment,
   backendEnvironment,
@@ -72,4 +74,23 @@ test("launcher salah ditolak dan paket sandbox wajib memakai isolasi", () => {
   assert.throws(() => requireSandboxLaunch({ packaged: true, sandboxPackage: true, env: env() }), /Launcher sandbox/);
   assert.doesNotThrow(() => requireSandboxLaunch({ packaged: false, sandboxPackage: false, env: env({ POS_SANDBOX: "1" }) }));
   assert.doesNotThrow(() => requireSandboxLaunch({ packaged: true, sandboxPackage: false, env: env() }));
+});
+
+test("log backend membuat direktori hilang dan pulih bila dihapus", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pos-log-test-"));
+  const dir = path.join(root, "artifacts");
+  const log = path.join(dir, "backend.log");
+  try {
+    assert.equal(appendBackendLog(log, "pertama\n"), true);
+    assert.equal(fs.readFileSync(log, "utf8"), "pertama\n");
+    fs.unlinkSync(log); fs.rmdirSync(dir);
+    assert.equal(appendBackendLog(log, "kedua\n"), true);
+    assert.equal(fs.readFileSync(log, "utf8"), "kedua\n");
+  } finally { if (fs.existsSync(log)) fs.unlinkSync(log); if (fs.existsSync(dir)) fs.rmdirSync(dir); fs.rmdirSync(root); }
+});
+
+test("kegagalan membuat direktori atau menulis log tidak dilempar", () => {
+  assert.equal(appendBackendLog("", "teks"), false);
+  assert.equal(appendBackendLog("log/backend.log", "teks", { mkdirSync() { throw new Error("akses ditolak"); } }), false);
+  assert.equal(appendBackendLog("log/backend.log", "teks", { mkdirSync() {}, appendFileSync() { throw new Error("disk penuh"); } }), false);
 });

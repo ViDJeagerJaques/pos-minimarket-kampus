@@ -28,6 +28,7 @@ import { CheckoutError } from "../checkout/errors.ts";
 import type { CheckoutService } from "../checkout/service.ts";
 import { PrintError } from "../print/errors.ts";
 import type { PrintService } from "../print/service.ts";
+import type { createDemoConfigManager } from "../sync/sheetsDemoConfig.ts";
 import type { SheetsSyncService } from "../sync/sheetsSync.ts";
 import type { ReportService } from "../reports/service.ts";
 import { InventoryError } from "../inventory/errors.ts";
@@ -66,6 +67,7 @@ export type HttpAppOptions = {
   adjustments?: AdjustmentService;
   /** Sinkronisasi penjualan ke Google Sheets (Ide #10); opsional & tidak menghambat checkout. */
   sheetsSync?: SheetsSyncService;
+  sheetsConfig?: ReturnType<typeof createDemoConfigManager>;
   /** Direktori build frontend (mis. resources/frontend/dist) untuk sajikan same-origin. */
   staticDir?: string;
   loginRateLimiter?: LoginRateLimiter;
@@ -807,6 +809,14 @@ export function createHttpApp(options: HttpAppOptions): (req: IncomingMessage, r
   }
   if (options.checkout) {
     routes.push(...createCheckoutRoutes(options.checkout, options.sheetsSync));
+  }
+  if (options.sheetsConfig) {
+    const configManager = options.sheetsConfig;
+    routes.push(
+      { method: "GET", pattern: /^\/sync\/sheets\/config$/, roles: ["ADMIN"], handler: () => ({ data: configManager.status() }) },
+      { method: "POST", pattern: /^\/sync\/sheets\/config$/, roles: ["ADMIN"], handler: ctx => ({ data: configManager.save(asObject(ctx.body)) }) },
+      { method: "POST", pattern: /^\/sync\/sheets\/ping$/, roles: ["ADMIN"], handler: async ctx => ({ data: await configManager.ping(asObject(ctx.body)) }) },
+    );
   }
   routes.push(
     {

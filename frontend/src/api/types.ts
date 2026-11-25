@@ -400,6 +400,9 @@ export interface PosDataSource {
   getBootstrapStatus?: () => Promise<BootstrapStatus>;
   bootstrapAdmin?: (input: BootstrapAdminInput) => Promise<AccountSummary>;
   getSheetsSyncStatus?: () => Promise<SheetsSyncStatus>;
+  getSheetsConfig?: () => Promise<{ configured: boolean; restartRequired: boolean; legacy?: boolean }>;
+  saveSheetsConfig?: (input: { webhookUrl: string; secret: string; futureSalesOnly: boolean }) => Promise<{ saved: boolean; restartRequired: boolean }>;
+  pingSheetsConfig?: (input: { webhookUrl: string; secret: string }) => Promise<{ connected: boolean }>;
   syncSheetsNow?: () => Promise<SheetsSyncResult>;
   adjustStock(input: AdjustmentInput): Promise<AdjustmentResult>;
   listBackups(): Promise<BackupEntry[]>;

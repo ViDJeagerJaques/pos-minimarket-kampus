@@ -19,6 +19,7 @@ import { createCheckoutService } from "../checkout/service.ts";
 import { startHttpServer } from "../http/app.ts";
 import { createSecurityLogger } from "../security/securityLog.ts";
 import { createShiftService } from "../shift/service.ts";
+import { createDemoConfigManager } from "./sheetsDemoConfig.ts";
 import { createSheetsSyncService, loadSheetsSyncConfig } from "./sheetsSync.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -37,6 +38,7 @@ async function setupCheckoutHttp(options: {
   queuePath?: string;
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
+  demoOnly?: boolean;
 }) {
   const database = createTempDatabase();
   migrateFresh(database);
@@ -57,7 +59,8 @@ async function setupCheckoutHttp(options: {
   const configPath = path.join(database.dir, "sheets-sync.json");
   const queuePath = options.queuePath ?? path.join(database.dir, "sheets-sync-queue.json");
   if (options.writeConfig) {
-    writeFileSync(configPath, JSON.stringify(options.writeConfig), "utf8");
+    if (options.demoOnly) createDemoConfigManager(db, database.dbPath, configPath, null, options.fetchImpl).save({ ...options.writeConfig, futureSalesOnly: true });
+    else writeFileSync(configPath, JSON.stringify(options.writeConfig), "utf8");
   }
 
   const sessions = createSessionStore(db, { secret: randomBytes(32), ttlMs: 3_600_000 });
@@ -68,6 +71,7 @@ async function setupCheckoutHttp(options: {
   const sheetsSync = createSheetsSyncService({
     db,
     dbPath: database.dbPath,
+    demoOnly: options.demoOnly,
     configPath,
     queuePath,
     fetchImpl: options.fetchImpl,
@@ -943,4 +947,15 @@ test("BUG-265: drain berbatas yang sukses menjadwalkan retry latar belakang untu
   } finally {
     await ctx.cleanup();
   }
+});
+
+test("DEMO v2 checkout tetap tersimpan saat Sheets offline", async () => {
+ const fetchImpl: typeof fetch = async () => { throw new Error("offline"); };
+ const ctx = await setupCheckoutHttp({ demoOnly: true, writeConfig: { webhookUrl: "https://script.google.com/macros/s/fixture/exec", secret: makeSyntheticSecret() }, fetchImpl, retryBaseDelayMs: 60000 });
+ try {
+  const result = await prepareAndCommit(ctx.server.url, ctx.token, ctx.shiftId, ctx.ids.productId, "demo-v2-offline");
+  assert.equal(result.committed.status, "COMMITTED");
+  await ctx.sheetsSync.flush(); assert.equal(ctx.sheetsSync.getPendingCount(), 1);
+  assert.equal((ctx.db.prepare("SELECT COUNT(*) AS count FROM sales").get() as { count: number }).count, 1);
+ } finally { await ctx.cleanup(); }
 });

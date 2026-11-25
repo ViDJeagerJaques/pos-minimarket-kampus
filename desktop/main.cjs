@@ -216,9 +216,7 @@ function startBackend() {
     });
     backend.stderr.setEncoding("utf8");
     backend.stderr.on("data", (chunk) => {
-      if (process.env.POS_SPIKE_BACKEND_LOG) {
-        fs.appendFileSync(process.env.POS_SPIKE_BACKEND_LOG, String(chunk));
-      }
+      sandboxEnv.appendBackendLog(process.env.POS_SPIKE_BACKEND_LOG, chunk);
     });
     backend.once("error", (error) => finish(error));
     backend.once("exit", (code, signal) => {

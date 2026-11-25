@@ -192,3 +192,23 @@ describe("TASK-037 laporan QRIS terpisah dari kas", () => {
     expect(screen.queryByText("Server sinkronisasi sementara sibuk.")).toBeNull();
   });
 });
+
+it("Sheets DEMO dialog menguji koneksi dan menyimpan tanpa menampilkan secret sesudahnya", async () => {
+ const secret = Array.from(crypto.getRandomValues(new Uint8Array(24)), x => x.toString(16).padStart(2, "0")).join("");
+ const endpoint = "https://script.google.com/macros/s/synthetic/exec";
+ const getSheetsConfig = vi.fn(async () => ({ configured: false, restartRequired: false }));
+ const pingSheetsConfig = vi.fn(async () => ({ connected: true }));
+ const saveSheetsConfig = vi.fn(async () => ({ saved: true, restartRequired: true }));
+ const { user } = renderPage({ ...sourceWith(REPORT), getSheetsConfig, pingSheetsConfig, saveSheetsConfig });
+ await user.click(screen.getByRole("tab", { name: /Ekspor & Sinkronisasi/ }));
+ await user.click(screen.getByRole("button", { name: "Konfigurasi" }));
+ await user.type(screen.getByLabelText("URL web app Apps Script"), endpoint);
+ await user.type(screen.getByLabelText("Secret"), secret);
+ await user.click(screen.getByRole("button", { name: "Uji Koneksi" }));
+ expect(await screen.findByText(/receiver merespons ping/)).toBeTruthy();
+ await user.click(screen.getByRole("checkbox", { name: /transaksi baru/ }));
+ await user.click(screen.getByRole("button", { name: "Simpan Konfigurasi" }));
+ expect(await screen.findByText(/Konfigurasi tersimpan. Restart aplikasi/)).toBeTruthy();
+ expect(saveSheetsConfig).toHaveBeenCalledWith({ webhookUrl: endpoint, secret, futureSalesOnly: true });
+ expect((screen.getByLabelText("Secret") as HTMLInputElement).value).toBe("");
+});

@@ -7,6 +7,7 @@
 
 const path = require("node:path");
 const os = require("node:os");
+const fs = require("node:fs");
 
 const SANDBOX_DATA_DIR_NAME = "PosMinimarketKampus-SANDBOX";
 const FLAG_VALUE = "1";
@@ -93,6 +94,17 @@ function enforceSandboxPath(candidate, label, env = process.env) {
   }
 }
 
+function appendBackendLog(logPath, chunk, fileSystem = fs) {
+  if (!logPath) return false;
+  try {
+    fileSystem.mkdirSync(path.dirname(logPath), { recursive: true });
+    fileSystem.appendFileSync(logPath, String(chunk));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function requireSandboxLaunch({ packaged, sandboxPackage, env }) {
   if ((!packaged || sandboxPackage) && !isSandboxEnabled(env)) {
     throw new Error("Launcher sandbox wajib: jalankan npm run start:sandbox atau paket SANDBOX.");
@@ -157,6 +169,7 @@ function backendEnvironment(env, info) {
 
 module.exports = {
   SANDBOX_DATA_DIR_NAME,
+  appendBackendLog,
   requireSandboxLaunch,
   applySandboxEnvironment,
   backendEnvironment,

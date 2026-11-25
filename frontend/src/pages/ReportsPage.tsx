@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../api/errors";
 import type { PaymentReport, PosDataSource, SessionUser, SheetsSyncStatus } from "../api/types";
 import {
+  IconEye,
+  IconEyeOff,
   IconBarChart,
   IconCloud,
   IconDownload,
@@ -64,6 +66,41 @@ export function ReportsPage({
   const [sheetsSyncStatusError, setSheetsSyncStatusError] = useState<string | null>(null);
   const [sheetsSyncReloadKey, setSheetsSyncReloadKey] = useState(0);
   const [syncingSheets, setSyncingSheets] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
+  const [futureSalesOnly, setFutureSalesOnly] = useState(false);
+  const [configBusy, setConfigBusy] = useState(false);
+  const [configMessage, setConfigMessage] = useState("");
+  const [configState, setConfigState] = useState<{ configured: boolean; restartRequired: boolean; legacy?: boolean } | null>(null);
+  useEffect(() => {
+    if (!dataSource.getSheetsConfig) return;
+    let active = true;
+    dataSource.getSheetsConfig().then(value => { if (active) setConfigState(value); }).catch(error => {
+      if (active && error instanceof ApiError && error.isSessionExpired) onSessionExpired();
+    });
+    return () => { active = false; };
+  }, [dataSource, onSessionExpired, sheetsSyncReloadKey]);
+  async function openConfig() {
+    setConfigOpen(true); setConfigMessage(""); setWebhookUrl(""); setWebhookSecret(""); setShowSecret(false); setFutureSalesOnly(false);
+    try { if (dataSource.getSheetsConfig) setConfigState(await dataSource.getSheetsConfig()); }
+    catch (error) { if (error instanceof ApiError && error.isSessionExpired) onSessionExpired(); else setConfigMessage("Status konfigurasi tidak dapat dimuat."); }
+  }
+  async function configure(action: "ping" | "save") {
+    if (configBusy || !webhookUrl.trim() || webhookSecret.length === 0) return;
+    setConfigBusy(true); setConfigMessage("");
+    try {
+      if (action === "ping" && dataSource.pingSheetsConfig) {
+        const result = await dataSource.pingSheetsConfig({ webhookUrl, secret: webhookSecret });
+        setConfigMessage(result.connected ? "Terhubung: receiver merespons ping." : "Gagal terhubung. Periksa URL, secret, dan jaringan.");
+      } else if (action === "save" && dataSource.saveSheetsConfig) {
+        await dataSource.saveSheetsConfig({ webhookUrl, secret: webhookSecret, futureSalesOnly });
+        setWebhookSecret(""); setConfigState({ configured: true, restartRequired: true }); setConfigMessage("Konfigurasi tersimpan. Restart aplikasi secara manual saat aman untuk mengaktifkannya.");
+      }
+    } catch (error) { if (error instanceof ApiError && error.isSessionExpired) onSessionExpired(); else setConfigMessage(error instanceof ApiError ? error.message : "Operasi konfigurasi gagal."); }
+    finally { setConfigBusy(false); }
+  }
   const [sheetsSyncFeedback, setSheetsSyncFeedback] = useState<Status | null>(null);
 
   // State Ekspor Manual terpusat
@@ -674,6 +711,8 @@ export function ReportsPage({
                 <span className="badge badge--danger">Gagal membaca status</span>
               ) : syncingSheets ? (
                 <span className="badge badge--info">Mengirim…</span>
+              ) : configState?.restartRequired ? (
+                <span className="badge badge--warning">Tersimpan, restart diperlukan</span>
               ) : sheetsSyncStatus?.enabled ? (
                 <span className="badge badge--ok">Siap di server lokal</span>
               ) : (
@@ -708,6 +747,8 @@ export function ReportsPage({
                     ? "Memeriksa konfigurasi…"
                     : sheetsSyncStatusError !== null
                       ? "Status tidak dapat dimuat"
+                      : configState?.restartRequired
+                        ? "Konfigurasi tersimpan, restart diperlukan."
                       : sheetsSyncStatus?.enabled
                         ? "Konfigurasi webhook aktif (bukan bukti koneksi internet)"
                         : "Sinkronisasi spreadsheet belum dikonfigurasi."}
@@ -723,7 +764,7 @@ export function ReportsPage({
 
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
               <span className="muted" style={{ fontSize: "12px" }}>
-                SQLite lokal tetap menjadi sumber kebenaran; kegagalan internet tidak menghambat kasir. Konfigurasi UI belum tersedia pada tahap ini.
+                SQLite lokal tetap menjadi sumber kebenaran; kegagalan internet tidak menghambat kasir.
               </span>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <Button
@@ -738,8 +779,8 @@ export function ReportsPage({
                 <Button
                   type="button"
                   variant="secondary"
-                  disabled
-                  title="Dialog konfigurasi Google Sheets belum tersedia pada tahap ini"
+                  disabled={!dataSource.getSheetsConfig || syncingSheets}
+                  onClick={() => void openConfig()}
                 >
                   Konfigurasi
                 </Button>
@@ -891,6 +932,17 @@ export function ReportsPage({
           </article>
         </div>
       )}
+      {configOpen && <div className="dialog-backdrop"><div className="dialog" role="dialog" aria-modal="true" aria-labelledby="sheets-config-title">
+        <h2 id="sheets-config-title">Konfigurasi Google Sheets</h2>
+        <p>Pastikan tujuan spreadsheet sudah benar. Dalam sandbox, gunakan data sintetis hanya dengan persetujuan. Hanya penjualan baru sejak konfigurasi disimpan yang akan dikirim setelah restart; histori dan antrean lama tidak dipindahkan.</p>
+        {configState?.legacy && <p role="alert">Konfigurasi lama ditemukan; perubahan memerlukan rekonsiliasi manual agar antrean existing aman.</p>}
+        {configState?.configured && <p>{configState.restartRequired ? "Konfigurasi tersimpan, restart diperlukan." : "Konfigurasi aktif; koneksi belum tentu teruji."}</p>}
+        <label className="field-label" htmlFor="sheets-url">URL web app Apps Script</label><input id="sheets-url" className="input" value={webhookUrl} onChange={event => { setWebhookUrl(event.target.value); setConfigMessage(""); }} disabled={configBusy} autoComplete="off" />
+        <label className="field-label" htmlFor="sheets-secret">Secret</label><div className="input-with-icon"><input id="sheets-secret" className="input input--pr" type={showSecret ? "text" : "password"} value={webhookSecret} onChange={event => { setWebhookSecret(event.target.value); setConfigMessage(""); }} disabled={configBusy} autoComplete="new-password" /><button type="button" aria-label={showSecret ? "Sembunyikan secret" : "Tampilkan secret"} onClick={() => setShowSecret(!showSecret)}>{showSecret ? <IconEyeOff /> : <IconEye />}</button></div>
+        <label><input type="checkbox" checked={futureSalesOnly} onChange={event => setFutureSalesOnly(event.target.checked)} /> Saya menyetujui pengiriman hanya transaksi baru.</label>
+        {configMessage && <p role="status">{configMessage}</p>}
+        <div className="dialog__actions"><Button disabled={configBusy} onClick={() => { setWebhookSecret(""); setConfigOpen(false); }}>Batal</Button><Button disabled={configBusy || webhookSecret.length === 0 || !webhookUrl.trim()} onClick={() => void configure("ping")}>Uji Koneksi</Button><Button variant="primary" disabled={configBusy || webhookSecret.length === 0 || !webhookUrl.trim() || (!configState?.configured && !futureSalesOnly)} onClick={() => void configure("save")}>Simpan Konfigurasi</Button></div>
+      </div></div>}
     </section>
   );
 }

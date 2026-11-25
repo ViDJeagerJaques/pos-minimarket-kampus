@@ -153,3 +153,11 @@ Field sale pada laporan stok adalah jumlah terjual non-negatif. Saldo dihitung o
 
 - `POST /auth/password`: sesi aktif ADMIN/CASHIER, body `{ oldPassword, newPassword }`. Target selalu ID pemilik sesi, bukan ID dari body. Sandi baru mengikuti validasi akun (8-1024 karakter), sandi lama harus cocok. Respons sukses `data: { changed: true }`. Sandi salah/input invalid: 422; tanpa sesi: 401; percobaan berulang dibatasi limiter: 429. Hash baru, audit `PASSWORD_CHANGED` tanpa kredensial, dan pencabutan semua sesi pemilik disimpan atomik. Klien kembali ke login setelah sukses; shift tetap tersimpan. Mock DEMO menolak perubahan sandi.
 - `GET /reports/daily`: setiap anggota `sales` kini menyertakan `items: [{ sku, name, quantity, unitPriceRp, lineTotalRp }]`, berasal dari snapshot `sale_items`, bukan katalog terkini. Field lama, total lengkap, filter waktu/shift, izin ADMIN dan batas 100 penjualan beserta `salesTruncated` dipertahankan. Klien lama tetap kompatibel; klien baru memberi catatan jika backend lama tidak mengirim rincian.
+
+### Google Sheets DEMO sandbox (usulan kontrak)
+
+Dalam POS_SANDBOX, ADMIN dapat GET /sync/sheets/config (configured, restartRequired), POST /sync/sheets/config (webhookUrl, secret, futureSalesOnly) dan POST /sync/sheets/ping (webhookUrl, secret; connected). Secret dan URL tidak dikembalikan. Konfigurasi baru memerlukan persetujuan hanya transaksi baru dan restart manual; ping tidak membuat transaksi. Endpoint tersedia pada backend lokal utama dan sandbox dengan pemisahan lokasi konfigurasi. Kontrak ini khusus DEMO dan menunggu review sebelum penggunaan lain.
+
+### Konfigurasi Google Sheets pada aplikasi utama dan sandbox
+
+Kontrak konfigurasi ADMIN (`GET/POST /sync/sheets/config` dan `POST /sync/sheets/ping`) tersedia pada backend lokal; sandbox tetap memakai path sandbox. URL dan secret tidak dikembalikan. Konfigurasi legacy dipertahankan dan tidak dimigrasikan otomatis. Dokumentasi desain ini tidak membuktikan layanan Google nyata atau kesiapan produksi.

@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { openDatabase, readUserVersion } from "../../db/src/db.ts";
 import { assertOutsideSourceTree, resolveDatabasePath } from "../../db/src/paths.ts";
 import { createAuthService } from "../auth/service.ts";
@@ -11,7 +13,9 @@ import { createPrintService } from "../print/service.ts";
 import { createReportService } from "../reports/service.ts";
 import { createAdjustmentService } from "../inventory/adjustments.ts";
 import { createReceivingService } from "../receiving/service.ts";
-import { createSheetsSyncService } from "../sync/sheetsSync.ts";
+import { createHash } from "node:crypto";
+import { createDemoConfigManager, readDemoConfig } from "../sync/sheetsDemoConfig.ts";
+import { createSheetsSyncService, resolveDefaultSheetsConfigPath } from "../sync/sheetsSync.ts";
 import { applySandboxEnvironment, enforceSandboxPath } from "../sandbox/env.ts";
 import { startHttpServer } from "./app.ts";
 
@@ -148,7 +152,14 @@ async function main(argv: string[]): Promise<number> {
     const receiving = createReceivingService(db);
     // DEMO: adapter virtual (pratinjau), bukan printer fisik/ESC-POS.
     const print = createPrintService(db);
-    const sheetsSync = createSheetsSyncService({ db, dbPath: options.dbPath });
+    const sandbox = process.env.POS_SANDBOX === "1";
+    const legacyPath = resolveDefaultSheetsConfigPath();
+    const configPath = process.env.POS_SHEETS_SYNC_CONFIG || (existsSync(legacyPath) ? legacyPath : path.join(path.dirname(options.dbPath), "config", "sheets-sync.json"));
+    const existingConfig = readDemoConfig(configPath);
+    const demoOnly = sandbox || existingConfig !== null;
+    const sheetsSync = createSheetsSyncService({ db, dbPath: options.dbPath, configPath, demoOnly });
+    const fingerprint = existingConfig && sheetsSync.enabled ? createHash("sha256").update(JSON.stringify(existingConfig)).digest("hex") : null;
+    const sheetsConfig = createDemoConfigManager(db, options.dbPath, configPath, fingerprint);
     const running = await startHttpServer({
       backupDbPath: options.dbPath,
       auth,
@@ -162,6 +173,7 @@ async function main(argv: string[]): Promise<number> {
       adjustments: createAdjustmentService(db),
       print,
       sheetsSync,
+      sheetsConfig,
       staticDir: options.staticDir,
       port: options.port,
     });

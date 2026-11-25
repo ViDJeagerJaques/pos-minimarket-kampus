@@ -1400,6 +1400,21 @@ export function createHttpDataSource(options: HttpDataSourceOptions = {}): PosDa
       const data = await request("POST", `/users/${encodeURIComponent(String(userId))}/password`, input, requireToken());
       if (!isRecord(data) || data.changed !== true) throw invalidResponse("Reset sandi akun tidak dapat dikonfirmasi.");
     },
+    async getSheetsConfig() {
+      const data = await request("GET", "/sync/sheets/config", undefined, requireToken());
+      if (!isRecord(data) || typeof data.configured !== "boolean" || typeof data.restartRequired !== "boolean") throw invalidResponse("Status konfigurasi tidak valid.");
+      return { configured: data.configured, restartRequired: data.restartRequired, legacy: data.legacy === true };
+    },
+    async saveSheetsConfig(input) {
+      const data = await request("POST", "/sync/sheets/config", input, requireToken());
+      if (!isRecord(data) || data.saved !== true || typeof data.restartRequired !== "boolean") throw invalidResponse("Konfigurasi tidak dapat dikonfirmasi.");
+      return { saved: true, restartRequired: data.restartRequired };
+    },
+    async pingSheetsConfig(input) {
+      const data = await request("POST", "/sync/sheets/ping", input, requireToken(), 15000);
+      if (!isRecord(data) || typeof data.connected !== "boolean") throw invalidResponse("Hasil koneksi tidak valid.");
+      return { connected: data.connected };
+    },
     async getSheetsSyncStatus() {
       const data = await request("GET", "/sync/sheets/status", undefined, requireToken());
       if (!isRecord(data) || typeof data.enabled !== "boolean" || !isNonNegativeInt(data.pendingCount)) {

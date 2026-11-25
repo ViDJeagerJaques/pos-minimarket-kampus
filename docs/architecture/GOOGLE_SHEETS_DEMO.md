@@ -1,0 +1,19 @@
+# Google Sheets: receiver existing dan konfigurasi
+
+Status: checkpoint sandbox untuk review; SQLite tetap sumber kebenaran. Pengguna melaporkan konfigurasi webhook, ping, pengiriman transaksi online, antrean offline, dan logout berhasil diuji. Kecepatan retry setelah koneksi kembali masih perlu dievaluasi; laporan pengguna ini bukan bukti kesiapan produksi atau go-live.
+
+## Memperbarui receiver existing
+
+1. Koordinator membuka spreadsheet existing yang berisi tab `Penjualan` dan proyek Apps Script yang terikat padanya. Jangan membuat spreadsheet baru atau menghapus histori. Pastikan header enam kolom tetap: `Waktu | No Struk | Kasir | Total Rp | Metode | Barang`.
+2. Cadangkan versi source Apps Script existing. Ganti source `Code.gs` dengan isi `backend/src/sync/sheetsReceiver.gs`. Pastikan Script Properties masih memiliki `WEBHOOK_SECRET` yang benar; jangan menaruh secret di source, Git, log, screenshot atau spreadsheet. Receiver menggunakan `getActiveSpreadsheet()` seperti kode lama.
+3. Simpan, jalankan otorisasi Google bila diminta, lalu di Deploy > Manage deployments edit deployment web app existing dan pilih versi baru. Pertahankan akses dan identitas pelaksana yang sesuai; konfirmasi URL `/exec` deployment yang dipakai aplikasi. Mengubah source saja tidak memperbarui versi deployment yang sudah dipublikasikan.
+4. Untuk klien baru, receiver menyimpan `DATABASE_NAMESPACE` di Script Properties saat transaksi pertama. Satu deployment hanya boleh menerima satu namespace database baru; namespace berbeda ditolak. Payload lama PR #57 tanpa namespace tetap dideduplikasi berdasarkan `saleNo`, sehingga jangan menjalankan database independen atau sender lama lain terhadap spreadsheet yang sama tanpa rekonsiliasi. Nomor struk yang sudah ada tidak dihapus. Receiver baru menolak konflik payload modern pada nomor struk yang sama, menggunakan `LockService`, dan membungkus teks berawalan formula.
+5. Uji koneksi menggunakan tombol Ping yang diautentikasi; tidak membuat baris. Hanya setelah persetujuan pemilik spreadsheet, uji CASH/QRIS dengan data sintetis pada tujuan yang disetujui, retry respons hilang, paralel, dan konflik. Catat nomor struk serta jumlah baris sebelum/sesudah tanpa menghapus histori. Tes mock bukan bukti layanan Google nyata.
+
+## Mengatur aplikasi
+
+Di Admin > Laporan > Ekspor & Sinkronisasi > Google Sheets > Konfigurasi, masukkan URL Apps Script HTTPS `/exec` dan secret `WEBHOOK_SECRET`; tekan Uji Koneksi. Centang persetujuan bahwa hanya transaksi baru akan dikirim, lalu Simpan Konfigurasi. Restart aplikasi secara manual saat aman. Penjualan yang sudah ada sebelum penyimpanan tidak otomatis dikirim; penjualan setelah penyimpanan dan sebelum restart dipulihkan dari SQLite. Status aktif hanya berarti konfigurasi dimuat, bukan koneksi terbukti. Ping membuktikan respons receiver, bukan bukti checkout atau pembayaran.
+
+Sandbox menggunakan file pada root sandbox, bukan konfigurasi aplikasi utama. Jangan mengirim data sandbox ke spreadsheet existing tanpa persetujuan eksplisit. Backend non-sandbox menyimpan konfigurasi baru di `config/sheets-sync.json` di samping direktori database; konfigurasi legacy PR #57 yang sudah ada diprioritaskan dan tidak ditimpa otomatis. Untuk mengubah konfigurasi legacy, hentikan aplikasi dan rencanakan rekonsiliasi antrean oleh operator; tidak ada migrasi otomatis.
+
+Namespace baru tersimpan di file konfigurasi dan terikat ke identitas file database, bukan skema SQLite. Backup SQLite saja tidak membawa konfigurasi/antrean; penggantian file atau URL ditolak sampai rekonsiliasi manual. Jangan mengosongkan database secara in-place dengan konfigurasi lama atau menggunakan salinan sebagai database independen tanpa prosedur identitas. `DATABASE_NAMESPACE` receiver tidak boleh direset untuk menukar database tanpa audit histori dan persetujuan. Pembatasan mode file bukan bukti ACL Windows; lindungi akun dan direktori lokal.
