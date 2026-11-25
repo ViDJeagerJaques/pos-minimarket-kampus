@@ -80,7 +80,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Terlalu banyak percobaan login");
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
   });
 
   it("setelah logout, tombol Back/popstate tidak membuka halaman sensitif", async () => {
@@ -93,7 +93,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
 
     await user.click(screen.getByRole("button", { name: "Keluar" }));
     expect(onAfterLogout).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
 
     act(() => {
       window.history.back();
@@ -102,7 +102,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
 
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
     expect(screen.queryByRole("heading", { name: /Akun/ })).toBeNull();
-    expect(screen.getByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
   });
 
   it("401 saat memuat akun membersihkan sesi dan menampilkan alasan di login", async () => {
@@ -120,7 +120,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     await screen.findByRole("navigation", { name: "Menu utama" });
     await user.click(screen.getByRole("button", { name: "Akun" }));
 
-    expect(await screen.findByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
     expect(screen.getByText(/Sesi berakhir atau tidak lagi valid/)).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
     expect(logout).toHaveBeenCalled();
@@ -142,7 +142,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("403");
     expect(screen.getByRole("navigation", { name: "Menu utama" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Masuk ke akun" })).toBeNull();
   });
 
   it("menekan Logout langsung menyembunyikan halaman terlindungi tanpa menunggu respons backend", async () => {
@@ -160,7 +160,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     // Halaman terlindungi langsung hilang dan LoginPage tampil sebelum logout() resolve.
     expect(screen.queryByRole("navigation", { name: "Menu utama" })).toBeNull();
     expect(screen.queryByRole("heading", { name: /Akun/ })).toBeNull();
-    expect(screen.getByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
     expect(logout).toHaveBeenCalledTimes(1);
     expect(onAfterLogout).not.toHaveBeenCalled();
 
@@ -201,7 +201,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
       await Promise.resolve();
     });
     expect(screen.getByRole("navigation", { name: "Menu utama" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Masuk ke akun" })).toBeNull();
   });
 
   it("input password form login mendukung batas panjang 1024 karakter sesuai pembuatan akun & backend", () => {
@@ -226,7 +226,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     await loginAs(user, "admin.demo");
     await screen.findByRole("navigation", { name: "Menu utama" });
     await user.click(screen.getByRole("button", { name: "Keluar" }));
-    expect(screen.getByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
 
     // Sesi B login sebelum logout sesi A selesai
     await loginAs(user, "kasir.demo");
@@ -243,7 +243,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     expect(onAfterLogout).not.toHaveBeenCalled();
     expect(screen.getByRole("navigation", { name: "Menu utama" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Masuk ke akun" })).toBeNull();
   });
 
   it("BUG-010: mutasi 401 dari sesi lama yang selesai setelah sesi baru login tidak memanggil logout atau menghapus sesi baru", async () => {
@@ -285,7 +285,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     expect(logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("navigation", { name: "Menu utama" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kasir" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Masuk ke akun" })).toBeNull();
   });
 
   it("BUG-151: instalasi baru menampilkan setup admin pertama, membuat admin, lalu login berhasil", async () => {
@@ -313,7 +313,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Buat akun admin pertama" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "POS Minimarket Kampus" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Masuk ke akun" })).toBeNull();
 
     // Sandi pendek ditolak di klien tanpa memanggil backend
     await user.type(screen.getByLabelText("Nama pengguna"), "admin.baru");
@@ -334,7 +334,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
       username: "admin.baru",
       password: "SandiAdmin123",
     });
-    expect(await screen.findByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain('Akun admin pertama "admin.baru" dibuat');
 
     // Login dengan admin baru berhasil membuka menu ADMIN
@@ -367,7 +367,7 @@ describe("TASK-011 alur login/logout/401/403 di App", () => {
     const getBootstrapStatus = vi.fn(async () => ({ needsSetup: false }));
     renderApp(makeSource({ authMode: "LOCAL_API", getBootstrapStatus }));
 
-    expect(await screen.findByRole("heading", { name: "POS Minimarket Kampus" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Masuk ke akun" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Buat akun admin pertama" })).toBeNull();
   });
 });
