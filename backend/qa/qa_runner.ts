@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import { resolveDatabasePath } from "../db/src/paths.ts";
+import { applySandboxEnvironment, enforceSandboxPath } from "../src/sandbox/env.ts";
 import {
   EXPECTED_QA_SNAPSHOT,
   QaFixtureError,
@@ -151,7 +152,9 @@ export function formatEvidenceMarkdown(params: {
 }
 
 export function runQaCli(argv: string[]): void {
+  applySandboxEnvironment();
   const args = parseArgs(argv);
+  if (args.dbPath) enforceSandboxPath(args.dbPath, "database QA");
   if (args.command === "reset") {
     if (!args.dbPath || args.dbPath.trim().length === 0) {
       throw new QaFixtureError(

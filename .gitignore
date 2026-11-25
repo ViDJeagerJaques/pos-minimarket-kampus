@@ -19,6 +19,7 @@ data/
 node_modules/
 dist/
 dist-electron/
+dist-electron-sandbox/
 desktop/runtime/
 coverage/
 *.tsbuildinfo

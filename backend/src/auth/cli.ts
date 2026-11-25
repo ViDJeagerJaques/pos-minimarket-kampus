@@ -1,5 +1,6 @@
 import { openDatabase, readUserVersion } from "../../db/src/db.ts";
 import { assertOutsideSourceTree, resolveDatabasePath } from "../../db/src/paths.ts";
+import { applySandboxEnvironment, enforceSandboxPath } from "../sandbox/env.ts";
 import { bootstrapFirstAdmin } from "./bootstrap.ts";
 
 /**
@@ -62,7 +63,9 @@ function usage(): string {
 
 export function main(argv: string[]): number {
   try {
+    applySandboxEnvironment();
     const options = parseArgs(argv);
+    enforceSandboxPath(options.dbPath, "database");
     if (options.command !== "bootstrap-admin") {
       process.stderr.write(`${usage()}\n`);
       return 2;

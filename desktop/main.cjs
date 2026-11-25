@@ -19,6 +19,10 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const sandboxEnv = require("./sandbox-env.cjs");
+
+const SANDBOX = sandboxEnv.isSandboxEnabled(process.env);
+const SANDBOX_INFO = SANDBOX ? sandboxEnv.applySandboxEnvironment(process.env) : null;
 
 const T0 = process.hrtime.bigint();
 const bench = (label) => {
@@ -28,12 +32,21 @@ const bench = (label) => {
 
 const ROOT = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
 const FRONTEND_DIST = path.join(ROOT, "frontend", "dist");
-const API_PORT = Number(process.env.POS_SPIKE_API_PORT || (app.isPackaged ? 0 : 8787));
+// Sandbox memakai port acak agar tidak bertabrakan dengan backend existing di 8787.
+const API_PORT = Number(process.env.POS_SPIKE_API_PORT || (SANDBOX || app.isPackaged ? 0 : 8787));
 const NODE_BIN = app.isPackaged ? path.join(ROOT, "runtime", "node.exe") : (process.env.POS_NODE_BIN || "node");
 const BENCH = process.env.POS_ELECTRON_BENCH === "1";
 
 // Identitas data stabil lintas versi; terpisah dari data development/operasional.
-if (app.isPackaged) {
+if (SANDBOX) {
+  // Berlaku juga saat tidak di-pack: userData, cache, dan log Electron ikut
+  // ke akar sandbox. --user-data-dir hanya diterima bila masih di dalam root.
+  app.setPath("userData", SANDBOX_INFO.userDataDir);
+  const requested = app.commandLine.getSwitchValue("user-data-dir");
+  if (requested && path.resolve(requested) !== path.resolve(SANDBOX_INFO.userDataDir)) {
+    throw new Error("Sandbox menolak --user-data-dir di luar direktori data sandbox.");
+  }
+} else if (app.isPackaged) {
   const testDataDir = app.commandLine.getSwitchValue("user-data-dir");
   if (testDataDir && !path.isAbsolute(testDataDir)) throw new Error("user-data-dir harus absolut.");
   app.setPath("userData", testDataDir || path.join(app.getPath("appData"), "PosMinimarketKampus-DEMO"));
@@ -62,10 +75,33 @@ function startBackend() {
   if (!["DEMO", "REAL"].includes(config.mode) || !Number.isInteger(config.apiPort) || config.apiPort < 0 || config.apiPort > 65535) {
     throw new Error("Konfigurasi DEMO tidak valid; pulihkan config.json dari cadangan.");
   }
+  if (SANDBOX && config.mode !== "DEMO") {
+    throw new Error("Sandbox menolak mode REAL; hanya mode DEMO dengan data sintetis yang diizinkan.");
+  }
   const dbPath = path.join(dataDir, config.mode === "DEMO" ? "pos-dev.sqlite" : "pos.sqlite");
-  const env = { ...process.env, POS_DB_PATH: dbPath, POS_DB_PROFILE: config.mode === "DEMO" ? "development" : "operational", POS_DATA_DIR: dataDir, POS_BACKUP_DIR: path.join(dataDir, "backups"), POS_RESTORE_TEST_DIR: path.join(dataDir, "restore-test") };
+  if (SANDBOX) sandboxEnv.enforceSandboxPath(dbPath, "database sandbox");
+  // Sandbox tidak mewarisi seluruh environment induk: konfigurasi DB, backup,
+  // restore, dan Sheets ditetapkan eksplisit di bawah akar sandbox.
+  const baseEnv = SANDBOX
+    ? sandboxEnv.backendEnvironment(process.env, SANDBOX_INFO)
+    : { ...process.env };
+  const env = {
+    ...baseEnv,
+    POS_DB_PATH: dbPath,
+    POS_DB_PROFILE: SANDBOX ? "development" : (config.mode === "DEMO" ? "development" : "operational"),
+    POS_DATA_DIR: dataDir,
+    POS_BACKUP_DIR: path.join(dataDir, "backups"),
+    POS_RESTORE_TEST_DIR: path.join(dataDir, "restore-test"),
+  };
   delete env.NODE_OPTIONS;
   delete env.NODE_PATH;
+  if (SANDBOX) {
+    process.stdout.write(
+      `POS_SANDBOX root=${SANDBOX_INFO.root} userData=${dataDir} db=${dbPath} ` +
+        `sheets=${SANDBOX_INFO.sheetsConfigPath} backups=${env.POS_BACKUP_DIR} ` +
+        `restoreTest=${env.POS_RESTORE_TEST_DIR} log=${env.POS_SPIKE_BACKEND_LOG}\n`,
+    );
+  }
 
   // First-run: pastikan skema ada sebelum server start (jalur development/DEMO).
   const migrate = spawnSync(

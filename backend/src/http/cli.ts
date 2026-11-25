@@ -12,6 +12,7 @@ import { createReportService } from "../reports/service.ts";
 import { createAdjustmentService } from "../inventory/adjustments.ts";
 import { createReceivingService } from "../receiving/service.ts";
 import { createSheetsSyncService } from "../sync/sheetsSync.ts";
+import { applySandboxEnvironment, enforceSandboxPath } from "../sandbox/env.ts";
 import { startHttpServer } from "./app.ts";
 
 /**
@@ -113,7 +114,9 @@ function usage(): string {
 }
 
 async function main(argv: string[]): Promise<number> {
+  applySandboxEnvironment();
   const options = parseArgs(argv);
+  enforceSandboxPath(options.dbPath, "database");
   if (options.command !== "serve") {
     process.stderr.write(`${usage()}\n`);
     return 2;
